@@ -1,0 +1,109 @@
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  DEPLOY_PATH: /data/dockerfile/new-api
+  CONTAINER_NAME: new-api
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          VERSION="$(date +'%Y%m%d')-$(git rev-parse --short HEAD)"
+          echo "$VERSION" > VERSION
+          echo "value=$VERSION" >> $GITHUB_OUTPUT
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      # ── Frontend ──────────────────────────────────────────────
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install frontend dependencies
+        run: |
+          cd web
+          bun install --frozen-lockfile
+
+      - name: Build frontend (default)
+        env:
+          CI: ""
+        run: |
+          cd web/default
+          DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$VERSION bun run build
+
+      - name: Build frontend (classic)
+        env:
+          CI: ""
+        run: |
+          cd web/classic
+          VITE_REACT_APP_VERSION=$VERSION bun run build
+
+      # ── Backend ───────────────────────────────────────────────
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '>=1.25.1'
+
+      - name: Build backend (Linux amd64)
+        env:
+          CGO_ENABLED: 0
+          GOEXPERIMENT: greenteagc
+        run: |
+          go mod download
+          go build -ldflags "-s -w -X 'github.com/QuantumNous/new-api/common.Version=$VERSION'" -o new-api
+
+      - name: Verify binary
+        run: |
+          file new-api
+          ls -lh new-api
+
+      # ── Deploy ────────────────────────────────────────────────
+      - name: Copy binary to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: 22
+          source: new-api
+          target: ${{ env.DEPLOY_PATH }}
+          overwrite: true
+
+      - name: Deploy & restart
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: 22
+          script: |
+            cd ${{ env.DEPLOY_PATH }}
+            sudo docker cp ./new-api ${{ env.CONTAINER_NAME }}:/new-api
+            sudo docker compose restart new-api
+
+      # ── Summary ──────────────────────────────────────────────
+      - name: Summary
+        run: |
+          echo "### ✅ Deployment Successful" >> $GITHUB_STEP_SUMMARY
+          echo '' >> $GITHUB_STEP_SUMMARY
+          echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | \`${VERSION}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Server | \`${{ secrets.DEPLOY_HOST }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Path | \`${{ env.DEPLOY_PATH }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Container | \`${{ env.CONTAINER_NAME }}\` |" >> $GITHUB_STEP_SUMMARY
