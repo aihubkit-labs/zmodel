@@ -46,13 +46,6 @@ jobs:
           cd web/default
           DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$VERSION bun run build
 
-      - name: Build frontend (classic)
-        env:
-          CI: ""
-        run: |
-          cd web/classic
-          VITE_REACT_APP_VERSION=$VERSION bun run build
-
       # ── Backend ───────────────────────────────────────────────
       - name: Setup Go
         uses: actions/setup-go@v5
