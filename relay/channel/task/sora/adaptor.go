@@ -323,9 +323,38 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 
 func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 	data := task.Data
+	type fieldUpdate struct {
+		path  string
+		value string
+	}
+
+	updates := []fieldUpdate{
+		{path: "id", value: task.TaskID},
+		{path: "task_id", value: task.TaskID},
+	}
+	if task.Status == model.TaskStatusSuccess {
+		proxyURL := taskcommon.BuildProxyURL(task.TaskID)
+		updates = append(updates,
+			fieldUpdate{path: "url", value: proxyURL},
+			fieldUpdate{path: "video_url", value: proxyURL},
+			fieldUpdate{path: "metadata.url", value: proxyURL},
+		)
+	} else {
+		for _, path := range []string{"url", "video_url", "metadata.url"} {
+			var err error
+			data, err = sjson.DeleteBytes(data, path)
+			if err != nil {
+				return nil, errors.Wrapf(err, "delete %s failed", path)
+			}
+		}
+	}
+
 	var err error
-	if data, err = sjson.SetBytes(data, "id", task.TaskID); err != nil {
-		return nil, errors.Wrap(err, "set id failed")
+	for _, update := range updates {
+		data, err = sjson.SetBytes(data, update.path, update.value)
+		if err != nil {
+			return nil, errors.Wrapf(err, "set %s failed", update.path)
+		}
 	}
 	return data, nil
 }
