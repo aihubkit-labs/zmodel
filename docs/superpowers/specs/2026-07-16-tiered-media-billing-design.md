@@ -1,126 +1,120 @@
-# Tiered Media Billing Design
+# 阶梯媒体计费设计
 
-## Status
+## 状态
 
-- Date: 2026-07-16
-- Scope: image and asynchronous video billing
-- Expression version: `v2`
-- Existing `v1` behavior: unchanged
+- 日期：2026-07-16
+- 范围：图片和异步视频计费
+- 表达式版本：`v2`
+- 现有 `v1` 行为：保持不变
 
-## 1. Background
+## 1. 背景
 
-The current billing expression system is designed around token pricing. An
-expression such as `p * 2.5 + c * 10` returns a value denominated in
-USD-per-million-token units, and the settlement path converts it with:
+当前计费表达式系统主要围绕 Token 定价设计。例如，表达式
+`p * 2.5 + c * 10` 返回以「每百万 Token 美元价格」为单位的值，结算路径使用
+以下公式进行转换：
 
 ```text
 quota = expression_result / 1,000,000 * QuotaPerUnit * group_ratio
 ```
 
-This works well for token billing, but fixed media prices are awkward. A price
-of `$0.096` per generated image must currently be represented as `96000`, which
-is correct mathematically but unclear and error-prone. Reading quantities such
-as `n` or `seconds` directly through `param()` also makes unvalidated request
-data part of the billing calculation.
+该方式适合 Token 计费，但不便于表达媒体固定价格。目前要表示每张生成图片
+`$0.096`，必须在表达式中写成 `96000`。虽然数学结果正确，但不直观且容易配置
+错误。另外，通过 `param()` 直接读取 `n`、`seconds` 等数量参数，会使未经校验的
+请求数据直接参与计费计算。
 
-The required behavior includes:
+需要支持以下行为：
 
-- Image prices selected by normalized size, resolution, or quality tiers.
-- Image charges multiplied by the number of successfully generated images.
-- Video prices selected by normalized resolution or quality tiers.
-- A video tier charged once per generated video.
-- Another video tier charged by generated or requested duration.
-- Different expressions and tier definitions for different models.
-- Correct pre-consume, asynchronous settlement, refund, logging, and group
-  ratio behavior.
+- 根据标准化后的图片尺寸、分辨率或质量档位选择价格。
+- 按成功生成的图片数量计费。
+- 根据标准化后的视频分辨率或质量档位选择价格。
+- 某个视频档位按每次生成视频计费。
+- 另一个视频档位按生成时长或请求时长计费。
+- 不同模型可以使用不同的表达式和档位定义。
+- 正确处理预扣费、异步结算、退款、日志和分组倍率。
 
-## 2. Goals
+## 2. 目标
 
-1. Add explicit fixed-USD charges to billing expressions.
-2. Expose only validated, normalized media dimensions to billing arithmetic.
-3. Support per-unit, per-second, token, and mixed formulas in one expression.
-4. Preserve a model's expression and dimensions from pre-consume through final
-   settlement.
-5. Support independent pricing rules for any number of models by continuing to
-   key billing configuration by `OriginModelName`.
-6. Produce structured enough metadata for pricing pages and usage logs to show
-   the matched tier, unit, unit price, quantity, and total charge.
-7. Preserve all existing `v1` expressions without semantic changes.
+1. 在计费表达式中加入明确的固定美元费用。
+2. 只向计费计算暴露经过校验和标准化的媒体维度。
+3. 在同一个表达式中支持按份、按秒、按 Token 以及混合公式。
+4. 从预扣费到最终结算，全程保留模型表达式和计费维度快照。
+5. 继续以 `OriginModelName` 为计费配置键，支持任意数量模型使用独立定价规则。
+6. 生成足够结构化的元数据，使定价页面和使用日志可以展示命中的档位、计费单位、
+   单价、数量和总费用。
+7. 保持所有现有 `v1` 表达式的语义不变。
 
-## 3. Non-Goals
+## 3. 非目标
 
-- Automatically trusting arbitrary request fields as billing multipliers.
-- Automatically understanding every future provider-specific parameter.
-- Replacing `expr-lang` with a new expression engine.
-- Implementing a fully typed monetary DSL in this iteration.
-- Supporting multiple currencies inside expressions. Expression prices remain
-  USD and use the existing display-currency conversion at presentation time.
+- 自动信任任意请求字段并将其作为计费乘数。
+- 自动理解未来所有供应商特有的参数。
+- 使用新的表达式引擎替换 `expr-lang`。
+- 在本次迭代中实现完整的强类型货币 DSL。
+- 在表达式中支持多币种。表达式价格仍以美元为单位，展示时继续使用现有的显示货币
+  转换机制。
 
-## 4. Chosen Approach
+## 4. 选定方案
 
-Introduce billing expression `v2` with:
+引入计费表达式 `v2`，新增以下能力：
 
-- `usd(amount)`: converts an explicit USD amount into the expression's internal
-  micro-USD-compatible value.
-- Trusted numeric dimensions: `units`, `seconds`, `width`, and `height`.
-- Trusted normalized string dimensions: `quality`, `resolution_tier`, and
-  `image_size_tier`.
-- The existing token variables and functions from `v1`.
+- `usd(amount)`：将明确的美元金额转换为表达式内部兼容微美元的值。
+- 可信数值维度：`units`、`seconds`、`width` 和 `height`。
+- 可信标准化字符串维度：`quality`、`resolution_tier` 和
+  `image_size_tier`。
+- 保留 `v1` 中现有的 Token 变量和函数。
 
-`v2` retains the current final conversion formula. Internally:
+`v2` 保持当前最终转换公式不变。在表达式内部：
 
 ```text
 usd(amount) = amount * 1,000,000
 ```
 
-Therefore token and fixed charges compose without changing settlement math:
+因此，无需修改结算公式即可组合 Token 费用和固定费用：
 
 ```text
 p * 2.5 + c * 10 + usd(0.02 * units)
 ```
 
-After the existing division by one million, this means `$2.50/1M` input
-tokens, `$10/1M` output tokens, plus `$0.02` per generated unit.
+经过现有的除以一百万转换后，该表达式表示：输入 Token `$2.50/1M`、输出 Token
+`$10/1M`，再加上每个生成单位 `$0.02`。
 
-## 5. Expression Semantics
+## 5. 表达式语义
 
-### 5.1 Variables
+### 5.1 变量
 
-| Variable | Type | Meaning |
+| 变量 | 类型 | 含义 |
 | --- | --- | --- |
-| `p` | number | Billable input tokens after existing category exclusion |
-| `c` | number | Billable output tokens after existing category exclusion |
-| `len` | number | Full input context length for token tier conditions |
-| `cr`, `cc`, `cc1h` | number | Cache token dimensions |
-| `img`, `img_o` | number | Image input and output tokens |
-| `ai`, `ao` | number | Audio input and output tokens |
-| `units` | number | Validated billable output count |
-| `seconds` | number | Validated billable duration per output |
-| `width` | number | Normalized output width, or zero when unavailable |
-| `height` | number | Normalized output height, or zero when unavailable |
-| `quality` | string | Normalized quality label, or empty when unavailable |
-| `resolution_tier` | string | Normalized video resolution tier |
-| `image_size_tier` | string | Normalized image size tier |
+| `p` | 数字 | 按现有分类排除规则处理后的可计费输入 Token |
+| `c` | 数字 | 按现有分类排除规则处理后的可计费输出 Token |
+| `len` | 数字 | 用于 Token 阶梯条件的完整输入上下文长度 |
+| `cr`、`cc`、`cc1h` | 数字 | 缓存 Token 维度 |
+| `img`、`img_o` | 数字 | 图片输入和输出 Token |
+| `ai`、`ao` | 数字 | 音频输入和输出 Token |
+| `units` | 数字 | 已校验的可计费输出数量 |
+| `seconds` | 数字 | 每个输出对应的已校验可计费时长 |
+| `width` | 数字 | 标准化后的输出宽度；不可用时为零 |
+| `height` | 数字 | 标准化后的输出高度；不可用时为零 |
+| `quality` | 字符串 | 标准化后的质量标识；不可用时为空字符串 |
+| `resolution_tier` | 字符串 | 标准化后的视频分辨率档位 |
+| `image_size_tier` | 字符串 | 标准化后的图片尺寸档位 |
 
-`units` and `seconds` are quantities, not prices. Prices must be explicit inside
-`usd()` when the formula is not token-based.
+`units` 和 `seconds` 是数量而不是价格。非 Token 公式中的价格必须明确写在
+`usd()` 内。
 
-### 5.2 Functions
+### 5.2 函数
 
-`v2` keeps all `v1` functions and adds:
+`v2` 保留全部 `v1` 函数，并新增：
 
 ```text
 usd(amount) -> number
 ```
 
-Calling `usd()` with a negative, NaN, or infinite amount must make expression
-evaluation fail; the implementation may enforce this inside the registered
-function or in the evaluator's validation boundary. The expression's final
-result must also be finite and non-negative.
+当 `usd()` 收到负数、NaN 或无穷值时，表达式求值必须失败。实现可以在注册函数
+内部校验，也可以在求值器的校验边界统一处理。表达式最终结果同样必须是有限的
+非负数。
 
-### 5.3 Image Examples
+### 5.3 图片示例
 
-Price by normalized image size and actual generated count:
+根据标准化后的图片尺寸和实际生成数量定价：
 
 ```text
 v2:image_size_tier == "4K"
@@ -130,7 +124,7 @@ v2:image_size_tier == "4K"
     : tier("1K", usd(0.096 * units))
 ```
 
-Price by quality:
+根据质量定价：
 
 ```text
 v2:quality == "high"
@@ -138,9 +132,9 @@ v2:quality == "high"
   : tier("standard", usd(0.08 * units))
 ```
 
-### 5.4 Video Examples
+### 5.4 视频示例
 
-Standard resolution charged per generated video, HD charged per second:
+标准清晰度按每个生成视频计费，高清档按秒计费：
 
 ```text
 v2:resolution_tier == "standard"
@@ -148,7 +142,7 @@ v2:resolution_tier == "standard"
   : tier("hd", usd(0.025 * seconds * units))
 ```
 
-Three resolution tiers with different per-second prices:
+三个分辨率档位使用不同的每秒价格：
 
 ```text
 v2:resolution_tier == "1080p"
@@ -158,23 +152,23 @@ v2:resolution_tier == "1080p"
     : tier("480p", usd(0.015 * seconds * units))
 ```
 
-Fixed creation fee plus duration charge:
+固定生成费用加时长费用：
 
 ```text
 v2:tier("4k", usd((0.05 + 0.04 * seconds) * units))
 ```
 
-Minimum billable duration:
+最低计费时长：
 
 ```text
 v2:tier("hd", usd(0.025 * max(seconds, 5) * units))
 ```
 
-## 6. Trusted Billing Dimensions
+## 6. 可信计费维度
 
-### 6.1 Data Model
+### 6.1 数据模型
 
-Add a shared media billing context owned by the billing layer:
+在计费层增加共享的媒体计费上下文：
 
 ```go
 type BillingDimensions struct {
@@ -188,53 +182,44 @@ type BillingDimensions struct {
 }
 ```
 
-The exact Go field types may use integers where appropriate, but the expression
-environment receives numeric values compatible with `expr-lang`.
+实际 Go 字段可以在合适的位置使用整数类型，但表达式环境接收的数值必须与
+`expr-lang` 兼容。
 
-`TokenParams` remains responsible for token dimensions. Media dimensions are
-passed separately so token normalization and media normalization remain
-independent concepts.
+`TokenParams` 继续负责 Token 维度。媒体维度单独传递，使 Token 标准化和媒体
+标准化保持为两个独立概念。
 
-### 6.2 Sources and Trust Boundary
+### 6.2 数据来源和信任边界
 
-Dimensions are produced only after request parsing and validation:
+只有完成请求解析和校验后才能生成计费维度：
 
 ```text
-JSON / multipart / metadata / provider fields
-    -> request DTO or task adaptor
-    -> validation and defaults
-    -> provider/model normalization
+JSON / multipart / 元数据 / 供应商字段
+    -> 请求 DTO 或任务适配器
+    -> 校验并应用默认值
+    -> 按供应商和模型进行标准化
     -> BillingDimensions
-    -> expression engine
+    -> 表达式引擎
 ```
 
-The expression must not use raw `param("n")`, `param("seconds")`, or equivalent
-metadata paths as billing multipliers. `param()` remains available for
-non-quantity request conditions, but all user-controlled quantities that affect
-cost use trusted dimensions.
+表达式不得使用原始 `param("n")`、`param("seconds")` 或类似的元数据路径作为
+计费乘数。`param()` 仍可用于不涉及数量的请求条件，但所有影响费用的用户可控数量
+都必须使用可信计费维度。
 
-### 6.3 Validation
+### 6.3 校验
 
-- Image count is normalized to at least `1` and bounded by `dto.MaxImageN`.
-- Video duration is positive and bounded by
-  `relaycommon.MaxTaskDurationSeconds`.
-- Width and height are positive and bounded before multiplication or tier
-  classification.
-- Unknown quality, size, or resolution values do not silently map to the
-  cheapest tier.
-- Provider metadata and passthrough fields receive the same checks as standard
-  DTO fields.
-- Actual values obtained from upstream responses or media metadata are also
-  treated as untrusted and validated before settlement.
+- 图片数量标准化为至少 `1`，并以 `dto.MaxImageN` 为上限。
+- 视频时长必须为正数，并以 `relaycommon.MaxTaskDurationSeconds` 为上限。
+- 宽度和高度在参与乘法或档位分类之前，必须完成正数校验和上限校验。
+- 未知质量、尺寸或分辨率不得静默落入最便宜的档位。
+- 供应商元数据和透传字段必须接受与标准 DTO 字段相同的校验。
+- 从上游响应或媒体元数据中取得的实际值同样不可信，结算前必须进行校验。
 
-An unsupported value must either be rejected with HTTP 400 or mapped by an
-explicit provider/model normalization rule. The fallback behavior must be
-visible in configuration and tests.
+不支持的值必须返回 HTTP 400，或者通过明确的供应商或模型标准化规则进行映射。
+回退行为必须在配置和测试中可见。
 
-### 6.4 Normalization
+### 6.4 标准化
 
-Normalization is adapter-aware because providers use different fields and
-vocabularies. Examples include:
+不同供应商使用不同的字段和命名，因此标准化必须感知适配器。示例：
 
 ```text
 1024x1024, 1024*1024, provider "square_hd" -> image_size_tier "1K"
@@ -243,14 +228,12 @@ vocabularies. Examples include:
 1280x720, "HD"                           -> resolution_tier "720p"
 ```
 
-Common normalization rules should live in shared media billing utilities.
-Provider-specific aliases remain in the relevant adaptor. This avoids a global
-function accumulating protocol-specific behavior.
+通用标准化规则应放在共享媒体计费工具中，供应商特有别名则保留在对应适配器中，
+避免全局函数不断积累协议特有逻辑。
 
-## 7. Per-Model Configuration
+## 7. 按模型配置
 
-No new global price table is required. Continue storing billing mode and
-expression by model name:
+无需新增全局价格表。继续按照模型名称存储计费模式和表达式：
 
 ```json
 {
@@ -266,71 +249,63 @@ expression by model name:
 }
 ```
 
-Rule selection must use `OriginModelName`. Upstream model mapping must not
-change the user-facing billing contract.
+规则选择必须使用 `OriginModelName`。上游模型映射不得改变面向用户的计费约定。
 
-Each model may define different recognized tiers, prices, and formulas. The
-adaptor supplies normalized dimensions; the model expression decides how those
-dimensions affect price.
+每个模型可以定义不同的可识别档位、价格和公式。适配器负责提供标准化维度，模型
+表达式负责决定这些维度如何影响价格。
 
-## 8. Billing Lifecycle
+## 8. 计费生命周期
 
-### 8.1 Image Pre-Consume
+### 8.1 图片预扣费
 
-1. Parse and validate the image request.
-2. Build estimated dimensions from the normalized request.
-3. Set `units` to the validated requested count.
-4. Evaluate the frozen model expression.
-5. Convert with the existing quota formula and group ratio.
-6. Store the expression snapshot and estimated dimensions on `RelayInfo`.
+1. 解析并校验图片请求。
+2. 根据标准化后的请求构造预估计费维度。
+3. 将 `units` 设置为已校验的请求数量。
+4. 使用冻结的模型表达式求值。
+5. 使用现有配额公式和分组倍率进行转换。
+6. 在 `RelayInfo` 中保存表达式快照和预估计费维度。
 
-### 8.2 Image Settlement
+### 8.2 图片结算
 
-1. Determine the number of confirmed generated images from the upstream
-   response when reliable.
-2. Validate the actual count against `dto.MaxImageN`.
-3. Replace `units` with the actual count.
-4. Re-evaluate the frozen expression using the frozen request classification.
-5. Settle the difference from pre-consume.
+1. 如果上游响应提供了可靠数据，则确定已确认成功生成的图片数量。
+2. 使用 `dto.MaxImageN` 校验实际数量。
+3. 使用实际数量替换 `units`。
+4. 使用冻结的表达式和冻结的请求分类重新求值。
+5. 结算与预扣费之间的差额。
 
-If the upstream does not expose a reliable count, settlement uses the validated
-requested count. Streaming/client-disconnect semantics must preserve the
-existing rule that a client disconnect does not automatically imply that the
-upstream generated fewer billable images.
+如果上游没有提供可靠的实际数量，则结算使用已校验的请求数量。对于流式请求和
+客户端断开连接，必须保留现有语义：客户端断开连接不自动表示上游生成了更少的
+可计费图片。
 
-### 8.3 Video Pre-Consume
+### 8.3 视频预扣费
 
-1. The task adaptor validates and normalizes the request.
-2. It returns estimated `BillingDimensions`, not only multiplicative ratios.
-3. Evaluate the model's frozen expression using requested count, duration, and
-   normalized resolution/quality.
-4. Pre-consume the resulting quota.
-5. Persist the complete billing snapshot in the task private billing context.
+1. 任务适配器校验并标准化请求。
+2. 适配器返回预估 `BillingDimensions`，而不再仅返回乘数倍率。
+3. 使用请求数量、时长和标准化后的分辨率或质量，对模型的冻结表达式求值。
+4. 预扣计算出的配额。
+5. 将完整计费快照持久化到任务私有计费上下文中。
 
-### 8.4 Video Completion Settlement
+### 8.4 视频完成结算
 
-1. On successful task completion, the adaptor extracts any reliable actual
-   units, duration, and output classification.
-2. Validate actual dimensions using the same safety bounds.
-3. Merge actual dimensions over the frozen estimates. Missing actual fields
-   retain their estimated values.
-4. Re-evaluate the frozen expression and group ratio.
-5. Use the existing task delta-settlement path to supplement or refund quota.
-6. On task failure, use the existing full refund path.
+1. 任务成功完成后，适配器提取所有可靠的实际数量、时长和输出分类。
+2. 使用相同的安全上限校验实际计费维度。
+3. 将实际维度覆盖到冻结的预估维度上；缺失的实际字段继续使用预估值。
+4. 使用冻结的表达式和分组倍率重新求值。
+5. 使用现有任务差额结算路径补扣或退还配额。
+6. 任务失败时，使用现有全额退款路径。
 
-The adaptor must explicitly define whether a provider bills requested duration
-or actual output duration. The expression sees only the selected trusted
-`seconds` value and does not decide which source is authoritative.
+适配器必须明确声明供应商是按请求时长还是实际输出时长计费。表达式只接收最终
+选定的可信 `seconds` 值，不负责决定哪个数据源具有权威性。
 
-## 9. Snapshot and Persistence
+## 9. 快照和持久化
 
-Extend `billingexpr.BillingSnapshot` for synchronous media settlement with:
+扩展用于同步媒体结算的 `billingexpr.BillingSnapshot`，加入：
 
-- Estimated trusted dimensions.
-- Expression result and matched tier.
-- Dimension source metadata where useful for audit.
+- 预估可信计费维度。
+- 表达式结果和命中的档位。
+- 对审计有帮助时，记录维度来源元数据。
 
-Extend `model.TaskBillingContext` for asynchronous tasks with:
+扩展用于异步任务的 `model.TaskBillingContext`：
 
 ```go
 BillingMode         string
@@ -342,38 +317,36 @@ EstimatedDimensions BillingDimensions
 EstimatedTier       string
 ```
 
-The task must always settle against the expression and group ratio frozen at
-submission time. Later configuration changes affect new tasks only.
+任务必须始终使用提交时冻结的表达式和分组倍率进行结算。后续配置变更只影响新任务。
 
-Existing task rows without these fields continue through the current
-`ModelPrice`/`ModelRatio`/`OtherRatios` behavior.
+不包含这些字段的现有任务记录继续使用当前的 `ModelPrice`、`ModelRatio` 和
+`OtherRatios` 行为。
 
-## 10. Backend Integration
+## 10. 后端集成
 
-### 10.1 Expression Engine
+### 10.1 表达式引擎
 
-Update `pkg/billingexpr` to:
+更新 `pkg/billingexpr`：
 
-- Register the `v2` compile environment.
-- Add `usd()` and trusted media variables.
-- Accept media dimensions in run and settlement inputs.
-- Validate finite, non-negative expression results.
-- Keep `v1` compile and conversion behavior unchanged.
-- Continue using checked quota conversion and quota saturation auditing.
+- 注册 `v2` 编译环境。
+- 增加 `usd()` 和可信媒体维度变量。
+- 在运行和结算输入中接收媒体计费维度。
+- 校验表达式结果必须为有限非负数。
+- 保持 `v1` 编译和转换行为不变。
+- 继续使用带检查的配额转换和配额饱和审计机制。
 
-### 10.2 Image Relay
+### 10.2 图片中继
 
-Update the image request/pricing path to:
+更新图片请求和定价路径：
 
-- Build estimated media dimensions from `dto.ImageRequest`.
-- Pass them into tiered pre-consume.
-- Record actual generated count independently of fixed-price
-  `PriceData.UsePrice` behavior.
-- Re-run tiered settlement with actual `units`.
+- 根据 `dto.ImageRequest` 构造预估媒体计费维度。
+- 将计费维度传入阶梯预扣费流程。
+- 独立于固定价格的 `PriceData.UsePrice` 行为记录实际生成数量。
+- 使用实际 `units` 重新执行阶梯结算。
 
-### 10.3 Task Relay
+### 10.3 任务中继
 
-Evolve the task adaptor billing contract. A compatible shape is:
+扩展任务适配器计费契约。可采用以下兼容形式：
 
 ```go
 EstimateBillingDimensions(c *gin.Context, info *RelayInfo) BillingDimensions
@@ -381,158 +354,146 @@ AdjustBillingDimensionsOnSubmit(info *RelayInfo, taskData []byte) *BillingDimens
 AdjustBillingDimensionsOnComplete(task *model.Task, result *TaskInfo) *BillingDimensions
 ```
 
-Existing ratio methods can remain during migration. Tiered-expression tasks use
-dimensions; legacy fixed-price and ratio tasks continue using `OtherRatios`.
+迁移期间可保留现有倍率方法。阶梯表达式任务使用计费维度，旧版固定价格和倍率任务
+继续使用 `OtherRatios`。
 
-Update task submission and polling to:
+更新任务提交和轮询流程：
 
-- Use the tiered expression when the model mode is `tiered_expr`.
-- Persist the expression snapshot and dimensions.
-- Settle expression-priced tasks before adaptor quota overrides and token
-  fallback logic.
-- Avoid marking expression-priced tasks as unconditional `PerCallBilling`,
-  because they may require completion-time duration or unit reconciliation.
+- 当模型计费模式为 `tiered_expr` 时使用阶梯表达式。
+- 持久化表达式快照和计费维度。
+- 在适配器配额覆盖和 Token 回退逻辑之前，结算表达式定价任务。
+- 不要将表达式定价任务无条件标记为 `PerCallBilling`，因为这类任务可能需要在完成时
+  根据时长或数量进行差额结算。
 
-## 11. Frontend Design
+## 11. 前端设计
 
-### 11.1 Editor
+### 11.1 编辑器
 
-The visual editor should support media tier fields in addition to token prices:
+可视化编辑器除 Token 价格外，还应支持媒体档位字段：
 
-- Tier condition: quality, resolution tier, image size tier, seconds range.
-- Charge type: per unit, per second, fixed plus per second, or advanced raw
-  expression.
-- USD unit price inputs.
-- Generated `v2` expression preview.
+- 档位条件：质量、分辨率档位、图片尺寸档位、时长范围。
+- 计费方式：按份、按秒、固定费用加每秒费用，或者高级原始表达式。
+- 美元单价输入。
+- 生成的 `v2` 表达式预览。
 
-Raw expression editing remains available for formulas that cannot be represented
-by the visual editor.
+无法由可视化编辑器表示的公式仍可使用原始表达式编辑。
 
-### 11.2 Pricing Display
+### 11.2 定价展示
 
-Standard expression shapes should render as meaningful units:
+标准表达式结构应展示为易于理解的计费单位：
 
-| Tier | Billing method | Price |
+| 档位 | 计费方式 | 价格 |
 | --- | --- | --- |
-| 1K | Per image | `$0.096 / image` |
-| 4K | Per image | `$0.128 / image` |
-| standard | Per video | `$0.100 / video` |
-| HD | By duration | `$0.025 / second` |
+| 1K | 按图片 | `$0.096 / 张` |
+| 4K | 按图片 | `$0.128 / 张` |
+| standard | 按视频 | `$0.100 / 个视频` |
+| HD | 按时长 | `$0.025 / 秒` |
 
-Mixed formulas may display multiple components, for example:
+混合公式可以展示多个费用组成，例如：
 
 ```text
-$0.050 / video + $0.040 / second
+$0.050 / 个视频 + $0.040 / 秒
 ```
 
-If the parser cannot safely structure an advanced expression, the UI displays
-the raw expression rather than presenting an incorrect price table.
+如果解析器无法可靠地结构化高级表达式，界面应显示原始表达式，而不是展示错误的
+价格表。
 
-### 11.3 Logs
+### 11.3 日志
 
-Usage and task logs should include:
+使用日志和任务日志应包含：
 
-- Billing mode and expression version.
-- Matched tier.
-- Estimated and actual trusted dimensions.
-- Unit price and charge unit when structurally known.
-- Pre-consumed quota, actual quota, and settlement delta.
-- Quota saturation metadata under the existing admin-only audit location.
+- 计费模式和表达式版本。
+- 命中的档位。
+- 预估和实际可信计费维度。
+- 可以从表达式结构中确定时，记录单价和计费单位。
+- 预扣配额、实际配额和结算差额。
+- 在现有仅管理员可见的审计位置记录配额饱和元数据。
 
-## 12. Error Handling and Safety
+## 12. 错误处理和安全性
 
-- Expression compilation failures block configuration save.
-- Smoke tests cover media dimension vectors as well as token vectors.
-- Negative, NaN, and infinite prices are rejected.
-- Invalid or out-of-range quantity and duration values return HTTP 400 before
-  pre-consume.
-- Unknown media tiers cannot silently receive a cheaper price.
-- Missing dimensions referenced by an expression use safe neutral defaults only
-  where the model contract permits them; otherwise validation fails.
-- All final conversions use the existing checked quota helpers.
-- Pre-consume must fail with insufficient quota for an oversized valid charge;
-  it must never wrap into a negative or smaller charge.
-- Settlement errors fall back to the frozen pre-consumed amount and emit a
-  correlated warning, matching the existing tiered settlement policy.
+- 表达式编译失败时禁止保存配置。
+- 冒烟测试除 Token 向量外，还必须覆盖媒体计费维度向量。
+- 拒绝负数、NaN 和无穷价格。
+- 无效或超出范围的数量和时长必须在预扣费前返回 HTTP 400。
+- 未知媒体档位不得静默获得更低价格。
+- 只有模型契约明确允许时，表达式引用的缺失维度才可以使用安全中性默认值；否则
+  校验必须失败。
+- 所有最终转换均使用现有带检查的配额辅助函数。
+- 对于金额很大但仍合法的费用，预扣费必须因配额不足而失败，不得溢出为负数或
+  更小金额。
+- 结算发生错误时，回退到冻结的预扣金额并记录带请求关联信息的警告，与现有阶梯
+  结算策略保持一致。
 
-## 13. Compatibility and Migration
+## 13. 兼容性和迁移
 
-1. `v1` expressions remain byte-for-byte and semantically compatible.
-2. Unprefixed expressions continue to mean `v1`.
-3. New media expressions are saved with an explicit `v2:` prefix.
-4. Existing fixed-price and ratio models are unchanged.
-5. Existing tasks without a v2 snapshot use their current billing context.
-6. Upstream pricing sync must preserve v2 expressions and must not flatten them
-   into fixed-price or ratio entries.
+1. `v1` 表达式保持字节级和语义级兼容。
+2. 不带版本前缀的表达式继续表示 `v1`。
+3. 新媒体表达式保存时必须包含明确的 `v2:` 前缀。
+4. 现有固定价格和倍率模型保持不变。
+5. 不包含 v2 快照的现有任务继续使用当前计费上下文。
+6. 上游价格同步必须保留 v2 表达式，不得将其展平为固定价格或倍率配置。
 
-No database-specific schema change is required if the additional task snapshot
-fields remain inside the existing JSON private data. Any future column migration
-must support SQLite, MySQL, and PostgreSQL.
+如果新增任务快照字段继续存放在现有 JSON 私有数据中，则无需执行数据库特有的
+结构变更。未来如需新增数据库列，迁移必须同时支持 SQLite、MySQL 和 PostgreSQL。
 
-## 14. Testing Strategy
+## 14. 测试策略
 
-### Expression engine
+### 表达式引擎
 
-- `usd(0.096)` converts to exactly the expected quota.
-- Token and USD components combine correctly.
-- Every trusted variable is available only in `v2`.
-- Existing `v1` expressions return unchanged results.
-- Negative and non-finite results are rejected.
+- `usd(0.096)` 精确转换为预期配额。
+- Token 费用和美元费用可以正确组合。
+- 所有可信媒体变量仅在 `v2` 中可用。
+- 现有 `v1` 表达式返回结果不变。
+- 拒绝负数和非有限结果。
 
-### Image billing
+### 图片计费
 
-- 1K, 2K, and 4K inputs select the correct tier.
-- Requested `n` is bounded and used for pre-consume.
-- Actual successful image count adjusts settlement.
-- Missing actual count falls back to requested count.
-- Multipart and JSON requests normalize equivalently.
-- Unknown image size does not fall into the cheapest tier silently.
+- 1K、2K 和 4K 输入选择正确档位。
+- 请求 `n` 受上限约束并用于预扣费。
+- 实际成功生成的图片数量会调整最终结算。
+- 缺少实际数量时回退到请求数量。
+- multipart 和 JSON 请求得到相同的标准化结果。
+- 未知图片尺寸不会静默落入最便宜档位。
 
-### Video billing
+### 视频计费
 
-- Standard resolution charges once per unit.
-- HD charges unit price times seconds times units.
-- Different models can assign different formulas to the same normalized tier.
-- Requested duration is bounded by `MaxTaskDurationSeconds`.
-- Provider metadata cannot bypass duration validation.
-- Completion settlement uses actual values when the provider contract requires
-  them and frozen estimates otherwise.
-- Failed tasks refund the full pre-consumed amount.
-- Expressions and group ratios remain frozen after configuration changes.
+- 标准清晰度按每个输出单位计费一次。
+- 高清档按照单价乘以秒数再乘以输出数量计费。
+- 不同模型可以为相同标准化档位配置不同公式。
+- 请求时长受 `MaxTaskDurationSeconds` 上限约束。
+- 供应商元数据无法绕过时长校验。
+- 供应商计费契约要求使用实际值时，完成结算使用实际值；否则使用冻结的预估值。
+- 失败任务全额退还预扣费。
+- 配置变更后，已提交任务的表达式和分组倍率仍保持冻结。
 
-### Frontend
+### 前端
 
-- Visual configurations generate the expected v2 expressions.
-- Standard per-unit and per-second expressions parse into correct price tables.
-- Advanced expressions fall back to raw display.
-- All new UI text is covered by frontend i18n locales.
+- 可视化配置能够生成预期的 v2 表达式。
+- 标准按份和按秒表达式可以解析为正确的价格表。
+- 高级表达式回退为原始文本展示。
+- 所有新增界面文本均覆盖前端 i18n 语言文件。
 
-## 15. Implementation Order
+## 15. 实施顺序
 
-1. Add v2 expression types, `usd()`, trusted dimensions, and engine tests.
-2. Add shared image/video normalization and validation contracts.
-3. Integrate image pre-consume and actual-count settlement.
-4. Extend task billing snapshots and adaptor dimension hooks.
-5. Integrate video pre-consume, completion settlement, and refunds.
-6. Update logs and quota saturation audit data.
-7. Update the visual editor, pricing breakdown, estimator, and i18n.
-8. Run focused backend tests, full affected Go package tests, frontend typecheck,
-   lint, and production build.
+1. 增加 v2 表达式类型、`usd()`、可信计费维度和表达式引擎测试。
+2. 增加共享的图片和视频标准化及校验契约。
+3. 集成图片预扣费和基于实际数量的结算。
+4. 扩展任务计费快照和适配器计费维度钩子。
+5. 集成视频预扣费、完成结算和退款。
+6. 更新日志和配额饱和审计数据。
+7. 更新可视化编辑器、价格明细、费用估算器和 i18n。
+8. 运行针对性后端测试、受影响 Go 包的完整测试、前端类型检查、代码检查和生产构建。
 
-## 16. Acceptance Criteria
+## 16. 验收标准
 
-The design is complete when all of the following are true:
+满足以下全部条件时，该设计视为完成：
 
-1. An administrator can configure independent v2 expressions for multiple
-   image and video models.
-2. Image tiers can charge a real USD amount per successfully generated image.
-3. A video expression can charge one tier per generated video and another tier
-   per second.
-4. JSON, multipart, metadata, and provider-specific fields used by supported
-   adaptors are normalized into trusted dimensions before billing.
-5. Unsupported values are rejected or explicitly mapped, never silently priced
-   at the cheapest tier.
-6. Pre-consume and final settlement use a frozen expression and group ratio.
-7. Existing v1 token expressions and legacy billing modes are unaffected.
-8. Pricing pages and logs show the matched tier and understandable billing
-   units for standard expression shapes.
+1. 管理员可以为多个图片和视频模型配置独立的 v2 表达式。
+2. 图片档位可以按照每张成功生成图片的实际美元金额计费。
+3. 同一个视频表达式可以让一个档位按每次生成视频计费，让另一个档位按秒计费。
+4. 受支持适配器使用的 JSON、multipart、metadata 和供应商特有字段，在参与计费前
+   均被标准化为可信计费维度。
+5. 不支持的值会被拒绝或显式映射，绝不静默使用最便宜的价格。
+6. 预扣费和最终结算使用冻结的表达式和分组倍率。
+7. 现有 v1 Token 表达式和旧版计费模式不受影响。
+8. 对于标准表达式结构，定价页面和日志能够展示命中的档位及易于理解的计费单位。
