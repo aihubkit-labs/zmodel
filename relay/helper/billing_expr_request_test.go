@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
@@ -60,4 +61,56 @@ func TestBuildBillingExprRequestInputFromRequest(t *testing.T) {
 	require.True(t, gjson.GetBytes(input.Body, "stream").Bool())
 	require.Equal(t, "user", gjson.GetBytes(input.Body, "messages.0.role").String())
 	require.Equal(t, float64(3000), gjson.GetBytes(input.Body, "max_tokens").Float())
+}
+
+func TestFreezeBillingExprRequestInputKeepsOnlyReferencedValues(t *testing.T) {
+	input := billingexpr.RequestInput{
+		Headers: map[string]string{
+			"Anthropic-Beta": "fast-mode-2026-02-01",
+			"X-Unused":       "must-not-be-persisted",
+			"Authorization":  "Bearer secret",
+		},
+		Body: []byte(`{"service_tier":"fast","prompt":"large private prompt","nested":{"enabled":true}}`),
+	}
+
+	frozen, err := FreezeBillingExprRequestInput(
+		`param("service_tier") == "fast" && header("anthropic-beta") != "" ? tier("fast", p * 2) : tier("base", p)`,
+		input,
+	)
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"anthropic-beta": "fast-mode-2026-02-01"}, frozen.Headers)
+	require.Equal(t, map[string]any{"service_tier": "fast"}, frozen.Params)
+	require.Empty(t, frozen.Body)
+
+	cost, trace, err := billingexpr.RunExprWithRequest(
+		`param("service_tier") == "fast" && header("anthropic-beta") != "" ? tier("fast", p * 2) : tier("base", p)`,
+		billingexpr.TokenParams{P: 10},
+		frozen,
+	)
+	require.NoError(t, err)
+	require.Equal(t, float64(20), cost)
+	require.Equal(t, "fast", trace.MatchedTier)
+
+	refrozen, err := FreezeBillingExprRequestInput(
+		`param("service_tier") == "fast" && header("anthropic-beta") != "" ? tier("fast", p * 2) : tier("base", p)`,
+		frozen,
+	)
+	require.NoError(t, err)
+	require.Equal(t, frozen, refrozen)
+}
+
+func TestFreezeBillingExprRequestInputRejectsSensitiveHeader(t *testing.T) {
+	_, err := FreezeBillingExprRequestInput(
+		`header("Authorization") != "" ? tier("auth", p * 2) : tier("base", p)`,
+		billingexpr.RequestInput{Headers: map[string]string{"Authorization": "Bearer secret"}},
+	)
+	require.ErrorContains(t, err, "cannot be persisted")
+}
+
+func TestFreezeBillingExprRequestInputRejectsDynamicReferences(t *testing.T) {
+	_, err := FreezeBillingExprRequestInput(
+		`header(param("header_name")) != "" ? tier("dynamic", p * 2) : tier("base", p)`,
+		billingexpr.RequestInput{Body: []byte(`{"header_name":"x-mode"}`)},
+	)
+	require.ErrorContains(t, err, "literal string argument")
 }

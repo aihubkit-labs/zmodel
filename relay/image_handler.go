@@ -122,6 +122,9 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	if request.N != nil {
 		imageN = *request.N
 	}
+	if dimensions := info.ActualBillingDimensions; dimensions != nil && dimensions.Units > 0 {
+		imageN = uint(dimensions.Units)
+	}
 
 	if usage.(*dto.Usage).TotalTokens == 0 {
 		usage.(*dto.Usage).TotalTokens = 1

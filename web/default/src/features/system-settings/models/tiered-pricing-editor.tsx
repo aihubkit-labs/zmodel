@@ -22,7 +22,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ChangeEvent,
   type FocusEvent,
@@ -32,6 +31,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { LearnMore } from '@/components/learn-more'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -82,6 +82,21 @@ import {
   type TimeCondition,
   type TimeFunc,
 } from '@/features/pricing/lib/billing-expr'
+import {
+  MEDIA_BILLING_FIXED_PLUS_SECOND,
+  MEDIA_BILLING_PER_SECOND,
+  MEDIA_BILLING_PER_UNIT,
+  MEDIA_CONDITION_NONE,
+  createDefaultMediaConfig,
+  createDefaultMediaTier,
+  generateMediaExpr,
+  isMediaBillingExpr,
+  tryParseMediaConfig,
+  type MediaBillingMethod,
+  type MediaConditionVariable,
+  type MediaTier,
+  type MediaVisualConfig,
+} from '@/features/pricing/lib/media-tier-expr'
 import {
   CACHE_MODE_GENERIC,
   CACHE_MODE_TIMED,
@@ -195,6 +210,26 @@ const PRESET_GROUPS: PresetGroup[] = [
         key: 'qwen3-omni-flash',
         label: 'Qwen3 Omni Flash',
         expr: 'tier("base", p * 0.43 + c * 3.06 + img * 0.78 + ai * 3.81 + ao * 15.11)',
+      },
+    ],
+  },
+  {
+    group: 'Media generation',
+    presets: [
+      {
+        key: 'gpt-image-2-high',
+        label: 'GPT Image 2 High',
+        expr: 'v2:image_size_tier == "1K" ? tier("1K", usd(0.05 * units)) : image_size_tier == "4K" ? tier("4K", usd(0.15 * units)) : tier("2K", usd(0.125 * units))',
+      },
+      {
+        key: 'video-resolution-tier',
+        label: 'Video price by resolution',
+        expr: 'v2:resolution_tier == "1080p" ? tier("1080p", usd(0.04 * seconds * units)) : resolution_tier == "720p" ? tier("720p", usd(0.025 * seconds * units)) : tier("480p", usd(0.015 * seconds * units))',
+      },
+      {
+        key: 'video-fixed-plus-duration',
+        label: 'Video fixed fee plus duration',
+        expr: 'v2:tier("base", usd((0.05 + 0.04 * seconds) * units))',
       },
     ],
   },
@@ -332,8 +367,9 @@ function formatTokenHint(n: number | string | null | undefined): string {
 
 function formatNumberDraft(value: number | string): string {
   if (value === '') return ''
-  if (typeof value === 'number')
+  if (typeof value === 'number') {
     return Number.isFinite(value) ? String(value) : '0'
+  }
   return value
 }
 
@@ -436,12 +472,10 @@ function ConditionRow({ condition, onChange, onRemove }: ConditionRowProps) {
   return (
     <div className='flex items-center gap-2'>
       <Select
-        items={[
-          ...CONDITION_INPUT_OPTIONS.map((option) => ({
-            value: option.value,
-            label: t(option.labelKey),
-          })),
-        ]}
+        items={CONDITION_INPUT_OPTIONS.map((option) => ({
+          value: option.value,
+          label: t(option.labelKey),
+        }))}
         value={condition.var}
         onValueChange={(value) =>
           onChange({ ...condition, var: value as TierConditionInput['var'] })
@@ -667,6 +701,8 @@ function VisualTierCard({
         ) : (
           tier.conditions.map((condition, conditionIndex) => (
             <ConditionRow
+              // Positional editor rows have no persisted identity.
+              // eslint-disable-next-line react/no-array-index-key
               key={conditionIndex}
               condition={condition}
               onChange={(next) => handleConditionChange(conditionIndex, next)}
@@ -849,6 +885,8 @@ function VisualEditor({ visualConfig, onChange }: VisualEditorProps) {
       </p>
       {config.tiers.map((tier, index) => (
         <VisualTierCard
+          // Visual tiers are positional until saved as one expression.
+          // eslint-disable-next-line react/no-array-index-key
           key={index}
           tier={tier}
           index={index}
@@ -872,6 +910,335 @@ function VisualEditor({ visualConfig, onChange }: VisualEditorProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Media visual editor
+// ---------------------------------------------------------------------------
+
+const MEDIA_CONDITION_OPTIONS: Array<{
+  value: MediaConditionVariable
+  labelKey: string
+}> = [
+  { value: MEDIA_CONDITION_NONE, labelKey: 'Fallback tier' },
+  { value: 'quality', labelKey: 'Image quality' },
+  { value: 'resolution_tier', labelKey: 'Video resolution tier' },
+  { value: 'image_size_tier', labelKey: 'Image size tier' },
+  { value: 'image_size', labelKey: 'Image size' },
+]
+
+const MEDIA_BILLING_OPTIONS: Array<{
+  value: MediaBillingMethod
+  labelKey: string
+}> = [
+  { value: MEDIA_BILLING_PER_UNIT, labelKey: 'Each' },
+  { value: MEDIA_BILLING_PER_SECOND, labelKey: 'Per second' },
+  {
+    value: MEDIA_BILLING_FIXED_PLUS_SECOND,
+    labelKey: 'Fixed fee + per second',
+  },
+]
+
+const MEDIA_CONDITION_VALUE_PLACEHOLDERS: Record<
+  Exclude<MediaConditionVariable, typeof MEDIA_CONDITION_NONE>,
+  string
+> = {
+  quality: 'Enter a provider-supported image quality value, for example high',
+  resolution_tier: '480p / 720p / 1080p / 4K',
+  image_size_tier: '1K / 2K / 4K',
+  image_size: '1024x1024 / 1024x1536 / 1536x1024',
+}
+
+type MediaTierCardProps = {
+  tier: MediaTier
+  index: number
+  total: number
+  onChange: (next: MediaTier) => void
+  onRemove: () => void
+}
+
+function MediaTierCard(props: MediaTierCardProps) {
+  const { t } = useTranslation()
+  const condition = MEDIA_CONDITION_OPTIONS.find(
+    (option) => option.value === props.tier.conditionVariable
+  )
+  const billing = MEDIA_BILLING_OPTIONS.find(
+    (option) => option.value === props.tier.billingMethod
+  )
+  const isFallback = props.index === props.total - 1
+  let conditionValuePlaceholder =
+    isFallback || props.tier.conditionVariable === MEDIA_CONDITION_NONE
+      ? t('No condition value required')
+      : MEDIA_CONDITION_VALUE_PLACEHOLDERS[props.tier.conditionVariable]
+  if (props.tier.conditionVariable === 'quality') {
+    conditionValuePlaceholder = t(
+      'Enter a provider-supported image quality value, for example high'
+    )
+  }
+
+  return (
+    <div className='space-y-3 rounded-md border p-3'>
+      <div className='flex flex-wrap items-center justify-between gap-2'>
+        <div className='flex min-w-0 flex-wrap items-center gap-2'>
+          <Badge variant='outline'>
+            {t('Tier')} {props.index + 1} / {props.total}
+          </Badge>
+          {isFallback && (
+            <Badge variant='secondary'>{t('Fallback tier')}</Badge>
+          )}
+          <Input
+            value={props.tier.label}
+            onChange={(event) =>
+              props.onChange({ ...props.tier, label: event.target.value })
+            }
+            placeholder={t('Tier name')}
+            className='h-8 w-36'
+          />
+        </div>
+        <Button
+          variant='ghost'
+          size='icon'
+          onClick={props.onRemove}
+          disabled={props.total <= 1}
+          aria-label={t('Remove tier')}
+        >
+          <Trash2 className='text-destructive h-4 w-4' />
+        </Button>
+      </div>
+
+      <div className='grid gap-3 md:grid-cols-2'>
+        <Field className='gap-1.5'>
+          <FieldLabel>{t('Tier condition')}</FieldLabel>
+          <Select
+            items={MEDIA_CONDITION_OPTIONS.map((option) => ({
+              value: option.value,
+              label: t(option.labelKey),
+            }))}
+            value={
+              isFallback ? MEDIA_CONDITION_NONE : props.tier.conditionVariable
+            }
+            disabled={isFallback}
+            onValueChange={(value) =>
+              props.onChange({
+                ...props.tier,
+                conditionVariable: value as MediaConditionVariable,
+                conditionValue: '',
+              })
+            }
+          >
+            <SelectTrigger size='sm'>
+              <SelectValue>
+                {isFallback
+                  ? t('Fallback tier')
+                  : t(condition?.labelKey || 'Fallback tier')}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                {MEDIA_CONDITION_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {t(option.labelKey)}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field className='gap-1.5'>
+          <FieldLabel>{t('Condition value')}</FieldLabel>
+          <Input
+            value={props.tier.conditionValue}
+            disabled={
+              isFallback ||
+              props.tier.conditionVariable === MEDIA_CONDITION_NONE
+            }
+            onChange={(event) =>
+              props.onChange({
+                ...props.tier,
+                conditionValue: event.target.value,
+              })
+            }
+            placeholder={conditionValuePlaceholder}
+            className='placeholder:text-muted-foreground/50 disabled:placeholder:text-muted-foreground/60 h-8'
+          />
+        </Field>
+      </div>
+
+      <div className='grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]'>
+        <Field className='gap-1.5'>
+          <FieldLabel>{t('Billing method')}</FieldLabel>
+          <Select
+            items={MEDIA_BILLING_OPTIONS.map((option) => ({
+              value: option.value,
+              label: t(option.labelKey),
+            }))}
+            value={props.tier.billingMethod}
+            onValueChange={(value) =>
+              props.onChange({
+                ...props.tier,
+                billingMethod: value as MediaBillingMethod,
+              })
+            }
+          >
+            <SelectTrigger size='sm'>
+              <SelectValue>{t(billing?.labelKey || 'Each')}</SelectValue>
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                {MEDIA_BILLING_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {t(option.labelKey)}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </Field>
+        <div className='flex flex-wrap gap-3'>
+          {props.tier.billingMethod === MEDIA_BILLING_PER_UNIT && (
+            <PriceField
+              label={`${t('Unit price')} ($)`}
+              value={props.tier.unitPrice}
+              onChange={(value) =>
+                props.onChange({ ...props.tier, unitPrice: value })
+              }
+            />
+          )}
+          {props.tier.billingMethod === MEDIA_BILLING_FIXED_PLUS_SECOND && (
+            <PriceField
+              label={`${t('Fixed fee')} ($)`}
+              value={props.tier.fixedPrice}
+              onChange={(value) =>
+                props.onChange({ ...props.tier, fixedPrice: value })
+              }
+            />
+          )}
+          {props.tier.billingMethod !== MEDIA_BILLING_PER_UNIT && (
+            <PriceField
+              label={`${t('Per-second price')} ($)`}
+              value={props.tier.perSecondPrice}
+              onChange={(value) =>
+                props.onChange({ ...props.tier, perSecondPrice: value })
+              }
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+type MediaVisualEditorProps = {
+  config: MediaVisualConfig
+  onChange: (next: MediaVisualConfig) => void
+}
+
+function MediaVisualEditor(props: MediaVisualEditorProps) {
+  const { t } = useTranslation()
+  const expression = useMemo(
+    () => generateMediaExpr(props.config),
+    [props.config]
+  )
+  const mediaUnit = useMemo(() => {
+    const variables = props.config.tiers.map((tier) => tier.conditionVariable)
+    const hasVideo = variables.includes('resolution_tier')
+    const hasImage = variables.some((variable) =>
+      ['quality', 'image_size_tier', 'image_size'].includes(variable)
+    )
+    if (hasVideo && !hasImage) return t('Per video')
+    if (hasImage && !hasVideo) return t('Per image')
+    return t('Per output')
+  }, [props.config.tiers, t])
+  const inheritedConditionVariable =
+    props.config.tiers.find(
+      (tier) => tier.conditionVariable !== MEDIA_CONDITION_NONE
+    )?.conditionVariable || 'resolution_tier'
+
+  return (
+    <div className='space-y-3'>
+      <p className='text-muted-foreground text-xs'>
+        {t(
+          'Media tiers use validated dimensions. The last tier is always the fallback.'
+        )}
+      </p>
+      {props.config.tiers.map((tier, index) => (
+        <MediaTierCard
+          // Media tiers are positional until saved as one expression.
+          // eslint-disable-next-line react/no-array-index-key
+          key={index}
+          tier={tier}
+          index={index}
+          total={props.config.tiers.length}
+          onChange={(next) => {
+            const tiers = [...props.config.tiers]
+            tiers[index] = next
+            props.onChange({ tiers })
+          }}
+          onRemove={() => {
+            const tiers = props.config.tiers.filter(
+              (_, tierIndex) => tierIndex !== index
+            )
+            props.onChange({
+              tiers: tiers.length > 0 ? tiers : props.config.tiers,
+            })
+          }}
+        />
+      ))}
+      <Button
+        variant='outline'
+        size='sm'
+        className='h-9 w-36 justify-center'
+        onClick={() =>
+          props.onChange({
+            tiers: [
+              ...props.config.tiers.slice(0, -1),
+              {
+                ...createDefaultMediaTier(props.config.tiers.length),
+                conditionVariable: inheritedConditionVariable,
+                conditionValue: '',
+              },
+              props.config.tiers.at(-1) || createDefaultMediaTier(),
+            ],
+          })
+        }
+      >
+        <Plus className='mr-2 h-4 w-4' />
+        {t('Add tier')}
+      </Button>
+      <div className='space-y-1 border-t pt-3'>
+        <Label className='text-xs font-medium'>{t('Price preview')}</Label>
+        <div className='divide-y rounded-md border'>
+          {props.config.tiers.map((tier, index) => {
+            let price = `$${tier.unitPrice} / ${mediaUnit}`
+            if (tier.billingMethod === MEDIA_BILLING_PER_SECOND) {
+              price = `$${tier.perSecondPrice} / ${t('second')}`
+            } else if (tier.billingMethod === MEDIA_BILLING_FIXED_PLUS_SECOND) {
+              price = `$${tier.fixedPrice} / ${mediaUnit} + $${tier.perSecondPrice} / ${t('second')}`
+            }
+            return (
+              <div
+                // Media tiers are positional until saved as one expression.
+                // eslint-disable-next-line react/no-array-index-key
+                key={index}
+                className='flex items-center justify-between gap-3 px-3 py-2 text-sm'
+              >
+                <span className='truncate'>{tier.label || t('Default')}</span>
+                <span className='shrink-0 font-mono'>{price}</span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+      <div className='space-y-1 border-t pt-3'>
+        <Label className='text-xs font-medium'>
+          {t('Generated expression')}
+        </Label>
+        <code className='text-muted-foreground block text-xs break-all'>
+          {expression}
+        </code>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Raw expression editor
 // ---------------------------------------------------------------------------
 
@@ -890,13 +1257,17 @@ function RawExprEditor({ exprString, onChange }: RawExprEditorProps) {
             {t('Variables')}: <code>len</code>, <code>p</code>, <code>c</code>,{' '}
             <code>cr</code>, <code>cc</code>, <code>cc1h</code>,{' '}
             <code>img</code>, <code>img_o</code>, <code>ai</code>,{' '}
-            <code>ao</code>
+            <code>ao</code>, <code>units</code>, <code>seconds</code>,{' '}
+            <code>width</code>, <code>height</code>, <code>quality</code>,{' '}
+            <code>resolution_tier</code>, <code>image_size_tier</code>,{' '}
+            <code>image_size</code>
           </div>
           <div>
             {t('Functions')}: <code>tier(name, value)</code>, <code>max</code>,{' '}
             <code>min</code>, <code>ceil</code>, <code>floor</code>,{' '}
             <code>abs</code>, <code>header(name)</code>,{' '}
-            <code>param(path)</code>, <code>has(source, text)</code>
+            <code>param(path)</code>, <code>has(source, text)</code>,{' '}
+            <code>usd(amount)</code>
           </div>
         </AlertDescription>
       </Alert>
@@ -967,12 +1338,12 @@ function RuleConditionRow({
         return timeFunc
     }
   }
-  const sourceLabel =
-    condition.source === SOURCE_PARAM
-      ? t('Body param')
-      : condition.source === SOURCE_HEADER
-        ? t('Header')
-        : t('Time')
+  let sourceLabel = t('Time')
+  if (condition.source === SOURCE_PARAM) {
+    sourceLabel = t('Body param')
+  } else if (condition.source === SOURCE_HEADER) {
+    sourceLabel = t('Header')
+  }
 
   const handleSourceChange = (source: string) => {
     if (source === SOURCE_TIME) {
@@ -992,12 +1363,10 @@ function RuleConditionRow({
   const renderTimeCondition = (timeCond: TimeCondition) => (
     <>
       <Select
-        items={[
-          ...TIME_FUNCS.map((fn) => ({
-            value: fn,
-            label: getTimeFuncLabel(fn),
-          })),
-        ]}
+        items={TIME_FUNCS.map((fn) => ({
+          value: fn,
+          label: getTimeFuncLabel(fn),
+        }))}
         value={timeCond.timeFunc}
         onValueChange={(value) =>
           onChange({ ...timeCond, timeFunc: value as TimeFunc })
@@ -1017,12 +1386,10 @@ function RuleConditionRow({
         </SelectContent>
       </Select>
       <Select
-        items={[
-          ...COMMON_TIMEZONES.map((tz) => ({
-            value: tz.value,
-            label: tz.label,
-          })),
-        ]}
+        items={COMMON_TIMEZONES.map((tz) => ({
+          value: tz.value,
+          label: tz.label,
+        }))}
         value={timeCond.timezone}
         onValueChange={(value) =>
           value !== null && onChange({ ...timeCond, timezone: value })
@@ -1045,12 +1412,10 @@ function RuleConditionRow({
         </SelectContent>
       </Select>
       <Select
-        items={[
-          ...matchOptions.map((option) => ({
-            value: option.value,
-            label: getMatchLabel(option.value),
-          })),
-        ]}
+        items={matchOptions.map((option) => ({
+          value: option.value,
+          label: getMatchLabel(option.value),
+        }))}
         value={timeCond.mode}
         onValueChange={(v) => v !== null && handleModeChange(v)}
       >
@@ -1111,12 +1476,10 @@ function RuleConditionRow({
         className='w-44'
       />
       <Select
-        items={[
-          ...matchOptions.map((option) => ({
-            value: option.value,
-            label: getMatchLabel(option.value),
-          })),
-        ]}
+        items={matchOptions.map((option) => ({
+          value: option.value,
+          label: getMatchLabel(option.value),
+        }))}
         value={phCond.mode}
         onValueChange={(v) => v !== null && handleModeChange(v)}
       >
@@ -1241,6 +1604,8 @@ function RuleGroupCard({
       <div className='space-y-2'>
         {group.conditions.map((condition, conditionIndex) => (
           <RuleConditionRow
+            // Conditions are ordered expression fragments without stable IDs.
+            // eslint-disable-next-line react/no-array-index-key
             key={conditionIndex}
             condition={condition}
             onChange={(next) => handleConditionChange(conditionIndex, next)}
@@ -1340,7 +1705,7 @@ function PresetSection({ applyPreset }: PresetSectionProps) {
                 className='h-7 text-xs'
                 onClick={() => applyPreset(preset)}
               >
-                {preset.label}
+                {t(preset.label)}
               </Button>
             ))}
           </div>
@@ -1562,7 +1927,7 @@ function LlmPromptHelper({ modelName }: LlmPromptHelperProps) {
 
   const prompt = useMemo(() => {
     if (modelName) {
-      return LLM_PROMPT_TEMPLATE + `\n\nCurrent model: ${modelName}`
+      return `${LLM_PROMPT_TEMPLATE}\n\nCurrent model: ${modelName}`
     }
     return LLM_PROMPT_TEMPLATE
   }, [modelName])
@@ -1629,7 +1994,98 @@ export type TieredPricingEditorProps = {
   onRequestRuleExprChange: (next: string) => void
 }
 
-type EditorMode = 'visual' | 'raw'
+type EditorMode = 'visual' | 'media' | 'raw'
+
+function MediaEditorHelp(props: { modelName?: string }) {
+  const { t } = useTranslation()
+  const isGptImage2 = props.modelName?.startsWith('gpt-image-2')
+
+  return (
+    <LearnMore
+      contentProps={{
+        side: 'bottom',
+        align: 'start',
+        sideOffset: 8,
+        className: 'w-[min(24rem,calc(100vw-2rem))] gap-3 p-3',
+      }}
+      triggerProps={{
+        className:
+          'text-muted-foreground hover:text-foreground size-5 border-0 bg-transparent shadow-none',
+      }}
+    >
+      <div className='space-y-1'>
+        <p className='text-foreground font-medium'>
+          {t('How media pricing works')}
+        </p>
+        <p className='text-xs leading-relaxed'>
+          {t(
+            'Tiers are checked from top to bottom. The first matching tier sets the price.'
+          )}
+        </p>
+      </div>
+
+      <div className='space-y-2 text-xs leading-relaxed'>
+        <div>
+          <span className='text-foreground font-medium'>
+            {t('Tier condition')}
+          </span>
+          <p>
+            {t(
+              'Choose image quality, image size tier, or exact image size for images; choose video resolution tier for videos. Enter values exactly as supported by the upstream model.'
+            )}
+          </p>
+        </div>
+        <div>
+          <span className='text-foreground font-medium'>
+            {t('Billing method')}
+          </span>
+          <ul className='mt-1 space-y-1'>
+            <li>
+              <span className='text-foreground'>{t('Each')}:</span>{' '}
+              {t('unit price × output count')}
+            </li>
+            <li>
+              <span className='text-foreground'>{t('Per second')}:</span>{' '}
+              {t('per-second price × duration × output count')}
+            </li>
+            <li>
+              <span className='text-foreground'>
+                {t('Fixed fee + per second')}:
+              </span>{' '}
+              {t('(fixed fee + per-second price × duration) × output count')}
+            </li>
+          </ul>
+        </div>
+        <div>
+          <span className='text-foreground font-medium'>
+            {t('Fallback tier')}
+          </span>
+          <p>
+            {t(
+              'The last tier applies when no earlier condition matches, so it does not need a condition value.'
+            )}
+          </p>
+        </div>
+      </div>
+
+      <p className='border-t pt-2 text-xs leading-relaxed'>
+        {t(
+          'Price preview shows the configured rate. Actual charges use the validated output count and video duration.'
+        )}
+      </p>
+      {isGptImage2 && (
+        <div className='border-t pt-2 text-xs leading-relaxed'>
+          <p className='text-foreground font-medium'>GPT Image 2</p>
+          <p>
+            {t(
+              'Frimodel mapping: 1024x1024 is 1K; 1536x1024, 1024x1536, auto, and missing size are 2K. Larger custom sizes are classified by their longest edge.'
+            )}
+          </p>
+        </div>
+      )}
+    </LearnMore>
+  )
+}
 
 export const TieredPricingEditor = memo(function TieredPricingEditor({
   modelName,
@@ -1639,9 +2095,16 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
   onRequestRuleExprChange,
 }: TieredPricingEditorProps) {
   const { t } = useTranslation()
-  const [editorMode, setEditorMode] = useState<EditorMode>('visual')
+  const [editorMode, setEditorMode] = useState<EditorMode>(() => {
+    if (tryParseMediaConfig(currentExpr)) return 'media'
+    if (tryParseVisualConfig(currentExpr)) return 'visual'
+    return currentExpr ? 'raw' : 'visual'
+  })
   const [visualConfig, setVisualConfig] = useState<VisualConfig | null>(() =>
     tryParseVisualConfig(currentExpr)
+  )
+  const [mediaConfig, setMediaConfig] = useState<MediaVisualConfig>(
+    () => tryParseMediaConfig(currentExpr) || createDefaultMediaConfig()
   )
   const [rawExpr, setRawExpr] = useState(() =>
     combineBillingExpr(currentExpr || '', currentRequestRuleExpr || '')
@@ -1649,31 +2112,6 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
   const [requestRuleGroups, setRequestRuleGroups] = useState<
     RequestRuleGroup[]
   >(() => tryParseRequestRuleExpr(currentRequestRuleExpr) || [])
-  const initRef = useRef(false)
-
-  useEffect(() => {
-    if (initRef.current) return
-    initRef.current = true
-    const parsedConfig = tryParseVisualConfig(currentExpr)
-    if (parsedConfig) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setVisualConfig(parsedConfig)
-      setEditorMode('visual')
-    } else if (currentExpr) {
-      setVisualConfig(null)
-      setEditorMode('raw')
-    } else {
-      setVisualConfig(createDefaultVisualConfig())
-    }
-    setRawExpr(
-      combineBillingExpr(currentExpr || '', currentRequestRuleExpr || '')
-    )
-    setRequestRuleGroups(tryParseRequestRuleExpr(currentRequestRuleExpr) || [])
-  }, [currentExpr, currentRequestRuleExpr])
-
-  useEffect(() => {
-    initRef.current = false
-  }, [modelName])
 
   const canUseVisualRules = useMemo(() => {
     if (!currentRequestRuleExpr) return true
@@ -1684,65 +2122,89 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
     if (editorMode === 'visual') {
       return generateExprFromVisualConfig(visualConfig)
     }
+    if (editorMode === 'media') {
+      return generateMediaExpr(mediaConfig)
+    }
     const { billingExpr } = splitBillingExprAndRequestRules(rawExpr)
     return billingExpr
-  }, [editorMode, visualConfig, rawExpr])
+  }, [editorMode, visualConfig, mediaConfig, rawExpr])
 
-  useEffect(() => {
-    if (effectiveExpr !== currentExpr) {
-      onBillingExprChange(effectiveExpr)
-    }
-  }, [effectiveExpr, currentExpr, onBillingExprChange])
+  const handleVisualChange = useCallback(
+    (next: VisualConfig) => {
+      setVisualConfig(next)
+      onBillingExprChange(generateExprFromVisualConfig(next))
+    },
+    [onBillingExprChange]
+  )
 
-  useEffect(() => {
-    if (editorMode !== 'visual') return
-    const ruleExpr = buildRequestRuleExpr(requestRuleGroups)
-    if (ruleExpr !== currentRequestRuleExpr) {
-      onRequestRuleExprChange(ruleExpr)
-    }
-  }, [
-    editorMode,
-    requestRuleGroups,
-    currentRequestRuleExpr,
-    onRequestRuleExprChange,
-  ])
-
-  const handleVisualChange = useCallback((next: VisualConfig) => {
-    setVisualConfig(next)
-  }, [])
+  const handleMediaChange = useCallback(
+    (next: MediaVisualConfig) => {
+      setMediaConfig(next)
+      onBillingExprChange(generateMediaExpr(next))
+    },
+    [onBillingExprChange]
+  )
 
   const handleRawChange = useCallback(
     (value: string) => {
       setRawExpr(value)
-      const { requestRuleExpr: ruleStr } =
+      const { billingExpr, requestRuleExpr: ruleStr } =
         splitBillingExprAndRequestRules(value)
+      onBillingExprChange(billingExpr)
       onRequestRuleExprChange(ruleStr)
     },
-    [onRequestRuleExprChange]
+    [onBillingExprChange, onRequestRuleExprChange]
   )
 
   const handleModeChange = useCallback(
     (next: EditorMode) => {
+      const latestCombinedExpr =
+        combineBillingExpr(currentExpr, currentRequestRuleExpr) || currentExpr
       if (next === 'visual') {
         const { billingExpr, requestRuleExpr: ruleStr } =
-          splitBillingExprAndRequestRules(rawExpr)
+          splitBillingExprAndRequestRules(latestCombinedExpr)
         const parsed = tryParseVisualConfig(billingExpr)
+        const nextConfig = parsed || createDefaultVisualConfig()
         if (parsed) {
           setVisualConfig(parsed)
         } else {
-          setVisualConfig(createDefaultVisualConfig())
+          setVisualConfig(nextConfig)
         }
         const parsedGroups = tryParseRequestRuleExpr(ruleStr)
         setRequestRuleGroups(parsedGroups || [])
+        onBillingExprChange(generateExprFromVisualConfig(nextConfig))
+        onRequestRuleExprChange(ruleStr)
+      } else if (next === 'media') {
+        const { billingExpr, requestRuleExpr: ruleStr } =
+          splitBillingExprAndRequestRules(latestCombinedExpr)
+        const nextConfig =
+          tryParseMediaConfig(billingExpr) || createDefaultMediaConfig()
+        setMediaConfig(nextConfig)
+        setRequestRuleGroups(tryParseRequestRuleExpr(ruleStr) || [])
+        onBillingExprChange(generateMediaExpr(nextConfig))
         onRequestRuleExprChange(ruleStr)
       } else {
-        const expr = generateExprFromVisualConfig(visualConfig)
+        const expr =
+          editorMode === 'media'
+            ? generateMediaExpr(mediaConfig)
+            : generateExprFromVisualConfig(visualConfig)
         const ruleExpr = buildRequestRuleExpr(requestRuleGroups)
         setRawExpr(combineBillingExpr(expr, ruleExpr) || expr)
+        onBillingExprChange(expr)
+        onRequestRuleExprChange(ruleExpr)
       }
       setEditorMode(next)
     },
-    [rawExpr, visualConfig, requestRuleGroups, onRequestRuleExprChange]
+    [
+      currentExpr,
+      currentRequestRuleExpr,
+      editorMode,
+      visualConfig,
+      mediaConfig,
+      requestRuleGroups,
+      onBillingExprChange,
+      onRequestRuleExprChange,
+    ]
   )
 
   const applyPreset = useCallback(
@@ -1752,7 +2214,12 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
       const combined = combineBillingExpr(preset.expr, ruleExpr) || preset.expr
       setRawExpr(combined)
       const parsed = tryParseVisualConfig(preset.expr)
-      if (parsed) {
+      const parsedMedia = tryParseMediaConfig(preset.expr)
+      if (parsedMedia) {
+        setMediaConfig(parsedMedia)
+        setEditorMode('media')
+        setVisualConfig(null)
+      } else if (parsed) {
         setVisualConfig(parsed)
         setEditorMode('visual')
       } else {
@@ -1760,23 +2227,47 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
         setVisualConfig(null)
       }
       setRequestRuleGroups(presetGroups)
+      onBillingExprChange(preset.expr)
       onRequestRuleExprChange(ruleExpr)
+    },
+    [onBillingExprChange, onRequestRuleExprChange]
+  )
+
+  const handleRuleGroupsChange = useCallback(
+    (next: RequestRuleGroup[]) => {
+      setRequestRuleGroups(next)
+      onRequestRuleExprChange(buildRequestRuleExpr(next))
     },
     [onRequestRuleExprChange]
   )
 
-  const handleRuleGroupsChange = useCallback((next: RequestRuleGroup[]) => {
-    setRequestRuleGroups(next)
-  }, [])
+  let editor: React.ReactNode
+  if (editorMode === 'visual') {
+    editor = (
+      <VisualEditor visualConfig={visualConfig} onChange={handleVisualChange} />
+    )
+  } else if (editorMode === 'media') {
+    editor = (
+      <MediaVisualEditor config={mediaConfig} onChange={handleMediaChange} />
+    )
+  } else {
+    editor = <RawExprEditor exprString={rawExpr} onChange={handleRawChange} />
+  }
 
   return (
     <div className='space-y-5'>
       <div className='grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end'>
         <Field className='gap-2'>
-          <FieldLabel>{t('Editor mode')}</FieldLabel>
+          <div className='flex items-center gap-1.5'>
+            <FieldLabel>{t('Editor mode')}</FieldLabel>
+            {editorMode === 'media' && (
+              <MediaEditorHelp modelName={modelName} />
+            )}
+          </div>
           <Select
             items={[
               { value: 'visual', label: t('Visual editor') },
+              { value: 'media', label: t('Media editor') },
               { value: 'raw', label: t('Expression editor') },
             ]}
             value={editorMode}
@@ -1788,6 +2279,7 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
             <SelectContent alignItemWithTrigger={false}>
               <SelectGroup>
                 <SelectItem value='visual'>{t('Visual editor')}</SelectItem>
+                <SelectItem value='media'>{t('Media editor')}</SelectItem>
                 <SelectItem value='raw'>{t('Expression editor')}</SelectItem>
               </SelectGroup>
             </SelectContent>
@@ -1803,16 +2295,9 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
       <PresetSection applyPreset={applyPreset} />
 
       <div className='bg-muted/30 space-y-3 rounded-md border p-3'>
-        {editorMode === 'visual' ? (
-          <VisualEditor
-            visualConfig={visualConfig}
-            onChange={handleVisualChange}
-          />
-        ) : (
-          <RawExprEditor exprString={rawExpr} onChange={handleRawChange} />
-        )}
+        {editor}
 
-        {editorMode === 'visual' && (
+        {editorMode !== 'raw' && (
           <div className='space-y-3 border-t pt-3'>
             <div className='space-y-1'>
               <h4 className='text-sm font-medium'>
@@ -1837,6 +2322,8 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
               <>
                 {requestRuleGroups.map((group, groupIndex) => (
                   <RuleGroupCard
+                    // Rule groups are ordered expression fragments without stable IDs.
+                    // eslint-disable-next-line react/no-array-index-key
                     key={groupIndex}
                     group={group}
                     index={groupIndex}
@@ -1872,7 +2359,9 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
         )}
       </div>
 
-      <CostEstimator effectiveExpr={effectiveExpr} />
+      {!isMediaBillingExpr(effectiveExpr) && (
+        <CostEstimator effectiveExpr={effectiveExpr} />
+      )}
     </div>
   )
 })

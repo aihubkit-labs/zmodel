@@ -5,7 +5,61 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestV2MediaBillingCombinesTokenAndDollarCharges(t *testing.T) {
+	cost, trace, err := billingexpr.RunExprWithDimensions(
+		`v2:tier("high", p * 2.5 + usd(0.096 * units))`,
+		billingexpr.TokenParams{P: 1000},
+		billingexpr.BillingDimensions{Units: 3, Quality: "high"},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "high", trace.MatchedTier)
+	assert.InDelta(t, 290500, cost, 0.0001)
+}
+
+func TestV2MediaBillingSelectsResolutionTier(t *testing.T) {
+	expr := `v2:resolution_tier == "4k" ? tier("4k", usd(0.04 * seconds * units)) : tier("standard", usd(0.10 * units))`
+	cost, trace, err := billingexpr.RunExprWithDimensions(expr, billingexpr.TokenParams{}, billingexpr.BillingDimensions{
+		Units: 1, Seconds: 15, ResolutionTier: "4k",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "4k", trace.MatchedTier)
+	assert.InDelta(t, 600000, cost, 0.0001)
+}
+
+func TestV1RejectsV2MediaVariables(t *testing.T) {
+	_, err := billingexpr.CompileFromCache(`tier("base", units * 1)`)
+	require.Error(t, err)
+}
+
+func TestV2RejectsNegativeDollarCharge(t *testing.T) {
+	_, _, err := billingexpr.RunExpr(`v2:usd(-0.01)`, billingexpr.TokenParams{})
+	require.Error(t, err)
+}
+
+func TestUnsupportedExpressionVersionRejected(t *testing.T) {
+	_, err := billingexpr.CompileFromCache(`v3:tier("base", p)`)
+	require.ErrorContains(t, err, "unsupported billing expression version v3")
+}
+
+func TestValidateBillingDimensionsRejectsMissingReferencedTier(t *testing.T) {
+	err := billingexpr.ValidateBillingDimensions(
+		billingexpr.BillingDimensions{Units: 1, ImageSize: "auto"},
+		map[string]bool{"units": true, "image_size_tier": true},
+	)
+	require.ErrorContains(t, err, "image_size_tier is required")
+}
+
+func TestValidateBillingDimensionsAllowsUnusedMissingValues(t *testing.T) {
+	err := billingexpr.ValidateBillingDimensions(
+		billingexpr.BillingDimensions{Units: 1},
+		map[string]bool{"units": true},
+	)
+	require.NoError(t, err)
+}
 
 // ---------------------------------------------------------------------------
 // Claude-style: fixed tiers, input > 200K changes both input & output price

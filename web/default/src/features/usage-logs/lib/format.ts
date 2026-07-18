@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { StatusBadgeProps } from '@/components/status-badge'
 import {
   BILLING_PRICING_VARS,
+  inferMediaUnit,
   normalizeTierLabel,
   parseTiersFromExpr,
   type ParsedTier,
@@ -195,7 +196,7 @@ export function decodeBillingExprB64(exprB64: string | undefined): string {
 
     return decodeURIComponent(
       Array.prototype.map
-        .call(bytes, (byte: number) => '%' + byte.toString(16).padStart(2, '0'))
+        .call(bytes, (byte: number) => `%${byte.toString(16).padStart(2, '0')}`)
         .join('')
     )
   } catch {
@@ -231,6 +232,8 @@ export interface TieredBillingSummary {
   tiers: ParsedTier[]
   tier: ParsedTier
   priceEntries: Array<{ field: string; shortLabel: string; price: number }>
+  mediaPricing?: ParsedTier['mediaPricing']
+  mediaUnit: ReturnType<typeof inferMediaUnit>
 }
 
 /**
@@ -276,7 +279,13 @@ export function getTieredBillingSummary(
       })
     }
   }
-  return { tiers, tier, priceEntries }
+  return {
+    tiers,
+    tier,
+    priceEntries,
+    mediaPricing: tier.mediaPricing,
+    mediaUnit: inferMediaUnit(tiers),
+  }
 }
 
 /**

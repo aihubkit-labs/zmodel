@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
@@ -86,6 +87,10 @@ func (BaseBilling) EstimateBilling(_ *gin.Context, _ *relaycommon.RelayInfo) map
 	return nil
 }
 
+func (BaseBilling) EstimateBillingDimensions(_ *gin.Context, _ *relaycommon.RelayInfo) (billingexpr.BillingDimensions, error) {
+	return billingexpr.BillingDimensions{}, nil
+}
+
 // AdjustBillingOnSubmit returns nil (no submit-time adjustment).
 func (BaseBilling) AdjustBillingOnSubmit(_ *relaycommon.RelayInfo, _ []byte) map[string]float64 {
 	return nil
@@ -94,4 +99,8 @@ func (BaseBilling) AdjustBillingOnSubmit(_ *relaycommon.RelayInfo, _ []byte) map
 // AdjustBillingOnComplete returns 0 (keep pre-charged amount).
 func (BaseBilling) AdjustBillingOnComplete(_ *model.Task, _ *relaycommon.TaskInfo) int {
 	return 0
+}
+
+func (BaseBilling) AdjustBillingDimensionsOnComplete(_ *model.Task, _ *relaycommon.TaskInfo) *billingexpr.BillingDimensions {
+	return nil
 }

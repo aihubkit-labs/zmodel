@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/glebarez/sqlite"
@@ -718,6 +719,7 @@ func TestNonTerminalUpdate_NoBilling(t *testing.T) {
 
 type mockAdaptor struct {
 	adjustReturn int
+	actualMedia  *billingexpr.BillingDimensions
 }
 
 func (m *mockAdaptor) Init(_ *relaycommon.RelayInfo) {}
@@ -727,6 +729,9 @@ func (m *mockAdaptor) FetchTask(string, string, map[string]any, string) (*http.R
 func (m *mockAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) { return nil, nil }
 func (m *mockAdaptor) AdjustBillingOnComplete(_ *model.Task, _ *relaycommon.TaskInfo) int {
 	return m.adjustReturn
+}
+func (m *mockAdaptor) AdjustBillingDimensionsOnComplete(_ *model.Task, _ *relaycommon.TaskInfo) *billingexpr.BillingDimensions {
+	return m.actualMedia
 }
 
 // ===========================================================================
@@ -816,4 +821,185 @@ func TestSettle_NonPerCallBilling_AppliesAdaptorAdjustment(t *testing.T) {
 	log := getLastLog(t)
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
+}
+
+func TestSettle_TieredMediaUsesFrozenQuotaPerUnitAndActualDuration(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 33, 33, 33
+	const initQuota, preConsumed, tokenRemain = 10000, 100, 8000
+	seedUser(t, userID, initQuota)
+	seedToken(t, tokenID, userID, "sk-tiered-media", tokenRemain)
+	seedChannel(t, channelID)
+
+	exprStr := `v2:tier("720p", usd(0.01 * seconds))`
+	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext = &model.TaskBillingContext{
+		BillingMode:         "tiered_expr",
+		ExprString:          exprStr,
+		ExprHash:            billingexpr.ExprHashString(exprStr),
+		ExprVersion:         2,
+		GroupRatio:          1,
+		OriginModelName:     "test-model",
+		EstimatedDimensions: billingexpr.BillingDimensions{Units: 1, Seconds: 10, ResolutionTier: "720p"},
+		EstimatedTier:       "720p",
+		EstimatedQuota:      preConsumed,
+		QuotaPerUnit:        1000,
+	}
+	require.NoError(t, model.DB.Create(task).Error)
+	adaptor := &mockAdaptor{actualMedia: &billingexpr.BillingDimensions{Seconds: 5}}
+
+	settleTaskBillingOnComplete(ctx, adaptor, task, &relaycommon.TaskInfo{Status: model.TaskStatusSuccess})
+
+	assert.Equal(t, 50, task.Quota)
+	assert.Equal(t, initQuota+50, getUserQuota(t, userID))
+	assert.Equal(t, tokenRemain+50, getTokenRemainQuota(t, tokenID))
+	log := getLastLog(t)
+	require.NotNil(t, log)
+	assert.Equal(t, model.LogTypeRefund, log.Type)
+	assert.Equal(t, 50, log.Quota)
+
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	require.NotNil(t, reloaded.PrivateData.BillingContext)
+	assert.Equal(t, 50, reloaded.Quota)
+	assert.Equal(t, 5.0, reloaded.PrivateData.BillingContext.ActualDimensions.Seconds)
+	assert.Equal(t, "720p", reloaded.PrivateData.BillingContext.ActualDimensions.ResolutionTier)
+	assert.Equal(t, "720p", reloaded.PrivateData.BillingContext.ActualTier)
+	assert.Equal(t, 50, reloaded.PrivateData.BillingContext.ActualQuota)
+}
+
+func TestSettle_TieredMediaCanRefundToZero(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 34, 34, 34
+	const initQuota, preConsumed, tokenRemain = 10000, 100, 8000
+	seedUser(t, userID, initQuota)
+	seedToken(t, tokenID, userID, "sk-tiered-zero", tokenRemain)
+	seedChannel(t, channelID)
+
+	exprStr := `v2:tier("free", usd(0))`
+	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext = &model.TaskBillingContext{
+		BillingMode:     "tiered_expr",
+		ExprString:      exprStr,
+		ExprHash:        billingexpr.ExprHashString(exprStr),
+		ExprVersion:     2,
+		GroupRatio:      1,
+		OriginModelName: "test-model",
+		EstimatedQuota:  preConsumed,
+		QuotaPerUnit:    1000,
+	}
+	require.NoError(t, model.DB.Create(task).Error)
+
+	settleTaskBillingOnComplete(ctx, &mockAdaptor{}, task, &relaycommon.TaskInfo{Status: model.TaskStatusSuccess})
+
+	assert.Equal(t, 0, task.Quota)
+	assert.Equal(t, initQuota+preConsumed, getUserQuota(t, userID))
+	assert.Equal(t, tokenRemain+preConsumed, getTokenRemainQuota(t, tokenID))
+
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	require.NotNil(t, reloaded.PrivateData.BillingContext)
+	assert.Equal(t, 0, reloaded.Quota)
+	assert.Equal(t, "free", reloaded.PrivateData.BillingContext.ActualTier)
+	assert.Equal(t, 0, reloaded.PrivateData.BillingContext.ActualQuota)
+}
+
+func TestSettle_TieredMediaPersistsActualDimensionsWithoutQuotaDelta(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 35, 35, 35
+	const initQuota, preConsumed, tokenRemain = 10000, 100, 8000
+	seedUser(t, userID, initQuota)
+	seedToken(t, tokenID, userID, "sk-tiered-no-delta", tokenRemain)
+	seedChannel(t, channelID)
+
+	exprStr := `v2:tier("fixed", usd(0.10 * units))`
+	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext = &model.TaskBillingContext{
+		BillingMode:         "tiered_expr",
+		ExprString:          exprStr,
+		ExprHash:            billingexpr.ExprHashString(exprStr),
+		ExprVersion:         2,
+		GroupRatio:          1,
+		OriginModelName:     "test-model",
+		EstimatedDimensions: billingexpr.BillingDimensions{Units: 1, Seconds: 10, ResolutionTier: "720p"},
+		EstimatedTier:       "fixed",
+		EstimatedQuota:      preConsumed,
+		QuotaPerUnit:        1000,
+	}
+	require.NoError(t, model.DB.Create(task).Error)
+	adaptor := &mockAdaptor{actualMedia: &billingexpr.BillingDimensions{Seconds: 5}}
+
+	settleTaskBillingOnComplete(ctx, adaptor, task, &relaycommon.TaskInfo{Status: model.TaskStatusSuccess})
+
+	assert.Equal(t, preConsumed, task.Quota)
+	assert.Equal(t, initQuota, getUserQuota(t, userID))
+	assert.Equal(t, tokenRemain, getTokenRemainQuota(t, tokenID))
+
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	require.NotNil(t, reloaded.PrivateData.BillingContext)
+	assert.Equal(t, 5.0, reloaded.PrivateData.BillingContext.ActualDimensions.Seconds)
+	assert.Equal(t, "720p", reloaded.PrivateData.BillingContext.ActualDimensions.ResolutionTier)
+	assert.Equal(t, "fixed", reloaded.PrivateData.BillingContext.ActualTier)
+	assert.Equal(t, preConsumed, reloaded.PrivateData.BillingContext.ActualQuota)
+}
+
+func TestSettle_TieredMediaSnapshotSurvivesDatabaseRoundTrip(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 36, 36, 36
+	const initQuota, preConsumed, tokenRemain = 10000, 400, 8000
+	seedUser(t, userID, initQuota)
+	seedToken(t, tokenID, userID, "sk-tiered-round-trip", tokenRemain)
+	seedChannel(t, channelID)
+
+	exprStr := `v2:param("billing_mode") == "premium" && header("x-price-plan") == "pro" ? tier("premium", usd(0.02 * seconds)) : tier("base", usd(0.01 * seconds))`
+	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext = &model.TaskBillingContext{
+		BillingMode:         "tiered_expr",
+		ExprString:          exprStr,
+		ExprHash:            billingexpr.ExprHashString(exprStr),
+		ExprVersion:         2,
+		GroupRatio:          2,
+		OriginModelName:     "round-trip-video-model",
+		EstimatedDimensions: billingexpr.BillingDimensions{Units: 1, Seconds: 10, ResolutionTier: "720p"},
+		EstimatedTier:       "premium",
+		EstimatedQuota:      preConsumed,
+		QuotaPerUnit:        1000,
+		RequestInput: billingexpr.RequestInput{
+			Headers: map[string]string{"x-price-plan": "pro"},
+			Params:  map[string]any{"billing_mode": "premium"},
+		},
+	}
+	require.NoError(t, model.DB.Create(task).Error)
+
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	require.NotNil(t, reloaded.PrivateData.BillingContext)
+	bc := reloaded.PrivateData.BillingContext
+	assert.Equal(t, exprStr, bc.ExprString)
+	assert.Equal(t, billingexpr.ExprHashString(exprStr), bc.ExprHash)
+	assert.Equal(t, 2, bc.ExprVersion)
+	assert.Equal(t, 2.0, bc.GroupRatio)
+	assert.Equal(t, 10.0, bc.EstimatedDimensions.Seconds)
+	assert.Equal(t, map[string]string{"x-price-plan": "pro"}, bc.RequestInput.Headers)
+	assert.Equal(t, "premium", bc.RequestInput.Params["billing_mode"])
+
+	settleTaskBillingOnComplete(ctx, &mockAdaptor{actualMedia: &billingexpr.BillingDimensions{Seconds: 5}}, &reloaded, &relaycommon.TaskInfo{Status: model.TaskStatusSuccess})
+
+	assert.Equal(t, 200, reloaded.Quota)
+	assert.Equal(t, initQuota+200, getUserQuota(t, userID))
+	assert.Equal(t, tokenRemain+200, getTokenRemainQuota(t, tokenID))
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	require.NotNil(t, reloaded.PrivateData.BillingContext)
+	assert.Equal(t, "premium", reloaded.PrivateData.BillingContext.ActualTier)
+	assert.Equal(t, 5.0, reloaded.PrivateData.BillingContext.ActualDimensions.Seconds)
+	assert.Equal(t, 200, reloaded.PrivateData.BillingContext.ActualQuota)
 }

@@ -22,47 +22,73 @@ import (
 // Returns the resulting float64 quota (before group ratio) and a TraceResult
 // with side-channel info captured by tier() during execution.
 func RunExpr(exprStr string, params TokenParams) (float64, TraceResult, error) {
-	return RunExprWithRequest(exprStr, params, RequestInput{})
+	return RunExprWithDimensionsAndRequest(exprStr, params, BillingDimensions{}, RequestInput{})
 }
 
 func RunExprWithRequest(exprStr string, params TokenParams, request RequestInput) (float64, TraceResult, error) {
+	return RunExprWithDimensionsAndRequest(exprStr, params, BillingDimensions{}, request)
+}
+
+func RunExprWithDimensions(exprStr string, params TokenParams, dimensions BillingDimensions) (float64, TraceResult, error) {
+	return RunExprWithDimensionsAndRequest(exprStr, params, dimensions, RequestInput{})
+}
+
+func RunExprWithDimensionsAndRequest(exprStr string, params TokenParams, dimensions BillingDimensions, request RequestInput) (float64, TraceResult, error) {
 	prog, err := CompileFromCache(exprStr)
 	if err != nil {
 		return 0, TraceResult{}, err
 	}
-	return runProgram(prog, params, request)
+	return runProgram(prog, params, dimensions, request)
 }
 
 // RunExprByHash is like RunExpr but accepts a pre-computed hash for the cache
 // lookup, avoiding a redundant SHA-256 computation when the caller already
 // holds BillingSnapshot.ExprHash.
 func RunExprByHash(exprStr, hash string, params TokenParams) (float64, TraceResult, error) {
-	return RunExprByHashWithRequest(exprStr, hash, params, RequestInput{})
+	return RunExprByHashWithDimensionsAndRequest(exprStr, hash, params, BillingDimensions{}, RequestInput{})
 }
 
 func RunExprByHashWithRequest(exprStr, hash string, params TokenParams, request RequestInput) (float64, TraceResult, error) {
+	return RunExprByHashWithDimensionsAndRequest(exprStr, hash, params, BillingDimensions{}, request)
+}
+
+func RunExprByHashWithDimensionsAndRequest(exprStr, hash string, params TokenParams, dimensions BillingDimensions, request RequestInput) (float64, TraceResult, error) {
 	prog, err := CompileFromCacheByHash(exprStr, hash)
 	if err != nil {
 		return 0, TraceResult{}, err
 	}
-	return runProgram(prog, params, request)
+	return runProgram(prog, params, dimensions, request)
 }
 
-func runProgram(prog *vm.Program, params TokenParams, request RequestInput) (float64, TraceResult, error) {
+func runProgram(prog *vm.Program, params TokenParams, dimensions BillingDimensions, request RequestInput) (float64, TraceResult, error) {
 	trace := TraceResult{}
 	headers := normalizeHeaders(request.Headers)
 
 	env := map[string]interface{}{
-		"p":    params.P,
-		"c":    params.C,
-		"len":  params.Len,
-		"cr":   params.CR,
-		"cc":   params.CC,
-		"cc1h": params.CC1h,
-		"img":  params.Img,
-		"img_o": params.ImgO,
-		"ai":   params.AI,
-		"ao":   params.AO,
+		"p":               params.P,
+		"c":               params.C,
+		"len":             params.Len,
+		"cr":              params.CR,
+		"cc":              params.CC,
+		"cc1h":            params.CC1h,
+		"img":             params.Img,
+		"img_o":           params.ImgO,
+		"ai":              params.AI,
+		"ao":              params.AO,
+		"units":           dimensions.Units,
+		"seconds":         dimensions.Seconds,
+		"width":           dimensions.Width,
+		"height":          dimensions.Height,
+		"quality":         dimensions.Quality,
+		"resolution_tier": dimensions.ResolutionTier,
+		"image_size_tier": dimensions.ImageSizeTier,
+		"image_size":      dimensions.ImageSize,
+		"usd": func(amount float64) float64 {
+			if amount < 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
+				return math.NaN()
+			}
+			return amount * 1_000_000
+		},
 		"tier": func(name string, value float64) float64 {
 			trace.MatchedTier = name
 			trace.Cost = value
@@ -73,7 +99,13 @@ func runProgram(prog *vm.Program, params TokenParams, request RequestInput) (flo
 		},
 		"param": func(path string) interface{} {
 			path = strings.TrimSpace(path)
-			if path == "" || len(request.Body) == 0 {
+			if path == "" {
+				return nil
+			}
+			if value, ok := request.Params[path]; ok {
+				return value
+			}
+			if len(request.Body) == 0 {
 				return nil
 			}
 			result := gjson.GetBytes(request.Body, path)
@@ -94,10 +126,10 @@ func runProgram(prog *vm.Program, params TokenParams, request RequestInput) (flo
 		"month":   func(tz string) int { return int(timeInZone(tz).Month()) },
 		"day":     func(tz string) int { return timeInZone(tz).Day() },
 		"max":     math.Max,
-		"min":   math.Min,
-		"abs":   math.Abs,
-		"ceil":  math.Ceil,
-		"floor": math.Floor,
+		"min":     math.Min,
+		"abs":     math.Abs,
+		"ceil":    math.Ceil,
+		"floor":   math.Floor,
 	}
 
 	out, err := expr.Run(prog, env)
@@ -107,6 +139,9 @@ func runProgram(prog *vm.Program, params TokenParams, request RequestInput) (flo
 	f, ok := out.(float64)
 	if !ok {
 		return 0, trace, fmt.Errorf("expr result is %T, want float64", out)
+	}
+	if f < 0 || math.IsNaN(f) || math.IsInf(f, 0) {
+		return 0, trace, fmt.Errorf("expr result must be a finite non-negative number")
 	}
 	return f, trace, nil
 }

@@ -85,6 +85,37 @@ func TestTryTieredSettleUsesFrozenRequestInput(t *testing.T) {
 	}
 }
 
+func TestTryTieredSettleUsesActualImageCount(t *testing.T) {
+	exprStr := `v2:tier("image", usd(0.10 * units))`
+	relayInfo := &relaycommon.RelayInfo{
+		TieredBillingSnapshot: &billingexpr.BillingSnapshot{
+			BillingMode:         "tiered_expr",
+			ExprString:          exprStr,
+			ExprHash:            billingexpr.ExprHashString(exprStr),
+			GroupRatio:          1,
+			QuotaPerUnit:        1000,
+			ExprVersion:         2,
+			EstimatedDimensions: billingexpr.BillingDimensions{Units: 3},
+		},
+	}
+
+	ok, quota, result := TryTieredSettleWithDimensions(
+		relayInfo,
+		billingexpr.TokenParams{},
+		billingexpr.BillingDimensions{Units: 2},
+	)
+
+	if !ok {
+		t.Fatal("expected tiered settle to apply")
+	}
+	if quota != 200 {
+		t.Fatalf("quota = %d, want 200", quota)
+	}
+	if result == nil || result.ActualDimensions.Units != 2 {
+		t.Fatalf("actual dimensions = %#v, want units=2", result)
+	}
+}
+
 func TestTryTieredSettleFallsBackToFrozenPreConsumeOnExprError(t *testing.T) {
 	relayInfo := &relaycommon.RelayInfo{
 		FinalPreConsumedQuota: 321,
