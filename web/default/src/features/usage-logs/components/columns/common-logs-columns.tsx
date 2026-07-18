@@ -212,6 +212,21 @@ function buildTypeDetailSegments(
           muted: true,
         })
       }
+      if (tieredSummary.mediaPricing) {
+        const pricing = tieredSummary.mediaPricing
+        let unit = t('Per output')
+        if (tieredSummary.mediaUnit === 'image') unit = t('Per image')
+        if (tieredSummary.mediaUnit === 'video') unit = t('Per video')
+        let text = ''
+        if (pricing.method === 'per_second') {
+          text = `${formatPriceCompact(pricing.perSecondPrice || 0)} / ${t('second')}`
+        } else if (pricing.method === 'fixed_plus_second') {
+          text = `${formatPriceCompact(pricing.fixedPrice || 0)} / ${unit} + ${formatPriceCompact(pricing.perSecondPrice || 0)} / ${t('second')}`
+        } else {
+          text = `${formatPriceCompact(pricing.unitPrice || 0)} / ${unit}`
+        }
+        segments.push({ text, muted: true })
+      }
     } else {
       segments.push({
         text: `${t('Dynamic Pricing')} · ${t('No matching results')}`,

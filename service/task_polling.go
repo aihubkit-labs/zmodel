@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 
@@ -31,6 +32,10 @@ type TaskPollingAdaptor interface {
 	// AdjustBillingOnComplete 在任务到达终态（成功/失败）时由轮询循环调用。
 	// 返回正数触发差额结算（补扣/退还），返回 0 保持预扣费金额不变。
 	AdjustBillingOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) int
+}
+
+type taskMediaBillingAdaptor interface {
+	AdjustBillingDimensionsOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) *billingexpr.BillingDimensions
 }
 
 // GetTaskAdaptorFunc 由 main 包注入，用于获取指定平台的任务适配器。
@@ -631,6 +636,40 @@ func truncateBase64(s string) string {
 //  2. taskResult.TotalTokens > 0 → 按 token 重算
 //  3. 都不满足 → 保持预扣额度不变
 func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) {
+	if bc := task.PrivateData.BillingContext; bc != nil && bc.BillingMode == "tiered_expr" {
+		dimensions := bc.EstimatedDimensions
+		if mediaAdaptor, ok := adaptor.(taskMediaBillingAdaptor); ok {
+			if actual := mediaAdaptor.AdjustBillingDimensionsOnComplete(task, taskResult); actual != nil {
+				dimensions = billingexpr.MergeBillingDimensions(dimensions, *actual)
+			}
+		}
+		snapshot := &billingexpr.BillingSnapshot{
+			BillingMode:              bc.BillingMode,
+			ModelName:                bc.OriginModelName,
+			ExprString:               bc.ExprString,
+			ExprHash:                 bc.ExprHash,
+			GroupRatio:               bc.GroupRatio,
+			EstimatedQuotaAfterGroup: bc.EstimatedQuota,
+			EstimatedTier:            bc.EstimatedTier,
+			QuotaPerUnit:             bc.QuotaPerUnit,
+			ExprVersion:              bc.ExprVersion,
+			EstimatedDimensions:      bc.EstimatedDimensions,
+		}
+		if snapshot.QuotaPerUnit == 0 {
+			// Compatibility for tasks submitted before quota_per_unit was persisted.
+			snapshot.QuotaPerUnit = common.QuotaPerUnit
+		}
+		result, err := billingexpr.ComputeTieredQuotaWithDimensionsAndRequest(snapshot, billingexpr.TokenParams{}, dimensions, bc.RequestInput)
+		if err != nil {
+			logger.LogWarn(ctx, fmt.Sprintf("任务 %s 阶梯表达式结算失败，保留预扣额度: %s", task.TaskID, err.Error()))
+			return
+		}
+		bc.ActualDimensions = result.ActualDimensions
+		bc.ActualTier = result.MatchedTier
+		bc.ActualQuota = result.ActualQuotaAfterGroup
+		RecalculateTaskQuotaAllowZero(ctx, task, result.ActualQuotaAfterGroup, "阶梯媒体计费", result.Clamp)
+		return
+	}
 	// 0. 按次计费的任务不做差额结算
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.PerCallBilling {
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 按次计费，跳过差额结算", task.TaskID))

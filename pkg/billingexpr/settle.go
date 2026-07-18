@@ -15,11 +15,18 @@ func quotaConversion(exprOutput float64, snap *BillingSnapshot) float64 {
 // ComputeTieredQuota runs the Expr from a frozen BillingSnapshot against
 // actual token counts and returns the settlement result.
 func ComputeTieredQuota(snap *BillingSnapshot, params TokenParams) (TieredResult, error) {
-	return ComputeTieredQuotaWithRequest(snap, params, RequestInput{})
+	return ComputeTieredQuotaWithDimensionsAndRequest(snap, params, snap.EstimatedDimensions, RequestInput{})
 }
 
 func ComputeTieredQuotaWithRequest(snap *BillingSnapshot, params TokenParams, request RequestInput) (TieredResult, error) {
-	cost, trace, err := RunExprByHashWithRequest(snap.ExprString, snap.ExprHash, params, request)
+	return ComputeTieredQuotaWithDimensionsAndRequest(snap, params, snap.EstimatedDimensions, request)
+}
+
+func ComputeTieredQuotaWithDimensionsAndRequest(snap *BillingSnapshot, params TokenParams, dimensions BillingDimensions, request RequestInput) (TieredResult, error) {
+	if err := ValidateBillingDimensions(dimensions, UsedVars(snap.ExprString)); err != nil {
+		return TieredResult{}, err
+	}
+	cost, trace, err := RunExprByHashWithDimensionsAndRequest(snap.ExprString, snap.ExprHash, params, dimensions, request)
 	if err != nil {
 		return TieredResult{}, err
 	}
@@ -33,6 +40,7 @@ func ComputeTieredQuotaWithRequest(snap *BillingSnapshot, params TokenParams, re
 		ActualQuotaAfterGroup:  afterGroup,
 		MatchedTier:            trace.MatchedTier,
 		CrossedTier:            crossed,
+		ActualDimensions:       dimensions,
 		Clamp:                  clamp,
 	}, nil
 }

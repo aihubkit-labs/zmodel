@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/gin-gonic/gin"
@@ -359,6 +360,21 @@ func TestOpenaiImageHandlerUsesPositiveActualCountForFixedPrice(t *testing.T) {
 			require.Equal(t, tt.body, recorder.Body.String())
 		})
 	}
+}
+
+func TestOpenaiImageHandlerRecordsActualCountForTieredBilling(t *testing.T) {
+	body := `{"data":[{"b64_json":"first"},{"b64_json":"second"}]}`
+	c, _, resp, info := newImageTestContext(t, body, "application/json", false)
+	info.TieredBillingSnapshot = &billingexpr.BillingSnapshot{
+		EstimatedDimensions: billingexpr.BillingDimensions{Units: 3, ImageSize: "1024x1024"},
+	}
+
+	_, err := OpenaiImageHandler(c, info, resp)
+
+	require.Nil(t, err)
+	require.NotNil(t, info.ActualBillingDimensions)
+	require.Equal(t, float64(2), info.ActualBillingDimensions.Units)
+	require.Equal(t, "1024x1024", info.ActualBillingDimensions.ImageSize)
 }
 
 // TestOpenaiImageHandlersReturnJSONError covers JSON error responses for both

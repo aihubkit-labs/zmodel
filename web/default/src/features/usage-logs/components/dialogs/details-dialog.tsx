@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -31,7 +32,6 @@ import {
   Info,
   LogIn,
 } from 'lucide-react'
-import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
@@ -63,7 +63,11 @@ import {
   isPerCallBilling,
   isTimingLogType,
 } from '../../lib/utils'
-import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
+import {
+  USAGE_BILLING_PATH,
+  type BillingDimensions,
+  type LogOtherData,
+} from '../../types'
 
 // Maps a channel-update changed-field token (as recorded by the backend audit)
 // to its i18n label key for display in the audit details.
@@ -151,6 +155,33 @@ function formatRatio(ratio: number | undefined): string {
   return ratio.toFixed(4)
 }
 
+function formatBillingDimensions(
+  dimensions: BillingDimensions | undefined,
+  t: TFunction
+): string {
+  if (!dimensions) return '-'
+  const values: string[] = []
+  if (dimensions.units) values.push(`${t('Units')}: ${dimensions.units}`)
+  if (dimensions.seconds) {
+    values.push(`${t('Duration')}: ${dimensions.seconds}s`)
+  }
+  if (dimensions.resolution_tier) {
+    values.push(`${t('Video resolution tier')}: ${dimensions.resolution_tier}`)
+  }
+  if (dimensions.image_size) {
+    values.push(`${t('Image size')}: ${dimensions.image_size}`)
+  } else if (dimensions.width && dimensions.height) {
+    values.push(`${t('Image size')}: ${dimensions.width}x${dimensions.height}`)
+  }
+  if (dimensions.image_size_tier) {
+    values.push(`${t('Image size tier')}: ${dimensions.image_size_tier}`)
+  }
+  if (dimensions.quality) {
+    values.push(`${t('Image quality')}: ${dimensions.quality}`)
+  }
+  return values.length > 0 ? values.join(' · ') : '-'
+}
+
 function getUsageBillingPathLabel(
   t: TFunction,
   adminInfo: LogOtherData['admin_info']
@@ -179,7 +210,9 @@ function getUsageBillingPathLabel(
   }
 }
 
-function isUsageBillingPathLocal(adminInfo: LogOtherData['admin_info']): boolean {
+function isUsageBillingPathLocal(
+  adminInfo: LogOtherData['admin_info']
+): boolean {
   if (adminInfo?.usage_billing_path) {
     return adminInfo.usage_billing_path === USAGE_BILLING_PATH.LOCAL
   }
@@ -1064,6 +1097,38 @@ export function DetailsDialog(props: DetailsDialogProps) {
             />
           </DetailSection>
         )}
+
+        {isTieredBilling &&
+          (other?.estimated_billing_dimensions ||
+            other?.actual_billing_dimensions) && (
+            <DetailSection label={t('Media billing dimensions')}>
+              <DetailRow
+                label={t('Estimated')}
+                value={formatBillingDimensions(
+                  other.estimated_billing_dimensions,
+                  t
+                )}
+                mono
+              />
+              {other.actual_billing_dimensions && (
+                <DetailRow
+                  label={t('Actual')}
+                  value={formatBillingDimensions(
+                    other.actual_billing_dimensions,
+                    t
+                  )}
+                  mono
+                />
+              )}
+              {other.settlement_delta != null && (
+                <DetailRow
+                  label={t('Settlement delta')}
+                  value={formatLogQuota(other.settlement_delta)}
+                  mono
+                />
+              )}
+            </DetailSection>
+          )}
 
         {/* Admin billing mode indicator for non-consume */}
         {props.isAdmin &&

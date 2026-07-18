@@ -590,7 +590,20 @@ func RelayTask(c *gin.Context) {
 			ModelRatio:      relayInfo.PriceData.ModelRatio,
 			OtherRatios:     relayInfo.PriceData.OtherRatios(),
 			OriginModelName: relayInfo.OriginModelName,
-			PerCallBilling:  common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
+			PerCallBilling:  relayInfo.TieredBillingSnapshot == nil && (common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice),
+		}
+		if snap := relayInfo.TieredBillingSnapshot; snap != nil {
+			task.PrivateData.BillingContext.BillingMode = snap.BillingMode
+			task.PrivateData.BillingContext.ExprString = snap.ExprString
+			task.PrivateData.BillingContext.ExprHash = snap.ExprHash
+			task.PrivateData.BillingContext.ExprVersion = snap.ExprVersion
+			task.PrivateData.BillingContext.EstimatedDimensions = snap.EstimatedDimensions
+			task.PrivateData.BillingContext.EstimatedTier = snap.EstimatedTier
+			task.PrivateData.BillingContext.EstimatedQuota = snap.EstimatedQuotaAfterGroup
+			task.PrivateData.BillingContext.QuotaPerUnit = snap.QuotaPerUnit
+			if relayInfo.BillingRequestInput != nil {
+				task.PrivateData.BillingContext.RequestInput = *relayInfo.BillingRequestInput
+			}
 		}
 		task.Quota = result.Quota
 		task.Data = result.TaskData

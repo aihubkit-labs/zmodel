@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -157,4 +158,43 @@ func TestGetAndValidOpenAIImageRequestNBounds(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), boundErr)
 	})
+}
+
+func TestBuildImageBillingDimensions(t *testing.T) {
+	tests := []struct {
+		name     string
+		size     string
+		wantSize string
+		wantTier string
+	}{
+		{name: "missing defaults to 2K", wantSize: "", wantTier: "2K"},
+		{name: "auto defaults to 2K", size: "auto", wantSize: "auto", wantTier: "2K"},
+		{name: "square 1024 is 1K", size: "1024x1024", wantSize: "1024x1024", wantTier: "1K"},
+		{name: "portrait 1536 is 2K", size: "1024x1536", wantSize: "1024x1536", wantTier: "2K"},
+		{name: "landscape 1536 is 2K", size: "1536x1024", wantSize: "1536x1024", wantTier: "2K"},
+		{name: "explicit 2K", size: "2K", wantSize: "2K", wantTier: "2K"},
+		{name: "4K landscape", size: "3840x2160", wantSize: "3840x2160", wantTier: "4K"},
+		{name: "unknown defaults to 2K", size: "provider-auto", wantSize: "provider-auto", wantTier: "2K"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			n := uint(3)
+			dimensions, err := BuildImageBillingDimensions(&dto.ImageRequest{
+				N:       &n,
+				Size:    tt.size,
+				Quality: "HIGH",
+			})
+			require.NoError(t, err)
+			assert.Equal(t, float64(3), dimensions.Units)
+			assert.Equal(t, "high", dimensions.Quality)
+			assert.Equal(t, tt.wantSize, dimensions.ImageSize)
+			assert.Equal(t, tt.wantTier, dimensions.ImageSizeTier)
+		})
+	}
+}
+
+func TestBuildImageBillingDimensionsRejectsInvalidSize(t *testing.T) {
+	_, err := BuildImageBillingDimensions(&dto.ImageRequest{Size: "8192x8192"})
+	require.Error(t, err)
 }

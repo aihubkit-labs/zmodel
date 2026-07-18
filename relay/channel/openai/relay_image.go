@@ -23,7 +23,15 @@ import (
 )
 
 func updateOpenAIImageCount(info *relaycommon.RelayInfo, count int64) {
-	if info == nil || !info.PriceData.UsePrice || count <= 0 || count > int64(dto.MaxImageN) {
+	if info == nil || count <= 0 || count > int64(dto.MaxImageN) {
+		return
+	}
+	if info.TieredBillingSnapshot != nil {
+		dimensions := info.TieredBillingSnapshot.EstimatedDimensions
+		dimensions.Units = float64(count)
+		info.ActualBillingDimensions = &dimensions
+	}
+	if !info.PriceData.UsePrice {
 		return
 	}
 	info.PriceData.AddOtherRatio("n", float64(count))

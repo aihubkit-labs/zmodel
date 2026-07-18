@@ -237,7 +237,33 @@ export type TierCondition = {
 export type ParsedTier = {
   label: string
   conditions: TierCondition[]
+  mediaCondition?: {
+    variable: 'quality' | 'resolution_tier' | 'image_size_tier' | 'image_size'
+    value: string
+  }
+  mediaPricing?: {
+    method: 'per_unit' | 'per_second' | 'fixed_plus_second'
+    unitPrice?: number
+    fixedPrice?: number
+    perSecondPrice?: number
+  }
   [field: string]: unknown
+}
+
+export type MediaUnit = 'image' | 'video' | 'output'
+
+export function inferMediaUnit(tiers: ParsedTier[]): MediaUnit {
+  const hasVideo = tiers.some(
+    (tier) => tier.mediaCondition?.variable === 'resolution_tier'
+  )
+  const hasImage = tiers.some((tier) =>
+    ['quality', 'image_size_tier', 'image_size'].includes(
+      tier.mediaCondition?.variable || ''
+    )
+  )
+  if (hasVideo && !hasImage) return 'video'
+  if (hasImage && !hasVideo) return 'image'
+  return 'output'
 }
 
 // ---------------------------------------------------------------------------
@@ -265,15 +291,39 @@ function parseTierBody(bodyStr: string): Record<string, number> {
   return tier
 }
 
+function parseMediaPricing(bodyStr: string): ParsedTier['mediaPricing'] {
+  const normalized = bodyStr.replaceAll(/\s+/g, '')
+  let match = normalized.match(
+    /^usd\(\(([-+\d.eE]+)\+([-+\d.eE]+)\*seconds\)\*units\)$/
+  )
+  if (match) {
+    return {
+      method: 'fixed_plus_second',
+      fixedPrice: Number(match[1]),
+      perSecondPrice: Number(match[2]),
+    }
+  }
+  match = normalized.match(/^usd\(([-+\d.eE]+)\*seconds\*units\)$/)
+  if (match) {
+    return { method: 'per_second', perSecondPrice: Number(match[1]) }
+  }
+  match = normalized.match(/^usd\(([-+\d.eE]+)\*units\)$/)
+  if (match) {
+    return { method: 'per_unit', unitPrice: Number(match[1]) }
+  }
+  return undefined
+}
+
 export function parseTiersFromExpr(exprStr: string): ParsedTier[] {
   if (!exprStr) return []
   try {
     const { body } = stripExprVersion(exprStr)
     const condGroup =
       `((?:(?:p|c|len)\\s*(?:<|<=|>|>=)\\s*[\\d.eE+]+)` +
-      `(?:\\s*&&\\s*(?:p|c|len)\\s*(?:<|<=|>|>=)\\s*[\\d.eE+]+)*)`
+      `(?:\\s*&&\\s*(?:p|c|len)\\s*(?:<|<=|>|>=)\\s*[\\d.eE+]+)*|` +
+      `(?:quality|resolution_tier|image_size_tier|image_size)\\s*==\\s*"[^"]+")`
     const tierRe = new RegExp(
-      `(?:${condGroup}\\s*\\?\\s*)?tier\\("([^"]*)",\\s*([^)]+)\\)`,
+      `(?:${condGroup}\\s*\\?\\s*)?tier\\("([^"]*)",\\s*(usd\\((?:[^()]|\\([^()]*\\))*\\)|[^)]+)\\)`,
       'g'
     )
     const tiers: ParsedTier[] = []
@@ -296,6 +346,18 @@ export function parseTiersFromExpr(exprStr: string): ParsedTier[] {
       const tier = parseTierBody(m[3]) as ParsedTier
       tier.label = m[2]
       tier.conditions = conditions
+      const mediaCondition = condStr.match(
+        /^(quality|resolution_tier|image_size_tier|image_size)\s*==\s*"([^"]+)"$/
+      )
+      if (mediaCondition) {
+        tier.mediaCondition = {
+          variable: mediaCondition[1] as NonNullable<
+            ParsedTier['mediaCondition']
+          >['variable'],
+          value: mediaCondition[2],
+        }
+      }
+      tier.mediaPricing = parseMediaPricing(m[3])
       tiers.push(tier)
     }
     return tiers
@@ -307,9 +369,9 @@ export function parseTiersFromExpr(exprStr: string): ParsedTier[] {
 export function normalizeTierLabel(label: string | undefined): string {
   if (!label) return ''
   return label
-    .replace(/<[=＝]?|≤|＜[=＝]?/g, '<')
-    .replace(/>[=＝]?|≥|＞[=＝]?/g, '>')
-    .replace(/\s+/g, '')
+    .replaceAll(/<[=＝]?|≤|＜[=＝]?/g, '<')
+    .replaceAll(/>[=＝]?|≥|＞[=＝]?/g, '>')
+    .replaceAll(/\s+/g, '')
     .toLowerCase()
 }
 
@@ -426,24 +488,26 @@ function tryParseRequestCondition(expr: string): RequestCondition | null {
   if (m) return { source: 'param', path: m[1], mode: MATCH_EXISTS, value: '' }
 
   m = expr.match(/^has\(header\("([^"]+)"\), ((?:"(?:[^"\\]|\\.)*"))\)$/)
-  if (m)
+  if (m) {
     return {
       source: 'header',
       path: m[1],
       mode: MATCH_CONTAINS,
       value: JSON.parse(m[2]) as string,
     }
+  }
 
   m = expr.match(
     /^param\("([^"]+)"\) != nil && has\(param\("([^"]+)"\), ((?:"(?:[^"\\]|\\.)*"))\)$/
   )
-  if (m && m[1] === m[2])
+  if (m && m[1] === m[2]) {
     return {
       source: 'param',
       path: m[1],
       mode: MATCH_CONTAINS,
       value: JSON.parse(m[3]) as string,
     }
+  }
 
   m = expr.match(
     /^param\("([^"]+)"\) != nil && param\("([^"]+)"\) (>|>=|<|<=) ([\d.eE+-]+)$/
@@ -642,12 +706,12 @@ function isTimeFunc(value: unknown): value is TimeFunc {
 export function normalizeCondition(
   cond: Partial<RequestCondition> | null | undefined
 ): RequestCondition {
-  const source =
-    cond?.source === 'time'
-      ? 'time'
-      : cond?.source === 'header'
-        ? 'header'
-        : 'param'
+  let source: RequestCondition['source'] = 'param'
+  if (cond?.source === 'time') {
+    source = 'time'
+  } else if (cond?.source === 'header') {
+    source = 'header'
+  }
 
   if (source === 'time') {
     const timeCond = cond as Partial<TimeCondition> | null | undefined

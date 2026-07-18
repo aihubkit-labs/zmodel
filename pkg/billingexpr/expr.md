@@ -118,6 +118,52 @@ tier("base", p * 5 + c * 25)|||when(header("anthropic-beta") has "fast-mode") * 
 
 These are parsed and applied separately by the request rule system.
 
+For asynchronous task settlement, request-dependent expressions persist only
+the literal values referenced by `param("path")` and `header("name")`. The full
+request body is not stored. Credential-bearing headers such as
+`Authorization`, `Cookie`, `Proxy-Authorization`, and `X-Api-Key` cannot be
+referenced by an asynchronous billing expression. Dynamic references such as
+`header(param("header_name"))` are also rejected for async tasks because they
+cannot be snapshotted safely. The frozen request input is limited to 64 KiB.
+
+### Version 2 Media Billing
+
+`v2:` expressions retain all v1 token variables and add trusted media
+dimensions plus `usd(amount)`:
+
+| Variable | Meaning |
+|----------|---------|
+| `units` | Validated billable output count |
+| `seconds` | Validated billable duration per output |
+| `width`, `height` | Normalized output dimensions |
+| `quality` | Normalized image quality value |
+| `resolution_tier` | Normalized video resolution tier |
+| `image_size_tier` | Provider-compatible image size tier such as `1K`, `2K`, or `4K` |
+| `image_size` | Exact normalized image size such as `1024x1536` |
+
+`usd(amount)` converts a fixed dollar amount into the expression's existing
+micro-dollar unit, so token and fixed media charges can be combined without a
+second quota conversion formula:
+
+```
+v2:tier("720p", usd(0.025 * seconds * units))
+```
+
+Media quantities are populated only after request validation and provider/model
+normalization. User-controlled counts and durations must not be read through
+`param()` when they affect the charge.
+
+For the Frimodel-compatible image protocol, the deployed `image_size_tier()`
+behavior is preserved at the trusted normalization boundary: explicit
+`1K`/`2K`/`4K` values are retained, numeric sizes use their longest edge
+(`<=1024` -> `1K`, `<=2048` -> `2K`, otherwise `4K`), and missing, `auto`, or
+unrecognized non-numeric values use the upstream `2K` fallback.
+
+`resolution_tier` and `image_size_tier` remain separate even when both expose a
+label such as `4K`: the former is validated from a video `resolution` parameter,
+while the latter is normalized from an image `size` parameter. `quality` is
+currently populated by image requests only.
+
 ---
 
 ## Architecture

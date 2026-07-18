@@ -5,7 +5,7 @@
 - 日期：2026-07-16
 - 范围：图片和异步视频计费
 - 表达式版本：`v2`
-- 现有 `v1` 行为：保持不变
+- 现有合法 `v1` 价格表达式：保持不变
 
 ## 1. 背景
 
@@ -41,7 +41,8 @@ quota = expression_result / 1,000,000 * QuotaPerUnit * group_ratio
 5. 继续以 `OriginModelName` 为计费配置键，支持任意数量模型使用独立定价规则。
 6. 生成足够结构化的元数据，使定价页面和使用日志可以展示命中的档位、计费单位、
    单价、数量和总费用。
-7. 保持所有现有 `v1` 表达式的语义不变。
+7. 保持所有返回有限非负价格的现有 `v1` 表达式语义不变；负数、NaN 或无穷结果
+   按计费安全约束拒绝执行。
 
 ## 3. 非目标
 
@@ -93,7 +94,7 @@ p * 2.5 + c * 10 + usd(0.02 * units)
 | `seconds` | 数字 | 每个输出对应的已校验可计费时长 |
 | `width` | 数字 | 标准化后的输出宽度；不可用时为零 |
 | `height` | 数字 | 标准化后的输出高度；不可用时为零 |
-| `quality` | 字符串 | 标准化后的质量标识；不可用时为空字符串 |
+| `quality` | 字符串 | 标准化后的图片质量标识；不可用时为空字符串 |
 | `resolution_tier` | 字符串 | 标准化后的视频分辨率档位 |
 | `image_size_tier` | 字符串 | 标准化后的图片尺寸档位 |
 
@@ -117,11 +118,11 @@ usd(amount) -> number
 根据标准化后的图片尺寸和实际生成数量定价：
 
 ```text
-v2:image_size_tier == "4K"
-  ? tier("4K", usd(0.128 * units))
-  : image_size_tier == "2K"
-    ? tier("2K", usd(0.096 * units))
-    : tier("1K", usd(0.096 * units))
+v2:image_size_tier == "1K"
+  ? tier("1K", usd(0.05 * units))
+  : image_size_tier == "4K"
+    ? tier("4K", usd(0.15 * units))
+    : tier("2K", usd(0.125 * units))
 ```
 
 根据质量定价：
@@ -179,6 +180,7 @@ type BillingDimensions struct {
     Quality        string  `json:"quality"`
     ResolutionTier string  `json:"resolution_tier"`
     ImageSizeTier  string  `json:"image_size_tier"`
+    ImageSize      string  `json:"image_size"`
 }
 ```
 
@@ -205,6 +207,11 @@ JSON / multipart / 元数据 / 供应商字段
 计费乘数。`param()` 仍可用于不涉及数量的请求条件，但所有影响费用的用户可控数量
 都必须使用可信计费维度。
 
+异步任务如果使用 `param()` 或 `header()`，只持久化表达式中以字面量引用的具体值，
+不保存完整请求正文。`Authorization`、`Cookie`、`Proxy-Authorization`、`X-Api-Key`
+等认证头不得作为异步计费条件；动态路径或动态请求头引用也会被拒绝。冻结的请求
+条件快照上限为 64 KiB。
+
 ### 6.3 校验
 
 - 图片数量标准化为至少 `1`，并以 `dto.MaxImageN` 为上限。
@@ -222,11 +229,23 @@ JSON / multipart / 元数据 / 供应商字段
 不同供应商使用不同的字段和命名，因此标准化必须感知适配器。示例：
 
 ```text
-1024x1024, 1024*1024, provider "square_hd" -> image_size_tier "1K"
-2048x2048, provider "2k"                 -> image_size_tier "2K"
+1024x1024, provider "1k"                 -> image_size_tier "1K"
+1536x1024, 1024x1536, provider "2k"      -> image_size_tier "2K"
+3840x2160, provider "4k"                 -> image_size_tier "4K"
 1920x1080, "1080P", "full_hd"           -> resolution_tier "1080p"
 1280x720, "HD"                           -> resolution_tier "720p"
 ```
+
+Frimodel 定制版的 `image_size_tier(size)` 使用最长边分类：最长边不超过 1024
+为 `1K`，不超过 2048 为 `2K`，其余为 `4K`；缺失、`auto` 或无法识别的非数字
+尺寸使用其上游兼容兜底值 `2K`。该映射属于供应商兼容规则，不应解释为所有图片
+模型的通用尺寸定义。
+
+`resolution_tier` 与 `image_size_tier` 虽然都可能包含 `4K`，但不能合并为同一个
+计费变量：前者来自视频请求的 `resolution`，后者来自图片请求的 `size`，两者由
+不同适配器校验，支持范围和回退规则也不同。当前 `quality` 由图片请求填充，因此
+前端将其展示为“图片质量”；若未来视频模型提供独立质量参数，应新增明确的标准化
+契约，而不是复用含义不清的字段。
 
 通用标准化规则应放在共享媒体计费工具中，供应商特有别名则保留在对应适配器中，
 避免全局函数不断积累协议特有逻辑。
@@ -365,6 +384,437 @@ AdjustBillingDimensionsOnComplete(task *model.Task, result *TaskInfo) *BillingDi
 - 不要将表达式定价任务无条件标记为 `PerCallBilling`，因为这类任务可能需要在完成时
   根据时长或数量进行差额结算。
 
+### 10.4 API 调用示例
+
+以下示例均可直接执行。首次使用只需安装 `curl`、`jq`，然后修改 API Key；本地测试
+和线上调用只需切换 `AIHUBKIT_BASE_URL`：
+
+```bash
+export AIHUBKIT_BASE_URL='http://localhost:3000'
+# 线上地址：export AIHUBKIT_BASE_URL='https://apimodel.aihubkit.com'
+export AIHUBKIT_API_KEY='替换为你的 API Key'
+export IMAGE_MODEL='gpt-image-2-high'
+```
+
+不要把真实 API Key 写入文档、脚本仓库或聊天记录。若密钥已经公开，应立即删除并
+重新创建。
+
+#### 10.4.1 生成单张图片并保存 Base64 响应
+
+下面的命令生成一张 `1024x1024` 高质量 PNG，并保存为当前目录下的
+`gpt-image-2-high_1k.png`。`curl` 失败时命令会直接退出，不会继续触发二次 `jq`
+错误：
+
+```bash
+response="$({ curl --fail-with-body --silent --show-error \
+  "${AIHUBKIT_BASE_URL}/v1/images/generations" \
+  -H "Authorization: Bearer ${AIHUBKIT_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n \
+    --arg model "$IMAGE_MODEL" \
+    --arg prompt '一只坐在窗边的猫' \
+    '{
+      model: $model,
+      prompt: $prompt,
+      size: "1024x1024",
+      quality: "high",
+      response_format: "b64_json",
+      output_format: "png",
+      n: 1
+    }')"; } 2>&1)" || {
+  printf '%s\n' "$response" >&2
+  exit 1
+}
+
+printf '%s' "$response" |
+  jq -er '.data[0].b64_json' |
+  base64 -d > "${IMAGE_MODEL}_1k.png"
+```
+
+`output_format` 可改为 `png`、`jpeg` 或 `webp`，文件扩展名也应同步修改。该字段、
+`quality` 的具体可选值最终取决于上游模型协议；平台会透传这些字段，但不会把某个
+图片供应商的可选值强制套用到所有模型。
+
+`gpt-image-2-high` 可以是平台对外暴露的模型别名。若上游实际模型名为
+`gpt-image-2`，应在渠道中配置模型映射：
+
+```json
+{
+  "gpt-image-2-high": "gpt-image-2"
+}
+```
+
+计费配置仍以用户请求的 `OriginModelName`（此处为 `gpt-image-2-high`）为键；模型映射
+只改变发送给上游的模型名。该请求的 `size` 会标准化为 `image_size_tier = "1K"`，
+`n` 会标准化为 `units = 1`。响应兼容 OpenAI 图片格式，图片位于 `data[].url` 或
+`data[].b64_json`。
+
+#### 10.4.2 覆盖 1K、2K、4K 图片尺寸
+
+只需修改 `IMAGE_SIZE` 和输出文件名。以下三个命令分别覆盖当前 Frimodel 兼容映射
+中的 `1K`、`2K`、`4K` 档位：
+
+```bash
+for spec in \
+  '1024x1024:1k' \
+  '2048x2048:2k' \
+  '3840x2160:4k'
+do
+  IMAGE_SIZE="${spec%%:*}"
+  FILE_TIER="${spec##*:}"
+  response="$({ curl --fail-with-body --silent --show-error \
+    "${AIHUBKIT_BASE_URL}/v1/images/generations" \
+    -H "Authorization: Bearer ${AIHUBKIT_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "$(jq -n \
+      --arg model "$IMAGE_MODEL" \
+      --arg size "$IMAGE_SIZE" \
+      --arg prompt '一只坐在窗边的猫，写实摄影' \
+      '{
+        model: $model,
+        prompt: $prompt,
+        size: $size,
+        quality: "high",
+        response_format: "b64_json",
+        n: 1
+      }')"; } 2>&1)" || {
+    printf '%s\n' "$response" >&2
+    exit 1
+  }
+  printf '%s' "$response" |
+    jq -er '.data[0].b64_json' |
+    base64 -d > "${IMAGE_MODEL}_${FILE_TIER}.png"
+done
+```
+
+数值尺寸按最长边分类：不超过 `1024` 为 `1K`，不超过 `2048` 为 `2K`，其余合法
+尺寸为 `4K`。这只是本次接入使用的上游兼容分类；上游是否接受某个精确尺寸仍由
+模型协议决定。
+
+#### 10.4.3 保存 URL 响应
+
+当上游返回 `data[].url` 时，可以直接下载：
+
+```bash
+response="$({ curl --fail-with-body --silent --show-error \
+  "${AIHUBKIT_BASE_URL}/v1/images/generations" \
+  -H "Authorization: Bearer ${AIHUBKIT_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n \
+    --arg model "$IMAGE_MODEL" \
+    --arg prompt '一只坐在窗边的猫' \
+    '{
+      model: $model,
+      prompt: $prompt,
+      size: "1024x1024",
+      response_format: "url",
+      n: 1
+    }')"; } 2>&1)" || {
+  printf '%s\n' "$response" >&2
+  exit 1
+}
+
+image_url="$(printf '%s' "$response" | jq -er '.data[0].url')"
+curl --fail-with-body --location --show-error \
+  "$image_url" \
+  --output "${IMAGE_MODEL}_url.png"
+```
+
+#### 10.4.4 一次请求多张图片
+
+下面请求 `n = 3`，并把响应数组中实际返回的所有 Base64 图片依次保存。保存数量以
+`data` 数组实际长度为准：
+
+```bash
+response="$({ curl --fail-with-body --silent --show-error \
+  "${AIHUBKIT_BASE_URL}/v1/images/generations" \
+  -H "Authorization: Bearer ${AIHUBKIT_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n \
+    --arg model "$IMAGE_MODEL" \
+    --arg prompt '一只坐在窗边的猫，每张构图不同' \
+    '{
+      model: $model,
+      prompt: $prompt,
+      size: "1024x1024",
+      response_format: "b64_json",
+      n: 3
+    }')"; } 2>&1)" || {
+  printf '%s\n' "$response" >&2
+  exit 1
+}
+
+count="$(printf '%s' "$response" | jq -er '.data | length')"
+[ "$count" -gt 0 ] || {
+  printf '响应中没有图片\n' >&2
+  exit 1
+}
+
+index=1
+while [ "$index" -le "$count" ]; do
+  printf '%s' "$response" |
+    jq -er ".data[$((index - 1))].b64_json" |
+    base64 -d > "${IMAGE_MODEL}_1k_${index}.png"
+  index=$((index + 1))
+done
+```
+
+请求中的 `n` 用于预扣费估算；非流式 OpenAI 兼容图片响应存在可靠 `data` 数组时，
+最终结算使用实际返回数量。例如请求 `n = 3`、上游只返回 1 张时，系统按 1 张结算
+并退还另外 2 张的预扣差额。部分上游虽然接受 `n`，但始终只生成 1 张，这不是平台
+丢失图片。
+
+#### 10.4.5 上游忽略 `n` 时可靠生成多张
+
+需要确保得到 3 张图片时，使用三次 `n = 1` 的串行请求：
+
+```bash
+index=1
+while [ "$index" -le 3 ]; do
+  prompt="一只坐在窗边的猫，第 ${index} 张，构图不同"
+  response="$({ curl --fail-with-body --silent --show-error \
+    "${AIHUBKIT_BASE_URL}/v1/images/generations" \
+    -H "Authorization: Bearer ${AIHUBKIT_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "$(jq -n \
+      --arg model "$IMAGE_MODEL" \
+      --arg prompt "$prompt" \
+      '{
+        model: $model,
+        prompt: $prompt,
+        size: "1024x1024",
+        response_format: "b64_json",
+        n: 1
+      }')"; } 2>&1)" || {
+    printf '%s\n' "$response" >&2
+    exit 1
+  }
+  printf '%s' "$response" |
+    jq -er '.data[0].b64_json' |
+    base64 -d > "${IMAGE_MODEL}_serial_${index}.png"
+  index=$((index + 1))
+done
+```
+
+#### 10.4.6 Seedance 兼容视频请求范围
+
+当前 Sora/Seedance 兼容适配器对以下对外模型执行严格校验：
+
+| 模型 | 可选分辨率 | 时长 |
+| --- | --- | --- |
+| `videos-mini` | `480p`、`720p` | 4–15 秒 |
+| `videos-fast` | `480p`、`720p` | 4–15 秒 |
+| `videos-standard` | `480p`、`720p`、`1080p`、`4K` | 4–15 秒 |
+
+下面的变量可覆盖三个模型和全部已支持分辨率。修改变量后直接执行提交命令即可：
+
+```bash
+export VIDEO_MODEL='videos-standard'
+export VIDEO_RESOLUTION='1080p'
+export VIDEO_DURATION='10'
+
+# 其他有效组合：
+# VIDEO_MODEL=videos-mini     VIDEO_RESOLUTION=480p
+# VIDEO_MODEL=videos-mini     VIDEO_RESOLUTION=720p
+# VIDEO_MODEL=videos-fast     VIDEO_RESOLUTION=480p
+# VIDEO_MODEL=videos-fast     VIDEO_RESOLUTION=720p
+# VIDEO_MODEL=videos-standard VIDEO_RESOLUTION=480p
+# VIDEO_MODEL=videos-standard VIDEO_RESOLUTION=720p
+# VIDEO_MODEL=videos-standard VIDEO_RESOLUTION=1080p
+# VIDEO_MODEL=videos-standard VIDEO_RESOLUTION=4K
+```
+
+#### 10.4.7 提交、轮询并下载视频
+
+以下完整脚本提交任务，读取公开任务 ID，轮询到完成，并下载 MP4：
+
+```bash
+submit_response="$({ curl --fail-with-body --silent --show-error \
+  "${AIHUBKIT_BASE_URL}/v1/videos" \
+  -H "Authorization: Bearer ${AIHUBKIT_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n \
+    --arg model "$VIDEO_MODEL" \
+    --arg resolution "$VIDEO_RESOLUTION" \
+    --arg prompt '海边日落时缓慢移动的电影镜头' \
+    --argjson duration "$VIDEO_DURATION" \
+    '{
+      model: $model,
+      prompt: $prompt,
+      resolution: $resolution,
+      duration: $duration
+    }')"; } 2>&1)" || {
+  printf '%s\n' "$submit_response" >&2
+  exit 1
+}
+
+VIDEO_ID="$(printf '%s' "$submit_response" | jq -er '.id // .task_id')"
+printf 'video id: %s\n' "$VIDEO_ID"
+
+while :; do
+  status_response="$({ curl --fail-with-body --silent --show-error \
+    "${AIHUBKIT_BASE_URL}/v1/videos/${VIDEO_ID}" \
+    -H "Authorization: Bearer ${AIHUBKIT_API_KEY}"; } 2>&1)" || {
+    printf '%s\n' "$status_response" >&2
+    exit 1
+  }
+  status="$(printf '%s' "$status_response" | jq -er '.status')"
+  progress="$(printf '%s' "$status_response" | jq -r '.progress // 0')"
+  printf 'status=%s progress=%s%%\n' "$status" "$progress"
+  case "$status" in
+    completed)
+      break
+      ;;
+    failed)
+      printf '%s\n' "$status_response" | jq . >&2
+      exit 1
+      ;;
+    queued|in_progress)
+      sleep 5
+      ;;
+    *)
+      printf '未知任务状态: %s\n' "$status" >&2
+      exit 1
+      ;;
+  esac
+done
+
+curl --fail-with-body --location --show-error \
+  "${AIHUBKIT_BASE_URL}/v1/videos/${VIDEO_ID}/content" \
+  -H "Authorization: Bearer ${AIHUBKIT_API_KEY}" \
+  --output "${VIDEO_MODEL}_${VIDEO_RESOLUTION}_${VIDEO_DURATION}s.mp4"
+```
+
+视频预扣费使用请求中校验后的 `resolution` 和 `duration`；任务完成后，如上游返回
+可靠的实际时长或分辨率，则使用提交时冻结的表达式进行差额结算。
+
+#### 10.4.8 常见错误排查
+
+- `401`：API Key 缺失、仍为示例值、已失效，或没有访问权限。
+- `400`：模型的分辨率或时长不在上表范围内，或者请求 JSON 无效。
+- `503 No available compatible accounts`：当前没有支持该模型的可用渠道账号，不是
+  阶梯表达式计算错误。
+- `503 system disk overloaded`：节点磁盘使用率超过保护阈值，需要先释放磁盘空间。
+- 请求失败时只有错误日志，不会生成消费日志。要把失败请求持久化到使用日志，部署
+  后端时必须设置 `ERROR_LOG_ENABLED=true` 并重启后端。
+
+#### 10.4.9 计费配置示例
+
+每张或每个输出固定价格：
+
+```text
+v2:tier("base", usd(0.05 * units))
+```
+
+视频每秒价格：
+
+```text
+v2:tier("base", usd(0.025 * seconds * units))
+```
+
+每个视频固定费用 `$0.05`，再加每秒 `$0.04`：
+
+```text
+v2:tier("base", usd((0.05 + 0.04 * seconds) * units))
+```
+
+图片尺寸阶梯：
+
+```text
+v2:image_size_tier == "1K"
+  ? tier("1K", usd(0.05 * units))
+  : image_size_tier == "4K"
+    ? tier("4K", usd(0.15 * units))
+    : tier("2K", usd(0.125 * units))
+```
+
+最后一个分支是无条件兜底，不是对其档位名称的再次判断。上例中凡是没有命中
+`1K`、`4K` 的值都会展示为并按 `2K` 计费；因此兜底档价格必须按模型标准化规则
+谨慎设置，不能默认认为它只会接收到标签为 `2K` 的请求。
+
+最终客户价格为表达式价格乘以实际使用分组倍率。例如基础价格 `$0.05 / 个`，分组
+倍率为 `1.5` 时，客户价格为 `$0.075 / 个`。表达式本身不需要手工乘分组倍率，
+系统会在预扣费和最终结算时统一应用并在价格页面展示。
+
+#### 10.4.10 支持边界
+
+`v2` 表达式可以按任意模型名称保存，但某个媒体变量能否用于计费，取决于该请求
+路径是否已经提供可信、经过校验和标准化的维度：
+
+- OpenAI 兼容图片生成路径提供 `units`、`quality`、`image_size`、
+  `image_size_tier`，并在可靠响应中按实际图片数量结算。
+- 当前 Sora/Seedance 兼容适配器为 `videos-mini`、`videos-fast`、
+  `videos-standard` 提供经过白名单校验的 `resolution_tier` 和 `seconds`。
+- 其他视频适配器不能因为可以保存 `v2` 表达式，就被视为已支持上述视频维度。
+  接入前必须为该适配器定义字段来源、默认值、合法范围及完成时实际值提取规则。
+- 固定价格、模型倍率、`v1` Token 表达式以及不含 `v2` 快照的历史任务继续走原有
+  计费路径，不受媒体编辑器配置影响。
+
+#### 10.4.11 新视频厂商接入方式
+
+媒体编辑器与厂商、渠道类型和模型名称解耦。新视频厂商只要能够把计费参数标准化为
+现有可信维度，就不需要修改媒体编辑器：
+
+- `units`：经过校验的生成视频数量。
+- `seconds`：每个输出对应的经过校验的计费时长。
+- `resolution_tier`：经过厂商和模型规则标准化的分辨率档位。
+
+现有媒体编辑器可以直接表达：
+
+- 按个计费。
+- 按秒计费。
+- 每个输出固定费用加每秒费用。
+- 根据 `resolution_tier` 为不同分辨率设置不同档位。
+- 为每个对外模型保存独立价格，并在结算时应用分组倍率。
+
+例如，新厂商的 `1080p` 模型请求经适配器校验后产生：
+
+```go
+billingexpr.BillingDimensions{
+    Units:          1,
+    Seconds:        10,
+    ResolutionTier: "1080p",
+}
+```
+
+管理员即可使用现有媒体编辑器配置：
+
+```text
+v2:resolution_tier == "1080p"
+  ? tier("1080p", usd(0.04 * seconds * units))
+  : tier("default", usd(0.02 * seconds * units))
+```
+
+新厂商接入通常不只是增加一个文件，还必须完成以下后端契约：
+
+1. 新增或扩展任务适配器，并注册对应渠道类型和任务平台。
+2. 在 `ValidateRequestAndSetAction()` 中解析并校验该厂商的模型、分辨率、时长、
+   数量和必填字段。
+3. 在 `EstimateBillingDimensions()` 中返回可信的预估媒体维度。
+4. 在 `BuildRequestBody()` 中转换成厂商实际要求的请求字段。
+5. 在 `ParseTaskResult()` 中解析任务状态和厂商返回的实际媒体信息。
+6. 在 `AdjustBillingDimensionsOnComplete()` 中校验并返回可靠的实际结算维度；缺失的
+   实际值继续使用提交时冻结的预估值。
+7. 添加合法值、非法值、上下边界、请求转换、预扣费、完成结算和失败退款测试。
+8. 最后在管理后台为对外模型启用 `tiered_expr` 并配置价格。
+
+分辨率白名单、时长范围、字段别名和默认值属于供应商协议契约，目前定义在对应
+适配器代码中，不属于管理员价格配置。价格可以由管理员调整，但协议校验不能由普通
+价格配置绕过。尚未实现可信媒体维度的适配器默认返回空维度；如果表达式引用
+`seconds` 或 `resolution_tier`，请求会失败，而不会使用未经校验的原始参数计费。
+
+出现以下新计费规则时，现有媒体编辑器可能需要扩展：
+
+- 按帧数、帧率、总像素、宽高比或音频开关计费。
+- 文生视频和图生视频使用不同价格，但适配器尚未提供对应可信维度。
+- 按时长区间使用非线性价格，而不是简单的每秒价格。
+- 按质量、优先级、并发等级或其他厂商专有参数分档。
+- 一次生成多个视频时存在无法用 `units` 表达的特殊计费规则。
+
+如果现有可信维度已经足够，只是可视化编辑器没有对应控件，可以先使用原始表达式
+编辑器；如果表达式引擎也没有所需的可信维度，则必须同时扩展适配器、表达式环境、
+媒体编辑器、日志展示和回归测试，不能直接通过 `param()` 读取用户输入作为计费乘数。
+
 ## 11. 前端设计
 
 ### 11.1 编辑器
@@ -384,15 +834,16 @@ AdjustBillingDimensionsOnComplete(task *model.Task, result *TaskInfo) *BillingDi
 
 | 档位 | 计费方式 | 价格 |
 | --- | --- | --- |
-| 1K | 按图片 | `$0.096 / 张` |
-| 4K | 按图片 | `$0.128 / 张` |
-| standard | 按视频 | `$0.100 / 个视频` |
+| 1K | 按图片 | `$0.050 / 张` |
+| 2K | 按图片 | `$0.125 / 张` |
+| 4K | 按图片 | `$0.150 / 张` |
+| standard | 按个 | `$0.100 / 个` |
 | HD | 按时长 | `$0.025 / 秒` |
 
 混合公式可以展示多个费用组成，例如：
 
 ```text
-$0.050 / 个视频 + $0.040 / 秒
+$0.050 / 个 + $0.040 / 秒
 ```
 
 如果解析器无法可靠地结构化高级表达式，界面应显示原始表达式，而不是展示错误的
@@ -426,7 +877,8 @@ $0.050 / 个视频 + $0.040 / 秒
 
 ## 13. 兼容性和迁移
 
-1. `v1` 表达式保持字节级和语义级兼容。
+1. 返回有限非负价格的 `v1` 表达式保持语义兼容；负数、NaN 或无穷结果会被拒绝，
+   防止负扣费或溢出。
 2. 不带版本前缀的表达式继续表示 `v1`。
 3. 新媒体表达式保存时必须包含明确的 `v2:` 前缀。
 4. 现有固定价格和倍率模型保持不变。

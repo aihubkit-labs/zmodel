@@ -95,6 +95,10 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, usedVa
 //   - ok=true, quota, result  when tiered billing applies
 //   - ok=false, 0, nil        when it doesn't (caller should fall through to existing logic)
 func TryTieredSettle(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenParams) (ok bool, quota int, result *billingexpr.TieredResult) {
+	return TryTieredSettleWithDimensions(relayInfo, params, billingexpr.BillingDimensions{})
+}
+
+func TryTieredSettleWithDimensions(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenParams, actual billingexpr.BillingDimensions) (ok bool, quota int, result *billingexpr.TieredResult) {
 	snap := relayInfo.TieredBillingSnapshot
 	if snap == nil || snap.BillingMode != "tiered_expr" {
 		return false, 0, nil
@@ -105,7 +109,8 @@ func TryTieredSettle(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenP
 		requestInput = *relayInfo.BillingRequestInput
 	}
 
-	tr, err := billingexpr.ComputeTieredQuotaWithRequest(snap, params, requestInput)
+	dimensions := billingexpr.MergeBillingDimensions(snap.EstimatedDimensions, actual)
+	tr, err := billingexpr.ComputeTieredQuotaWithDimensionsAndRequest(snap, params, dimensions, requestInput)
 	if err != nil {
 		quota = relayInfo.FinalPreConsumedQuota
 		if quota <= 0 {

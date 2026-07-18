@@ -90,15 +90,22 @@ func smokeTestExpr(exprStr string) error {
 			Body: []byte(`{"service_tier":"fast","stream_options":{"include_usage":true},"messages":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21]}`),
 		},
 	}
+	dimensions := []billingexpr.BillingDimensions{
+		{},
+		{Units: 1, Seconds: 5, Width: 1024, Height: 1024, Quality: "high", ResolutionTier: "720p", ImageSizeTier: "1K", ImageSize: "1024x1024"},
+		{Units: 4, Seconds: 15, Width: 4096, Height: 4096, Quality: "medium", ResolutionTier: "4k", ImageSizeTier: "4K", ImageSize: "4096x4096"},
+	}
 
 	for _, v := range vectors {
 		for _, request := range requests {
-			result, _, err := billingexpr.RunExprWithRequest(exprStr, v, request)
-			if err != nil {
-				return fmt.Errorf("vector {p=%g, c=%g}: run failed: %w", v.P, v.C, err)
-			}
-			if result < 0 {
-				return fmt.Errorf("vector {p=%g, c=%g}: result %f < 0", v.P, v.C, result)
+			for _, media := range dimensions {
+				result, _, err := billingexpr.RunExprWithDimensionsAndRequest(exprStr, v, media, request)
+				if err != nil {
+					return fmt.Errorf("vector {p=%g, c=%g, units=%g, seconds=%g}: run failed: %w", v.P, v.C, media.Units, media.Seconds, err)
+				}
+				if result < 0 {
+					return fmt.Errorf("vector {p=%g, c=%g, units=%g, seconds=%g}: result %f < 0", v.P, v.C, media.Units, media.Seconds, result)
+				}
 			}
 		}
 	}
