@@ -27,7 +27,16 @@ func TestConvertToOpenAIVideoRewritesTaskIdentityAndURLs(t *testing.T) {
 			"status":"completed",
 			"url":"https://api.frimodel.com/v1/videos/task_frimodel_upstream/content",
 			"video_url":"https://api.frimodel.com/v1/videos/task_frimodel_upstream/content",
-			"metadata":{"url":"https://api.frimodel.com/v1/videos/task_frimodel_upstream/content"}
+			"metadata":{
+				"url":"https://api.frimodel.com/v1/videos/task_frimodel_upstream/content",
+				"content_url":"https://newapi.megabyai.cc/v1/videos/task_frimodel_upstream/content",
+				"local_url":"https://newapi.megabyai.cc/v1/videos/task_frimodel_upstream/content",
+				"video_url":"https://megavideos.example/videos/task_frimodel_upstream.mp4",
+				"final_video_url":"https://megavideos.example/videos/task_frimodel_upstream.mp4",
+				"origin_video_url":"https://megavideos.example/videos/task_frimodel_upstream.mp4",
+				"cached":true,
+				"cost_credits":70
+			}
 		}`),
 	}
 
@@ -40,7 +49,14 @@ func TestConvertToOpenAIVideoRewritesTaskIdentityAndURLs(t *testing.T) {
 		URL      string `json:"url"`
 		VideoURL string `json:"video_url"`
 		Metadata struct {
-			URL string `json:"url"`
+			URL         string `json:"url"`
+			ContentURL  string `json:"content_url"`
+			LocalURL    string `json:"local_url"`
+			VideoURL    string `json:"video_url"`
+			FinalURL    string `json:"final_video_url"`
+			OriginURL   string `json:"origin_video_url"`
+			Cached      bool   `json:"cached"`
+			CostCredits int    `json:"cost_credits"`
 		} `json:"metadata"`
 	}
 	require.NoError(t, common.Unmarshal(result, &payload))
@@ -51,8 +67,17 @@ func TestConvertToOpenAIVideoRewritesTaskIdentityAndURLs(t *testing.T) {
 	assert.Equal(t, expectedURL, payload.URL)
 	assert.Equal(t, expectedURL, payload.VideoURL)
 	assert.Equal(t, expectedURL, payload.Metadata.URL)
+	assert.Equal(t, expectedURL, payload.Metadata.ContentURL)
+	assert.Equal(t, expectedURL, payload.Metadata.LocalURL)
+	assert.Equal(t, expectedURL, payload.Metadata.VideoURL)
+	assert.Equal(t, expectedURL, payload.Metadata.FinalURL)
+	assert.Empty(t, payload.Metadata.OriginURL)
+	assert.True(t, payload.Metadata.Cached)
+	assert.Equal(t, 70, payload.Metadata.CostCredits)
 	assert.NotContains(t, string(result), upstreamTaskID)
 	assert.NotContains(t, string(result), "api.frimodel.com")
+	assert.NotContains(t, string(result), "newapi.megabyai.cc")
+	assert.NotContains(t, string(result), "megavideos.example")
 }
 
 func TestConvertToOpenAIVideoRemovesUpstreamURLsBeforeCompletion(t *testing.T) {
@@ -65,7 +90,15 @@ func TestConvertToOpenAIVideoRemovesUpstreamURLsBeforeCompletion(t *testing.T) {
 			"status":"failed",
 			"url":"https://api.frimodel.com/v1/videos/task_frimodel_upstream/content",
 			"video_url":"https://api.frimodel.com/v1/videos/task_frimodel_upstream/content",
-			"metadata":{"url":"https://api.frimodel.com/v1/videos/task_frimodel_upstream/content","request_id":"req_123"}
+			"metadata":{
+				"url":"https://api.frimodel.com/v1/videos/task_frimodel_upstream/content",
+				"content_url":"https://newapi.megabyai.cc/v1/videos/task_frimodel_upstream/content",
+				"local_url":"https://newapi.megabyai.cc/v1/videos/task_frimodel_upstream/content",
+				"video_url":"https://megavideos.example/videos/task_frimodel_upstream.mp4",
+				"final_video_url":"https://megavideos.example/videos/task_frimodel_upstream.mp4",
+				"origin_video_url":"https://megavideos.example/videos/task_frimodel_upstream.mp4",
+				"request_id":"req_123"
+			}
 		}`),
 	}
 
@@ -82,6 +115,46 @@ func TestConvertToOpenAIVideoRemovesUpstreamURLsBeforeCompletion(t *testing.T) {
 	metadata, ok := payload["metadata"].(map[string]any)
 	require.True(t, ok)
 	assert.NotContains(t, metadata, "url")
+	assert.NotContains(t, metadata, "content_url")
+	assert.NotContains(t, metadata, "local_url")
+	assert.NotContains(t, metadata, "video_url")
+	assert.NotContains(t, metadata, "final_video_url")
+	assert.NotContains(t, metadata, "origin_video_url")
 	assert.Equal(t, "req_123", metadata["request_id"])
 	assert.NotContains(t, string(result), "api.frimodel.com")
+	assert.NotContains(t, string(result), "newapi.megabyai.cc")
+	assert.NotContains(t, string(result), "megavideos.example")
+}
+
+func TestConvertToOpenAIVideoDoesNotAddAbsentMetadataVariants(t *testing.T) {
+	originalServerAddress := system_setting.ServerAddress
+	system_setting.ServerAddress = "https://apimodel.aihubkit.com"
+	t.Cleanup(func() {
+		system_setting.ServerAddress = originalServerAddress
+	})
+
+	task := &model.Task{
+		TaskID: "task_zmodel_public",
+		Status: model.TaskStatusSuccess,
+		Data: []byte(`{
+			"id":"task_frimodel_upstream",
+			"task_id":"task_frimodel_upstream",
+			"status":"completed",
+			"metadata":{"url":"https://api.frimodel.com/v1/videos/task_frimodel_upstream/content"}
+		}`),
+	}
+
+	result, err := (&TaskAdaptor{}).ConvertToOpenAIVideo(task)
+	require.NoError(t, err)
+
+	var payload map[string]any
+	require.NoError(t, common.Unmarshal(result, &payload))
+	metadata, ok := payload["metadata"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "https://apimodel.aihubkit.com/v1/videos/task_zmodel_public/content", metadata["url"])
+	assert.NotContains(t, metadata, "content_url")
+	assert.NotContains(t, metadata, "local_url")
+	assert.NotContains(t, metadata, "video_url")
+	assert.NotContains(t, metadata, "final_video_url")
+	assert.NotContains(t, metadata, "origin_video_url")
 }
