@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay/channel"
 	taskcommon "github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -50,6 +51,7 @@ type responseTask struct {
 	ExpiresAt          int64  `json:"expires_at,omitempty"`
 	Seconds            string `json:"seconds,omitempty"`
 	Size               string `json:"size,omitempty"`
+	Resolution         string `json:"resolution,omitempty"`
 	RemixedFromVideoID string `json:"remixed_from_video_id,omitempty"`
 	Error              *struct {
 		Message string `json:"message"`
@@ -91,7 +93,86 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	if info.Action == constant.TaskActionRemix {
 		return validateRemixRequest(c)
 	}
-	return relaycommon.ValidateMultipartDirect(c, info)
+	if taskErr := relaycommon.ValidateMultipartDirect(c, info); taskErr != nil {
+		return taskErr
+	}
+	req, err := relaycommon.GetTaskRequest(c)
+	if err != nil || !isSeedanceCompatibleModel(req.Model) {
+		return nil
+	}
+	resolution := strings.ToLower(strings.TrimSpace(req.Resolution))
+	if resolution == "" {
+		return service.TaskErrorWrapperLocal(fmt.Errorf("resolution is required"), "invalid_resolution", http.StatusBadRequest)
+	}
+	if !seedanceResolutionSupported(req.Model, resolution) {
+		return service.TaskErrorWrapperLocal(fmt.Errorf("model %s does not support resolution %s", req.Model, resolution), "invalid_resolution", http.StatusBadRequest)
+	}
+	duration := req.Duration
+	if duration == 0 && req.Seconds != "" {
+		duration, err = strconv.Atoi(req.Seconds)
+		if err != nil {
+			return service.TaskErrorWrapperLocal(fmt.Errorf("duration must be an integer"), "invalid_seconds", http.StatusBadRequest)
+		}
+	}
+	if duration < 4 || duration > 15 {
+		return service.TaskErrorWrapperLocal(fmt.Errorf("duration must be between 4 and 15 seconds"), "invalid_seconds", http.StatusBadRequest)
+	}
+	req.Duration = duration
+	req.Seconds = ""
+	req.Resolution = resolution
+	c.Set("task_request", req)
+	return nil
+}
+
+func isSeedanceCompatibleModel(modelName string) bool {
+	switch strings.ToLower(strings.TrimSpace(modelName)) {
+	case "videos-mini", "videos-fast", "videos-standard":
+		return true
+	default:
+		return false
+	}
+}
+
+func seedanceResolutionSupported(modelName, resolution string) bool {
+	switch strings.ToLower(strings.TrimSpace(modelName)) {
+	case "videos-mini", "videos-fast":
+		return resolution == "480p" || resolution == "720p"
+	case "videos-standard":
+		return resolution == "480p" || resolution == "720p" || resolution == "1080p" || resolution == "4k"
+	default:
+		return false
+	}
+}
+
+func (a *TaskAdaptor) EstimateBillingDimensions(c *gin.Context, _ *relaycommon.RelayInfo) (billingexpr.BillingDimensions, error) {
+	req, err := relaycommon.GetTaskRequest(c)
+	if err != nil {
+		return billingexpr.BillingDimensions{}, err
+	}
+	seconds, _ := strconv.Atoi(req.Seconds)
+	if seconds == 0 {
+		seconds = req.Duration
+	}
+	resolution := strings.ToLower(strings.TrimSpace(req.Resolution))
+	if isSeedanceCompatibleModel(req.Model) {
+		if seconds < 4 || seconds > 15 {
+			return billingexpr.BillingDimensions{}, fmt.Errorf("duration is required and must be between 4 and 15 seconds for tiered billing")
+		}
+		if !seedanceResolutionSupported(req.Model, resolution) {
+			return billingexpr.BillingDimensions{}, fmt.Errorf("invalid resolution %s for model %s", resolution, req.Model)
+		}
+	}
+	if seconds <= 0 {
+		return billingexpr.BillingDimensions{}, nil
+	}
+	if resolution == "" {
+		resolution = strings.ToLower(strings.TrimSpace(req.Size))
+	}
+	return billingexpr.BillingDimensions{
+		Units:          1,
+		Seconds:        float64(seconds),
+		ResolutionTier: resolution,
+	}, nil
 }
 
 // EstimateBilling 根据用户请求的 seconds 和 size 计算 OtherRatios。
@@ -158,6 +239,13 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		var bodyMap map[string]interface{}
 		if err := common.Unmarshal(cachedBody, &bodyMap); err == nil {
 			bodyMap["model"] = info.UpstreamModelName
+			if parsed, getErr := relaycommon.GetTaskRequest(c); getErr == nil && isSeedanceCompatibleModel(parsed.Model) {
+				delete(bodyMap, "seconds")
+				bodyMap["resolution"] = parsed.Resolution
+				if parsed.Duration > 0 {
+					bodyMap["duration"] = parsed.Duration
+				}
+			}
 			if newBody, err := common.Marshal(bodyMap); err == nil {
 				return bytes.NewReader(newBody), nil
 			}
@@ -173,12 +261,22 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		var buf bytes.Buffer
 		writer := multipart.NewWriter(&buf)
 		writer.WriteField("model", info.UpstreamModelName)
+		parsed, _ := relaycommon.GetTaskRequest(c)
 		for key, values := range formData.Value {
 			if key == "model" {
 				continue
 			}
+			if isSeedanceCompatibleModel(parsed.Model) && (key == "resolution" || key == "duration" || key == "seconds") {
+				continue
+			}
 			for _, v := range values {
 				writer.WriteField(key, v)
+			}
+		}
+		if isSeedanceCompatibleModel(parsed.Model) {
+			writer.WriteField("resolution", parsed.Resolution)
+			if parsed.Duration > 0 {
+				writer.WriteField("duration", strconv.Itoa(parsed.Duration))
 			}
 		}
 		for fieldName, fileHeaders := range formData.File {
@@ -314,6 +412,13 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		}
 	default:
 	}
+	if seconds, err := strconv.Atoi(resTask.Seconds); err == nil && seconds > 0 {
+		taskResult.Duration = seconds
+	}
+	taskResult.Resolution = strings.ToLower(strings.TrimSpace(resTask.Resolution))
+	if taskResult.Resolution == "" {
+		taskResult.Resolution = strings.ToLower(strings.TrimSpace(resTask.Size))
+	}
 	if resTask.Progress > 0 && resTask.Progress < 100 {
 		taskResult.Progress = fmt.Sprintf("%d%%", resTask.Progress)
 	}
@@ -321,11 +426,67 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	return &taskResult, nil
 }
 
+func (a *TaskAdaptor) AdjustBillingDimensionsOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) *billingexpr.BillingDimensions {
+	if taskResult == nil {
+		return nil
+	}
+	dimensions := billingexpr.BillingDimensions{}
+	if taskResult.Duration >= 4 && taskResult.Duration <= 15 {
+		dimensions.Seconds = float64(taskResult.Duration)
+	}
+	resolution := strings.ToLower(strings.TrimSpace(taskResult.Resolution))
+	if resolution == "480p" || resolution == "720p" || resolution == "1080p" || resolution == "4k" {
+		modelName := ""
+		if task != nil {
+			modelName = task.Properties.OriginModelName
+			if modelName == "" && task.PrivateData.BillingContext != nil {
+				modelName = task.PrivateData.BillingContext.OriginModelName
+			}
+		}
+		if !isSeedanceCompatibleModel(modelName) || seedanceResolutionSupported(modelName, resolution) {
+			dimensions.ResolutionTier = resolution
+		}
+	}
+	if dimensions.Seconds == 0 && dimensions.ResolutionTier == "" {
+		return nil
+	}
+	return &dimensions
+}
+
 func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 	data := task.Data
+	type fieldUpdate struct {
+		path  string
+		value string
+	}
+
+	updates := []fieldUpdate{
+		{path: "id", value: task.TaskID},
+		{path: "task_id", value: task.TaskID},
+	}
+	if task.Status == model.TaskStatusSuccess {
+		proxyURL := taskcommon.BuildProxyURL(task.TaskID)
+		updates = append(updates,
+			fieldUpdate{path: "url", value: proxyURL},
+			fieldUpdate{path: "video_url", value: proxyURL},
+			fieldUpdate{path: "metadata.url", value: proxyURL},
+		)
+	} else {
+		for _, path := range []string{"url", "video_url", "metadata.url"} {
+			var err error
+			data, err = sjson.DeleteBytes(data, path)
+			if err != nil {
+				return nil, errors.Wrapf(err, "delete %s failed", path)
+			}
+		}
+	}
+
 	var err error
-	if data, err = sjson.SetBytes(data, "id", task.TaskID); err != nil {
-		return nil, errors.Wrap(err, "set id failed")
+	for _, update := range updates {
+		data, err = sjson.SetBytes(data, update.path, update.value)
+		if err != nil {
+			return nil, errors.Wrapf(err, "set %s failed", update.path)
+		}
 	}
 	return data, nil
 }

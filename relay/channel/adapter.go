@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
 
@@ -45,6 +46,11 @@ type TaskAdaptor interface {
 	// Return nil to use the base model price without extra ratios.
 	EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64
 
+	// EstimateBillingDimensions returns validated, normalized dimensions for
+	// v2 media billing expressions. Legacy fixed-price and ratio billing ignore
+	// this value and continue using EstimateBilling.
+	EstimateBillingDimensions(c *gin.Context, info *relaycommon.RelayInfo) (billingexpr.BillingDimensions, error)
+
 	// AdjustBillingOnSubmit returns adjusted OtherRatios from the upstream
 	// submit response. Called after a successful DoResponse.
 	// If the upstream returned actual parameters that differ from the estimate
@@ -59,6 +65,10 @@ type TaskAdaptor interface {
 	// Return a positive value to trigger delta settlement (supplement / refund).
 	// Return 0 to keep the pre-charged amount unchanged.
 	AdjustBillingOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) int
+
+	// AdjustBillingDimensionsOnComplete returns provider-confirmed dimensions
+	// for v2 media settlement. Missing fields retain the frozen estimate.
+	AdjustBillingDimensionsOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) *billingexpr.BillingDimensions
 
 	// ── Request / Response ───────────────────────────────────────────
 

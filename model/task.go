@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	commonRelay "github.com/QuantumNous/new-api/relay/common"
 )
 
@@ -110,12 +111,24 @@ type TaskPrivateData struct {
 
 // TaskBillingContext 记录任务提交时的计费参数，以便轮询阶段可以重新计算额度。
 type TaskBillingContext struct {
-	ModelPrice      float64            `json:"model_price,omitempty"`       // 模型单价
-	GroupRatio      float64            `json:"group_ratio,omitempty"`       // 分组倍率
-	ModelRatio      float64            `json:"model_ratio,omitempty"`       // 模型倍率
-	OtherRatios     map[string]float64 `json:"other_ratios,omitempty"`      // 附加倍率（时长、分辨率等）
-	OriginModelName string             `json:"origin_model_name,omitempty"` // 模型名称，必须为OriginModelName
-	PerCallBilling  bool               `json:"per_call_billing,omitempty"`  // 按次计费：跳过轮询阶段的差额结算
+	ModelPrice          float64                       `json:"model_price,omitempty"`       // 模型单价
+	GroupRatio          float64                       `json:"group_ratio,omitempty"`       // 分组倍率
+	ModelRatio          float64                       `json:"model_ratio,omitempty"`       // 模型倍率
+	OtherRatios         map[string]float64            `json:"other_ratios,omitempty"`      // 附加倍率（时长、分辨率等）
+	OriginModelName     string                        `json:"origin_model_name,omitempty"` // 模型名称，必须为OriginModelName
+	PerCallBilling      bool                          `json:"per_call_billing,omitempty"`  // 按次计费：跳过轮询阶段的差额结算
+	BillingMode         string                        `json:"billing_mode,omitempty"`
+	ExprString          string                        `json:"expr_string,omitempty"`
+	ExprHash            string                        `json:"expr_hash,omitempty"`
+	ExprVersion         int                           `json:"expr_version,omitempty"`
+	EstimatedDimensions billingexpr.BillingDimensions `json:"estimated_dimensions,omitempty"`
+	EstimatedTier       string                        `json:"estimated_tier,omitempty"`
+	EstimatedQuota      int                           `json:"estimated_quota,omitempty"`
+	QuotaPerUnit        float64                       `json:"quota_per_unit,omitempty"`
+	ActualDimensions    billingexpr.BillingDimensions `json:"actual_dimensions,omitempty"`
+	ActualTier          string                        `json:"actual_tier,omitempty"`
+	ActualQuota         int                           `json:"actual_quota,omitempty"`
+	RequestInput        billingexpr.RequestInput      `json:"request_input,omitempty"`
 }
 
 // GetUpstreamTaskID 获取上游真实 task ID（用于与 provider 通信）
@@ -175,7 +188,9 @@ func InitTask(platform constant.TaskPlatform, relayInfo *commonRelay.RelayInfo) 
 	privateData := TaskPrivateData{}
 	if relayInfo != nil && relayInfo.ChannelMeta != nil {
 		if relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeGemini ||
-			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeVertexAi {
+			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeVertexAi ||
+			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeOpenAI ||
+			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeSora {
 			privateData.Key = relayInfo.ChannelMeta.ApiKey
 		}
 		if relayInfo.UpstreamModelName != "" {
@@ -419,6 +434,13 @@ func (Task *Task) Update() error {
 
 func (t *Task) UpdateQuota() error {
 	return DB.Model(t).Update("quota", t.Quota).Error
+}
+
+func (t *Task) UpdateQuotaAndPrivateData() error {
+	return DB.Model(t).Updates(map[string]any{
+		"quota":        t.Quota,
+		"private_data": t.PrivateData,
+	}).Error
 }
 
 // UpdateWithStatus performs a conditional UPDATE guarded by fromStatus (CAS).

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -50,6 +52,14 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	if info.IsModelMapped {
 		other["is_model_mapped"] = true
 		other["upstream_model_name"] = info.UpstreamModelName
+	}
+	if snap := info.TieredBillingSnapshot; snap != nil {
+		other["billing_mode"] = snap.BillingMode
+		other["billing_expr_version"] = snap.ExprVersion
+		other["expr_b64"] = base64.StdEncoding.EncodeToString([]byte(snap.ExprString))
+		other["estimated_billing_dimensions"] = snap.EstimatedDimensions
+		other["estimated_quota"] = snap.EstimatedQuotaAfterGroup
+		other["matched_tier"] = snap.EstimatedTier
 	}
 	attachQuotaSaturation(c, info, other)
 	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
@@ -122,6 +132,24 @@ func taskAdjustTokenQuota(ctx context.Context, task *model.Task, delta int) {
 func taskBillingOther(task *model.Task) map[string]interface{} {
 	other := make(map[string]interface{})
 	if bc := task.PrivateData.BillingContext; bc != nil {
+		if bc.BillingMode == "tiered_expr" {
+			other["billing_mode"] = bc.BillingMode
+			other["billing_expr_version"] = bc.ExprVersion
+			other["expr_b64"] = base64.StdEncoding.EncodeToString([]byte(bc.ExprString))
+			other["estimated_billing_dimensions"] = bc.EstimatedDimensions
+			other["estimated_quota"] = bc.EstimatedQuota
+			other["matched_tier"] = bc.EstimatedTier
+			if bc.ActualDimensions != (billingexpr.BillingDimensions{}) {
+				other["actual_billing_dimensions"] = bc.ActualDimensions
+			}
+			if bc.ActualTier != "" {
+				other["matched_tier"] = bc.ActualTier
+			}
+			if bc.ActualQuota != 0 || bc.EstimatedQuota != 0 {
+				other["actual_quota"] = bc.ActualQuota
+				other["settlement_delta"] = bc.ActualQuota - bc.EstimatedQuota
+			}
+		}
 		other["model_price"] = bc.ModelPrice
 		if bc.ModelRatio > 0 {
 			other["model_ratio"] = bc.ModelRatio
@@ -202,10 +230,27 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	if actualQuota <= 0 {
 		return
 	}
+	recalculateTaskQuota(ctx, task, actualQuota, reason, clamps...)
+}
+
+// RecalculateTaskQuotaAllowZero settles a computed charge that may legitimately
+// be zero. Tiered expressions use this to refund a positive pre-consume when the
+// frozen expression evaluates to a free result at completion.
+func RecalculateTaskQuotaAllowZero(ctx context.Context, task *model.Task, actualQuota int, reason string, clamps ...*common.QuotaClamp) {
+	if actualQuota < 0 {
+		return
+	}
+	recalculateTaskQuota(ctx, task, actualQuota, reason, clamps...)
+}
+
+func recalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int, reason string, clamps ...*common.QuotaClamp) {
 	preConsumedQuota := task.Quota
 	quotaDelta := actualQuota - preConsumedQuota
 
 	if quotaDelta == 0 {
+		if err := task.UpdateQuotaAndPrivateData(); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("差额结算回写计费快照失败 task %s: %s", task.TaskID, err.Error()))
+		}
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 预扣费准确（%s，%s）",
 			task.TaskID, logger.LogQuota(actualQuota), reason))
 		return
@@ -229,7 +274,7 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	taskAdjustTokenQuota(ctx, task, quotaDelta)
 
 	task.Quota = actualQuota
-	if err := task.UpdateQuota(); err != nil {
+	if err := task.UpdateQuotaAndPrivateData(); err != nil {
 		logger.LogError(ctx, fmt.Sprintf("差额结算回写 quota 失败 task %s: %s", task.TaskID, err.Error()))
 	}
 

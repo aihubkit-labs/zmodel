@@ -30,7 +30,7 @@ import {
 } from './billing-expr'
 import { getDisplayGroupRatio } from './model-helpers'
 
-type DynamicPriceOptions = {
+export type DynamicPriceOptions = {
   tokenUnit: TokenUnit
   showRechargePrice?: boolean
   priceRate?: number
@@ -105,6 +105,54 @@ export function formatDynamicUnitPrice(
     digitsSmall: 6,
     abbreviate: false,
   })
+}
+
+export function formatDynamicMediaPrice(
+  tier: ParsedTier,
+  mediaUnit: 'image' | 'video' | 'output',
+  options: DynamicPriceOptions,
+  labels: {
+    perImage: string
+    perVideo: string
+    perOutput: string
+    second: string
+  }
+): string {
+  const pricing = tier.mediaPricing
+  if (!pricing) return '-'
+
+  const groupRatio = options.groupRatioMultiplier ?? 1
+  const priceRate = options.priceRate ?? 1
+  const usdExchangeRate = options.usdExchangeRate ?? 1
+  const format = (price: number | undefined) => {
+    const groupedPrice = (price ?? 0) * groupRatio
+    const displayPrice = applyRechargeRate(
+      groupedPrice,
+      options.showRechargePrice ?? false,
+      priceRate,
+      usdExchangeRate
+    )
+    return formatBillingCurrencyFromUSD(displayPrice, {
+      digitsLarge: 4,
+      digitsSmall: 6,
+      abbreviate: false,
+    })
+  }
+
+  let perUnitLabel = labels.perOutput
+  if (mediaUnit === 'image') {
+    perUnitLabel = labels.perImage
+  } else if (mediaUnit === 'video') {
+    perUnitLabel = labels.perVideo
+  }
+
+  if (pricing.method === 'per_second') {
+    return `${format(pricing.perSecondPrice)} / ${labels.second}`
+  }
+  if (pricing.method === 'fixed_plus_second') {
+    return `${format(pricing.fixedPrice)} / ${perUnitLabel} + ${format(pricing.perSecondPrice)} / ${labels.second}`
+  }
+  return `${format(pricing.unitPrice)} / ${perUnitLabel}`
 }
 
 export function getDynamicPricingTiers(model: PricingModel): ParsedTier[] {

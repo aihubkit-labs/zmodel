@@ -60,14 +60,20 @@ import { cn } from '@/lib/utils'
 
 import { DEFAULT_TOKEN_UNIT } from '../constants'
 import { usePricingData } from '../hooks/use-pricing-data'
+import { inferMediaUnit } from '../lib/billing-expr'
 import {
+  formatDynamicMediaPrice,
   getDynamicPriceEntries,
   getDynamicPricingSummary,
   getDynamicPricingTiers,
   isDynamicPricingModel,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
-import { getAvailableGroups, isTokenBasedModel } from '../lib/model-helpers'
+import {
+  getAvailableGroups,
+  getConfiguredGroupRatio,
+  isTokenBasedModel,
+} from '../lib/model-helpers'
 import { formatFixedPrice, formatGroupPrice } from '../lib/price'
 import type {
   ModelCapability,
@@ -947,9 +953,13 @@ function GroupPricingSection(props: {
       usdExchangeRate: props.usdExchangeRate,
       groupRatioMultiplier: 1,
     })
+    const hasMediaPricing = dynamicTiers.some(
+      (tier) => tier.mediaPricing != null
+    )
+    const mediaUnit = inferMediaUnit(dynamicTiers)
     const formattedPricesByGroup = new Map(
       availableGroups.map((group) => {
-        const ratio = props.groupRatio[group] || 1
+        const ratio = getConfiguredGroupRatio(props.groupRatio, group)
         return [
           group,
           getDynamicFormattedPricesByTier(dynamicTiers, {
@@ -969,7 +979,7 @@ function GroupPricingSection(props: {
         <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
         <div className='space-y-3'>
           {availableGroups.map((group) => {
-            const ratio = props.groupRatio[group] || 1
+            const ratio = getConfiguredGroupRatio(props.groupRatio, group)
             const formattedPricesByTier =
               formattedPricesByGroup.get(group) ??
               new Map<DynamicPricingTier, Map<string, string>>()
@@ -1008,14 +1018,44 @@ function GroupPricingSection(props: {
                           .get(tier)
                           ?.get(fieldEntry.field) ?? '-',
                     })),
+                    ...(hasMediaPricing
+                      ? [
+                          {
+                            id: 'media-price',
+                            header: t('Media price'),
+                            className: `${thClass} text-right`,
+                            cellClassName: 'py-2.5 text-right font-mono',
+                            cell: (tier: (typeof dynamicTiers)[number]) =>
+                              formatDynamicMediaPrice(
+                                tier,
+                                mediaUnit,
+                                {
+                                  tokenUnit: props.tokenUnit,
+                                  showRechargePrice,
+                                  priceRate: props.priceRate,
+                                  usdExchangeRate: props.usdExchangeRate,
+                                  groupRatioMultiplier: ratio,
+                                },
+                                {
+                                  perImage: t('Per image'),
+                                  perVideo: t('Per video'),
+                                  perOutput: t('Per output'),
+                                  second: t('second'),
+                                }
+                              ),
+                          },
+                        ]
+                      : []),
                   ]}
                 />
               </div>
             )
           })}
-          <p className='text-muted-foreground/40 mt-1.5 text-[10px]'>
-            {t('Prices shown per')} {tokenUnitLabel} tokens
-          </p>
+          {priceFields.length > 0 && (
+            <p className='text-muted-foreground/40 mt-1.5 text-[10px]'>
+              {t('Prices shown per')} {tokenUnitLabel} tokens
+            </p>
+          )}
         </div>
       </section>
     )

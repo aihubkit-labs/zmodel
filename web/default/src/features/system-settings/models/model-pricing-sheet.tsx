@@ -145,7 +145,10 @@ export const ModelPricingEditorPanel = forwardRef<
   ref
 ) {
   const { t } = useTranslation()
-  const [pricingMode, setPricingMode] = useState<PricingMode>('per-token')
+  const [pricingMode, setPricingMode] = useState<PricingMode>(() => {
+    if (editData?.billingMode === 'tiered_expr') return 'tiered_expr'
+    return editData?.price ? 'per-request' : 'per-token'
+  })
   const [promptPrice, setPromptPrice] = useState('')
   const [lanePrices, setLanePrices] = useState<Record<LaneKey, string>>({
     ...EMPTY_LANE_PRICES,
@@ -153,8 +156,12 @@ export const ModelPricingEditorPanel = forwardRef<
   const [laneEnabled, setLaneEnabled] = useState<Record<LaneKey, boolean>>({
     ...EMPTY_LANE_ENABLED,
   })
-  const [billingExpr, setBillingExpr] = useState('')
-  const [requestRuleExpr, setRequestRuleExpr] = useState('')
+  const [billingExpr, setBillingExpr] = useState(
+    () => editData?.billingExpr || ''
+  )
+  const [requestRuleExpr, setRequestRuleExpr] = useState(
+    () => editData?.requestRuleExpr || ''
+  )
   const [editorReloadToken, setEditorReloadToken] = useState(0)
   const isEditMode = !!editData
 
@@ -188,13 +195,13 @@ export const ModelPricingEditorPanel = forwardRef<
         audioRatio: editData.audioRatio || '',
         audioCompletionRatio: editData.audioCompletionRatio || '',
       })
-      setPricingMode(
-        editData.billingMode === 'tiered_expr'
-          ? 'tiered_expr'
-          : editData.price
-            ? 'per-request'
-            : 'per-token'
-      )
+      let nextPricingMode: PricingMode = 'per-token'
+      if (editData.billingMode === 'tiered_expr') {
+        nextPricingMode = 'tiered_expr'
+      } else if (editData.price) {
+        nextPricingMode = 'per-request'
+      }
+      setPricingMode(nextPricingMode)
       setBillingExpr(editData.billingExpr || '')
       setRequestRuleExpr(editData.requestRuleExpr || '')
     } else {

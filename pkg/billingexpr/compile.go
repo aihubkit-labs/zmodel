@@ -3,6 +3,8 @@ package billingexpr
 import (
 	"fmt"
 	"math"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -20,8 +22,12 @@ const DefaultExprVersion = 1
 // Format: "v1:tier(...)" → version=1, body="tier(...)".
 // No prefix defaults to DefaultExprVersion.
 func ParseExprVersion(exprStr string) (version int, body string) {
-	if strings.HasPrefix(exprStr, "v1:") {
-		return 1, exprStr[3:]
+	separator := strings.IndexByte(exprStr, ':')
+	if separator > 1 && exprStr[0] == 'v' {
+		parsedVersion, err := strconv.Atoi(exprStr[1:separator])
+		if err == nil {
+			return parsedVersion, exprStr[separator+1:]
+		}
 	}
 	return DefaultExprVersion, exprStr
 }
@@ -32,6 +38,11 @@ type cachedEntry struct {
 	version  int
 }
 
+type RequestReferences struct {
+	Headers []string
+	Params  []string
+}
+
 var (
 	cacheMu sync.RWMutex
 	cache   = make(map[string]*cachedEntry, 64)
@@ -39,34 +50,53 @@ var (
 
 // compileEnvPrototypeV1 is the v1 type-checking prototype used at compile time.
 var compileEnvPrototypeV1 = map[string]interface{}{
-	"p":    float64(0),
-	"c":    float64(0),
-	"len":  float64(0),
-	"cr":   float64(0),
-	"cc":   float64(0),
-	"cc1h": float64(0),
-	"img":  float64(0),
-	"img_o": float64(0),
-	"ai":   float64(0),
-	"ao":   float64(0),
-	"tier":                   func(string, float64) float64 { return 0 },
-	"header":                 func(string) string { return "" },
-	"param":                  func(string) interface{} { return nil },
-	"has":                    func(interface{}, string) bool { return false },
-	"hour":                   func(string) int { return 0 },
-	"minute":                 func(string) int { return 0 },
-	"weekday":                func(string) int { return 0 },
-	"month":                  func(string) int { return 0 },
-	"day":                    func(string) int { return 0 },
-	"max":                    math.Max,
-	"min":                    math.Min,
-	"abs":                    math.Abs,
-	"ceil":                   math.Ceil,
-	"floor":                  math.Floor,
+	"p":       float64(0),
+	"c":       float64(0),
+	"len":     float64(0),
+	"cr":      float64(0),
+	"cc":      float64(0),
+	"cc1h":    float64(0),
+	"img":     float64(0),
+	"img_o":   float64(0),
+	"ai":      float64(0),
+	"ao":      float64(0),
+	"tier":    func(string, float64) float64 { return 0 },
+	"header":  func(string) string { return "" },
+	"param":   func(string) interface{} { return nil },
+	"has":     func(interface{}, string) bool { return false },
+	"hour":    func(string) int { return 0 },
+	"minute":  func(string) int { return 0 },
+	"weekday": func(string) int { return 0 },
+	"month":   func(string) int { return 0 },
+	"day":     func(string) int { return 0 },
+	"max":     math.Max,
+	"min":     math.Min,
+	"abs":     math.Abs,
+	"ceil":    math.Ceil,
+	"floor":   math.Floor,
 }
+
+var compileEnvPrototypeV2 = func() map[string]interface{} {
+	env := make(map[string]interface{}, len(compileEnvPrototypeV1)+9)
+	for key, value := range compileEnvPrototypeV1 {
+		env[key] = value
+	}
+	env["units"] = float64(0)
+	env["seconds"] = float64(0)
+	env["width"] = float64(0)
+	env["height"] = float64(0)
+	env["quality"] = ""
+	env["resolution_tier"] = ""
+	env["image_size_tier"] = ""
+	env["image_size"] = ""
+	env["usd"] = func(float64) float64 { return 0 }
+	return env
+}()
 
 func getCompileEnv(version int) map[string]interface{} {
 	switch version {
+	case 2:
+		return compileEnvPrototypeV2
 	default:
 		return compileEnvPrototypeV1
 	}
@@ -93,6 +123,9 @@ func compileFromCacheByHash(exprStr, hash string) (*vm.Program, error) {
 	cacheMu.RUnlock()
 
 	version, body := ParseExprVersion(exprStr)
+	if version != 1 && version != 2 {
+		return nil, fmt.Errorf("unsupported billing expression version v%d", version)
+	}
 	prog, err := expr.Compile(body, expr.Env(getCompileEnv(version)), expr.AsFloat64())
 	if err != nil {
 		return nil, fmt.Errorf("expr compile error: %w", err)
@@ -164,6 +197,67 @@ func UsedVars(exprStr string) map[string]bool {
 		return entry.usedVars
 	}
 	return nil
+}
+
+// ReferencedRequestInput returns the literal header names and JSON paths read
+// by header() and param(). Async billing snapshots require literal arguments so
+// they can persist only the values needed for settlement.
+func ReferencedRequestInput(exprStr string) (RequestReferences, error) {
+	prog, err := CompileFromCache(exprStr)
+	if err != nil {
+		return RequestReferences{}, err
+	}
+
+	headerSet := make(map[string]struct{})
+	paramSet := make(map[string]struct{})
+	var referenceErr error
+	ast.Find(prog.Node(), func(n ast.Node) bool {
+		call, ok := n.(*ast.CallNode)
+		if !ok {
+			return false
+		}
+		callee, ok := call.Callee.(*ast.IdentifierNode)
+		if !ok || (callee.Value != "header" && callee.Value != "param") {
+			return false
+		}
+		if len(call.Arguments) != 1 {
+			referenceErr = fmt.Errorf("%s() must have exactly one literal string argument", callee.Value)
+			return true
+		}
+		argument, ok := call.Arguments[0].(*ast.StringNode)
+		if !ok {
+			referenceErr = fmt.Errorf("%s() must use a literal string argument for async settlement", callee.Value)
+			return true
+		}
+		value := strings.TrimSpace(argument.Value)
+		if value == "" {
+			referenceErr = fmt.Errorf("%s() argument must not be empty", callee.Value)
+			return true
+		}
+		if callee.Value == "header" {
+			headerSet[strings.ToLower(value)] = struct{}{}
+		} else {
+			paramSet[value] = struct{}{}
+		}
+		return false
+	})
+	if referenceErr != nil {
+		return RequestReferences{}, referenceErr
+	}
+
+	references := RequestReferences{
+		Headers: make([]string, 0, len(headerSet)),
+		Params:  make([]string, 0, len(paramSet)),
+	}
+	for header := range headerSet {
+		references.Headers = append(references.Headers, header)
+	}
+	for path := range paramSet {
+		references.Params = append(references.Params, path)
+	}
+	sort.Strings(references.Headers)
+	sort.Strings(references.Params)
+	return references, nil
 }
 
 // InvalidateCache clears the compiled-expression cache.

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -76,7 +77,15 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 
 	// Check if this model uses tiered_expr billing
 	if billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModeTieredExpr {
-		return modelPriceHelperTiered(c, info, promptTokens, meta, groupRatioInfo)
+		dimensions := billingexpr.BillingDimensions{}
+		if imageRequest, ok := info.Request.(*dto.ImageRequest); ok {
+			var err error
+			dimensions, err = BuildImageBillingDimensions(imageRequest)
+			if err != nil {
+				return types.PriceData{}, err
+			}
+		}
+		return modelPriceHelperTiered(c, info, promptTokens, meta, dimensions, groupRatioInfo)
 	}
 
 	var preConsumedQuota int
@@ -251,6 +260,14 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (types
 	return priceData, nil
 }
 
+func ModelPriceHelperMedia(c *gin.Context, info *relaycommon.RelayInfo, dimensions billingexpr.BillingDimensions) (types.PriceData, error) {
+	groupRatioInfo := HandleGroupRatio(c, info)
+	if billing_setting.GetBillingMode(info.OriginModelName) != billing_setting.BillingModeTieredExpr {
+		return ModelPriceHelperPerCall(c, info)
+	}
+	return modelPriceHelperTiered(c, info, 0, &types.TokenCountMeta{}, dimensions, groupRatioInfo)
+}
+
 func HasModelBillingConfig(modelName string) bool {
 	if _, ok := ratio_setting.GetModelPrice(modelName, false); ok {
 		return true
@@ -265,14 +282,14 @@ func HasModelBillingConfig(modelName string) bool {
 	return ok && strings.TrimSpace(expr) != ""
 }
 
-func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta, groupRatioInfo types.GroupRatioInfo) (types.PriceData, error) {
+func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta, dimensions billingexpr.BillingDimensions, groupRatioInfo types.GroupRatioInfo) (types.PriceData, error) {
 	exprStr, ok := billing_setting.GetBillingExpr(info.OriginModelName)
 	if !ok {
 		return types.PriceData{}, fmt.Errorf("model %s is configured as tiered_expr but has no billing expression", info.OriginModelName)
 	}
 
 	estimatedCompletionTokens := meta.MaxTokens
-	if estimatedCompletionTokens == 0 && groupRatioInfo.GroupRatio != 0 {
+	if estimatedCompletionTokens == 0 && groupRatioInfo.GroupRatio != 0 && dimensions == (billingexpr.BillingDimensions{}) {
 		estimatedCompletionTokens = defaultTieredPreConsumeMaxTokens
 	}
 
@@ -280,12 +297,16 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 	if err != nil {
 		return types.PriceData{}, err
 	}
+	usedVars := billingexpr.UsedVars(exprStr)
+	if err := billingexpr.ValidateBillingDimensions(dimensions, usedVars); err != nil {
+		return types.PriceData{}, fmt.Errorf("model %s tiered billing dimensions invalid: %w", info.OriginModelName, err)
+	}
 
-	rawCost, trace, err := billingexpr.RunExprWithRequest(exprStr, billingexpr.TokenParams{
+	rawCost, trace, err := billingexpr.RunExprWithDimensionsAndRequest(exprStr, billingexpr.TokenParams{
 		P:   float64(promptTokens),
 		C:   float64(estimatedCompletionTokens),
 		Len: float64(promptTokens),
-	}, requestInput)
+	}, dimensions, requestInput)
 	if err != nil {
 		return types.PriceData{}, fmt.Errorf("model %s tiered expr run failed: %w", info.OriginModelName, err)
 	}
@@ -319,9 +340,22 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 		EstimatedTier:             trace.MatchedTier,
 		QuotaPerUnit:              common.QuotaPerUnit,
 		ExprVersion:               billingexpr.ExprVersion(exprStr),
+		EstimatedDimensions:       dimensions,
 	}
 	info.TieredBillingSnapshot = snapshot
-	info.BillingRequestInput = &requestInput
+	if usedVars["param"] || usedVars["header"] {
+		if info.RelayFormat == types.RelayFormatTask {
+			frozenInput, err := FreezeBillingExprRequestInput(exprStr, requestInput)
+			if err != nil {
+				return types.PriceData{}, fmt.Errorf("model %s async billing request input invalid: %w", info.OriginModelName, err)
+			}
+			info.BillingRequestInput = &frozenInput
+		} else {
+			info.BillingRequestInput = &requestInput
+		}
+	} else {
+		info.BillingRequestInput = nil
+	}
 
 	priceData := types.PriceData{
 		FreeModel:         freeModel,

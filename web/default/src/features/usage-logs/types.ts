@@ -185,8 +185,14 @@ export interface LogOtherData {
   // billing_mode === 'tiered_expr'. expr_b64 is the base64-encoded billing
   // expression and matched_tier is the label of the tier that fired.
   billing_mode?: string
+  billing_expr_version?: number
   expr_b64?: string
   matched_tier?: string
+  estimated_billing_dimensions?: BillingDimensions
+  actual_billing_dimensions?: BillingDimensions
+  estimated_quota?: number
+  actual_quota?: number
+  settlement_delta?: number
   reasoning_effort?: string
   image?: boolean
   image_ratio?: number
@@ -233,6 +239,17 @@ export interface LogOtherData {
   subscription_consumed?: number
   subscription_remain?: number
   subscription_total?: number
+}
+
+export interface BillingDimensions {
+  units?: number
+  seconds?: number
+  width?: number
+  height?: number
+  quality?: string
+  resolution_tier?: string
+  image_size_tier?: string
+  image_size?: string
 }
 
 /**

@@ -34,6 +34,7 @@ import {
   MATCH_LT,
   MATCH_RANGE,
   SOURCE_TIME,
+  inferMediaUnit,
   normalizeTierLabel,
   parseTiersFromExpr,
   splitBillingExprAndRequestRules,
@@ -41,7 +42,6 @@ import {
   type ParsedTier,
   type RequestCondition,
   type RequestRuleGroup,
-  type TierCondition,
 } from '../lib/billing-expr'
 
 type DynamicPricingBreakdownProps = {
@@ -98,10 +98,19 @@ function formatTokenHint(value: string | number): string {
 }
 
 function formatConditionSummary(
-  conditions: TierCondition[],
+  tier: ParsedTier,
   t: (key: string) => string
 ): string {
-  return conditions
+  if (tier.mediaCondition) {
+    const labels: Record<string, string> = {
+      quality: 'Image quality',
+      resolution_tier: 'Video resolution tier',
+      image_size_tier: 'Image size tier',
+      image_size: 'Image size',
+    }
+    return `${t(labels[tier.mediaCondition.variable])} = ${tier.mediaCondition.value}`
+  }
+  const summary = tier.conditions
     .map((c) => {
       const varLabel = t(VAR_LABELS[c.var] || c.var)
       const hint = formatTokenHint(c.value)
@@ -109,6 +118,34 @@ function formatConditionSummary(
     })
     .filter(Boolean)
     .join(' && ')
+
+  return summary || t('Fallback tier')
+}
+
+function formatMediaPrice(
+  tier: ParsedTier,
+  mediaUnit: ReturnType<typeof inferMediaUnit>,
+  symbol: string,
+  rate: number,
+  t: (key: string) => string
+): string {
+  const pricing = tier.mediaPricing
+  if (!pricing) return '-'
+  const format = (value: number | undefined) =>
+    `${symbol}${((value || 0) * rate).toFixed(4)}`
+  let perUnitLabel = t('Per output')
+  if (mediaUnit === 'video') {
+    perUnitLabel = t('Per video')
+  } else if (mediaUnit === 'image') {
+    perUnitLabel = t('Per image')
+  }
+  if (pricing.method === 'per_second') {
+    return `${format(pricing.perSecondPrice)} / ${t('second')}`
+  }
+  if (pricing.method === 'fixed_plus_second') {
+    return `${format(pricing.fixedPrice)} / ${perUnitLabel} + ${format(pricing.perSecondPrice)} / ${t('second')}`
+  }
+  return `${format(pricing.unitPrice)} / ${perUnitLabel}`
 }
 
 function describeCondition(
@@ -229,6 +266,8 @@ export function DynamicPricingBreakdown({
       (tier) => Number(tier[v.field as string as keyof ParsedTier] || 0) > 0
     )
   })
+  const hasMediaPricing = tiers.some((tier) => tier.mediaPricing != null)
+  const mediaUnit = inferMediaUnit(tiers)
 
   return (
     <section className={cn('min-w-0', !compact && 'py-3 sm:py-4')}>
@@ -260,15 +299,17 @@ export function DynamicPricingBreakdown({
             {t('Tiered price table')}
           </div>
           <div className='space-y-1.5 sm:hidden'>
-            {tiers.map((tier, i) => {
-              const condSummary = formatConditionSummary(tier.conditions, t)
+            {tiers.map((tier, index) => {
+              const condSummary = formatConditionSummary(tier, t)
               const isMatched =
                 matchedTierLabel != null &&
                 matchedTierLabel !== '' &&
                 tier.label === matchedTierLabel
               return (
                 <div
-                  key={`tier-mobile-${i}`}
+                  // Parsed expression tiers are ordered and have no stable IDs.
+                  // eslint-disable-next-line react/no-array-index-key
+                  key={index}
                   className={cn(
                     'rounded-md border p-2',
                     isMatched && 'border-emerald-500/40 bg-emerald-500/10'
@@ -318,6 +359,16 @@ export function DynamicPricingBreakdown({
                         </div>
                       )
                     })}
+                    {tier.mediaPricing && (
+                      <div className='col-span-2 min-w-0'>
+                        <div className='text-muted-foreground text-[10px] font-medium tracking-wider uppercase'>
+                          {t('Media price')}
+                        </div>
+                        <div className='font-mono text-xs break-words'>
+                          {formatMediaPrice(tier, mediaUnit, symbol, rate, t)}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )
@@ -352,7 +403,7 @@ export function DynamicPricingBreakdown({
                 ),
                 cellClassName: cn('align-top', compact ? 'py-2' : 'py-2.5'),
                 cell: (tier) => {
-                  const condSummary = formatConditionSummary(tier.conditions, t)
+                  const condSummary = formatConditionSummary(tier, t)
                   const isMatched =
                     normalizedMatchedTierLabel !== '' &&
                     normalizeTierLabel(tier.label) ===
@@ -408,6 +459,24 @@ export function DynamicPricingBreakdown({
                   )
                 },
               })),
+              ...(hasMediaPricing
+                ? [
+                    {
+                      id: 'media-price',
+                      header: t('Media price'),
+                      className: cn(
+                        'text-muted-foreground py-2 text-right font-medium',
+                        compact && 'h-8'
+                      ),
+                      cellClassName: cn(
+                        'text-right align-top font-mono',
+                        compact ? 'py-2' : 'py-2.5'
+                      ),
+                      cell: (tier: ParsedTier) =>
+                        formatMediaPrice(tier, mediaUnit, symbol, rate, t),
+                    },
+                  ]
+                : []),
             ]}
           />
         </div>
@@ -425,9 +494,11 @@ export function DynamicPricingBreakdown({
             {t('Conditional multipliers')}
           </div>
           <ul className='space-y-1.5'>
-            {ruleGroups.map((group, gi) => (
+            {ruleGroups.map((group, index) => (
               <li
-                key={`group-${gi}`}
+                // Parsed rule groups are ordered and have no stable IDs.
+                // eslint-disable-next-line react/no-array-index-key
+                key={index}
                 className='bg-muted/50 flex items-center justify-between gap-3 rounded-md px-3 py-2'
               >
                 <span

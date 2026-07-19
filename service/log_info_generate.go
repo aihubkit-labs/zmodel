@@ -312,8 +312,14 @@ func InjectTieredBillingInfo(other map[string]interface{}, relayInfo *relaycommo
 		return
 	}
 	other["billing_mode"] = "tiered_expr"
+	other["billing_expr_version"] = snap.ExprVersion
 	other["expr_b64"] = base64.StdEncoding.EncodeToString([]byte(snap.ExprString))
+	other["estimated_billing_dimensions"] = snap.EstimatedDimensions
 	if result != nil {
 		other["matched_tier"] = result.MatchedTier
+		other["actual_billing_dimensions"] = result.ActualDimensions
+		other["estimated_quota"] = snap.EstimatedQuotaAfterGroup
+		other["actual_quota"] = result.ActualQuotaAfterGroup
+		other["settlement_delta"] = result.ActualQuotaAfterGroup - snap.EstimatedQuotaAfterGroup
 	}
 }
