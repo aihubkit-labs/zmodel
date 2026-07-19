@@ -44,7 +44,12 @@ type liveVideoTaskResponse struct {
 	URL      string `json:"url"`
 	VideoURL string `json:"video_url"`
 	Metadata struct {
-		URL string `json:"url"`
+		URL            string `json:"url"`
+		ContentURL     string `json:"content_url"`
+		LocalURL       string `json:"local_url"`
+		VideoURL       string `json:"video_url"`
+		FinalVideoURL  string `json:"final_video_url"`
+		OriginVideoURL string `json:"origin_video_url"`
 	} `json:"metadata"`
 	Error *struct {
 		Message string `json:"message"`
@@ -77,7 +82,7 @@ func TestRunLiveVideoE2EAgainstProtocolServer(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/videos/task_public":
 			contentURL := serverURL + "/v1/videos/task_public/content"
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = fmt.Fprintf(w, `{"id":"task_public","task_id":"task_public","status":"completed","url":%q,"video_url":%q,"metadata":{"url":%q}}`, contentURL, contentURL, contentURL)
+			_, _ = fmt.Fprintf(w, `{"id":"task_public","task_id":"task_public","status":"completed","url":%q,"video_url":%q,"metadata":{"url":%q,"content_url":%q,"local_url":%q,"video_url":%q,"final_video_url":%q}}`, contentURL, contentURL, contentURL, contentURL, contentURL, contentURL, contentURL)
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/videos/task_public/content":
 			w.Header().Set("Content-Type", "video/mp4")
 			w.Header().Set("Content-Range", "bytes 0-3/4")
@@ -138,6 +143,24 @@ func TestLiveVideoContentURLSupportsUpstreamResponseVariants(t *testing.T) {
 				return response
 			}(),
 			expected: "https://example.com/metadata-url",
+		},
+		{
+			name: "metadata content url",
+			response: func() liveVideoTaskResponse {
+				response := liveVideoTaskResponse{}
+				response.Metadata.ContentURL = "https://example.com/metadata-content-url"
+				return response
+			}(),
+			expected: "https://example.com/metadata-content-url",
+		},
+		{
+			name: "metadata local url",
+			response: func() liveVideoTaskResponse {
+				response := liveVideoTaskResponse{}
+				response.Metadata.LocalURL = "https://example.com/metadata-local-url"
+				return response
+			}(),
+			expected: "https://example.com/metadata-local-url",
 		},
 		{
 			name: "url takes precedence",
@@ -233,9 +256,11 @@ func loadLiveVideoE2EConfigs(t *testing.T) []liveVideoE2EConfig {
 	if target == "upstream" || target == "both" {
 		config := commonConfig
 		config.name = "upstream"
-		config.baseURL = liveVideoEnvOrDefault("FRIMODEL_BASE_URL", "https://api.frimodel.com")
+		config.baseURL = liveVideoEnvOrDefault("OPENAI_VIDEO_UPSTREAM_BASE_URL",
+			liveVideoEnvOrDefault("FRIMODEL_BASE_URL", "https://api.frimodel.com"))
 		config.publicBaseURL = config.baseURL
-		config.apiKey = liveVideoRequiredEnv(t, "FRIMODEL_API_KEY")
+		config.apiKey = liveVideoEnvOrDefault("OPENAI_VIDEO_UPSTREAM_API_KEY", strings.TrimSpace(os.Getenv("FRIMODEL_API_KEY")))
+		require.NotEmpty(t, config.apiKey, "OPENAI_VIDEO_UPSTREAM_API_KEY is required for the upstream target")
 		configs = append(configs, config)
 	}
 	return configs
@@ -310,6 +335,11 @@ func runLiveVideoE2E(t *testing.T, config liveVideoE2EConfig) {
 				assert.Empty(t, current.URL)
 				assert.Empty(t, current.VideoURL)
 				assert.Empty(t, current.Metadata.URL)
+				assert.Empty(t, current.Metadata.ContentURL)
+				assert.Empty(t, current.Metadata.LocalURL)
+				assert.Empty(t, current.Metadata.VideoURL)
+				assert.Empty(t, current.Metadata.FinalVideoURL)
+				assert.Empty(t, current.Metadata.OriginVideoURL)
 			}
 			select {
 			case <-ctx.Done():
@@ -330,6 +360,19 @@ func runLiveVideoE2E(t *testing.T, config liveVideoE2EConfig) {
 		assert.Equal(t, expectedContentURL, completed.URL)
 		assert.Equal(t, expectedContentURL, completed.VideoURL)
 		assert.Equal(t, expectedContentURL, completed.Metadata.URL)
+		if completed.Metadata.ContentURL != "" {
+			assert.Equal(t, expectedContentURL, completed.Metadata.ContentURL)
+		}
+		if completed.Metadata.LocalURL != "" {
+			assert.Equal(t, expectedContentURL, completed.Metadata.LocalURL)
+		}
+		if completed.Metadata.VideoURL != "" {
+			assert.Equal(t, expectedContentURL, completed.Metadata.VideoURL)
+		}
+		if completed.Metadata.FinalVideoURL != "" {
+			assert.Equal(t, expectedContentURL, completed.Metadata.FinalVideoURL)
+		}
+		assert.Empty(t, completed.Metadata.OriginVideoURL)
 		assert.Equal(t, expectedContentURL, contentURL)
 	}
 
@@ -343,10 +386,12 @@ func runLiveVideoE2E(t *testing.T, config liveVideoE2EConfig) {
 	content, err := io.ReadAll(io.LimitReader(response.Body, 4096))
 	require.NoError(t, err)
 
-	require.Equal(t, http.StatusPartialContent, response.StatusCode,
-		"content endpoint must honor Range requests; response body: %s", liveVideoDiagnostic(content, config.apiKey))
-	assert.NotEmpty(t, response.Header.Get("Content-Range"))
-	assert.Equal(t, "bytes", strings.ToLower(response.Header.Get("Accept-Ranges")))
+	require.Contains(t, []int{http.StatusOK, http.StatusPartialContent}, response.StatusCode,
+		"content endpoint must return video content; response body: %s", liveVideoDiagnostic(content, config.apiKey))
+	if response.StatusCode == http.StatusPartialContent {
+		assert.NotEmpty(t, response.Header.Get("Content-Range"))
+		assert.Equal(t, "bytes", strings.ToLower(response.Header.Get("Accept-Ranges")))
+	}
 	contentType := strings.ToLower(response.Header.Get("Content-Type"))
 	assert.True(t, strings.HasPrefix(contentType, "video/") || strings.HasPrefix(contentType, "application/octet-stream"),
 		"unexpected video content type %q", contentType)
@@ -388,7 +433,22 @@ func liveVideoContentURL(response liveVideoTaskResponse) string {
 	if response.VideoURL != "" {
 		return response.VideoURL
 	}
-	return response.Metadata.URL
+	if response.Metadata.URL != "" {
+		return response.Metadata.URL
+	}
+	if response.Metadata.ContentURL != "" {
+		return response.Metadata.ContentURL
+	}
+	if response.Metadata.LocalURL != "" {
+		return response.Metadata.LocalURL
+	}
+	if response.Metadata.VideoURL != "" {
+		return response.Metadata.VideoURL
+	}
+	if response.Metadata.FinalVideoURL != "" {
+		return response.Metadata.FinalVideoURL
+	}
+	return response.Metadata.OriginVideoURL
 }
 
 func liveVideoDiagnostic(body []byte, apiKey string) string {

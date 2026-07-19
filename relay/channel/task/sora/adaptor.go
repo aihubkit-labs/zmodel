@@ -22,6 +22,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
@@ -126,7 +127,7 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 
 func isSeedanceCompatibleModel(modelName string) bool {
 	switch strings.ToLower(strings.TrimSpace(modelName)) {
-	case "videos-mini", "videos-fast", "videos-standard":
+	case "videos-mini", "videos-fast", "videos-standard", "videos-4-mini", "videos-4-fast", "videos-4":
 		return true
 	default:
 		return false
@@ -135,7 +136,7 @@ func isSeedanceCompatibleModel(modelName string) bool {
 
 func seedanceResolutionSupported(modelName, resolution string) bool {
 	switch strings.ToLower(strings.TrimSpace(modelName)) {
-	case "videos-mini", "videos-fast":
+	case "videos-mini", "videos-fast", "videos-4-mini", "videos-4-fast", "videos-4":
 		return resolution == "480p" || resolution == "720p"
 	case "videos-standard":
 		return resolution == "480p" || resolution == "720p" || resolution == "1080p" || resolution == "4k"
@@ -471,8 +472,32 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 			fieldUpdate{path: "video_url", value: proxyURL},
 			fieldUpdate{path: "metadata.url", value: proxyURL},
 		)
+		for _, path := range []string{
+			"metadata.content_url",
+			"metadata.local_url",
+			"metadata.video_url",
+			"metadata.final_video_url",
+		} {
+			if gjson.GetBytes(data, path).Exists() {
+				updates = append(updates, fieldUpdate{path: path, value: proxyURL})
+			}
+		}
+		var err error
+		data, err = sjson.DeleteBytes(data, "metadata.origin_video_url")
+		if err != nil {
+			return nil, errors.Wrap(err, "delete metadata.origin_video_url failed")
+		}
 	} else {
-		for _, path := range []string{"url", "video_url", "metadata.url"} {
+		for _, path := range []string{
+			"url",
+			"video_url",
+			"metadata.url",
+			"metadata.content_url",
+			"metadata.local_url",
+			"metadata.video_url",
+			"metadata.final_video_url",
+			"metadata.origin_video_url",
+		} {
 			var err error
 			data, err = sjson.DeleteBytes(data, path)
 			if err != nil {

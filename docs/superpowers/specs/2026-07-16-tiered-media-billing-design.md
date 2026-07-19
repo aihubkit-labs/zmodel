@@ -605,8 +605,11 @@ done
 | `videos-mini` | `480p`、`720p` | 4–15 秒 |
 | `videos-fast` | `480p`、`720p` | 4–15 秒 |
 | `videos-standard` | `480p`、`720p`、`1080p`、`4K` | 4–15 秒 |
+| `videos-4-mini` | `480p`、`720p` | 4–15 秒 |
+| `videos-4-fast` | `480p`、`720p` | 4–15 秒 |
+| `videos-4` | `480p`、`720p` | 4–15 秒 |
 
-下面的变量可覆盖三个模型和全部已支持分辨率。修改变量后直接执行提交命令即可：
+下面的变量可覆盖六个模型和全部已支持分辨率。修改变量后直接执行提交命令即可：
 
 ```bash
 export VIDEO_MODEL='videos-standard'
@@ -622,6 +625,12 @@ export VIDEO_DURATION='10'
 # VIDEO_MODEL=videos-standard VIDEO_RESOLUTION=720p
 # VIDEO_MODEL=videos-standard VIDEO_RESOLUTION=1080p
 # VIDEO_MODEL=videos-standard VIDEO_RESOLUTION=4K
+# VIDEO_MODEL=videos-4-mini   VIDEO_RESOLUTION=480p
+# VIDEO_MODEL=videos-4-mini   VIDEO_RESOLUTION=720p
+# VIDEO_MODEL=videos-4-fast   VIDEO_RESOLUTION=480p
+# VIDEO_MODEL=videos-4-fast   VIDEO_RESOLUTION=720p
+# VIDEO_MODEL=videos-4        VIDEO_RESOLUTION=480p
+# VIDEO_MODEL=videos-4        VIDEO_RESOLUTION=720p
 ```
 
 #### 10.4.7 提交、轮询并下载视频
@@ -744,7 +753,8 @@ v2:image_size_tier == "1K"
 - OpenAI 兼容图片生成路径提供 `units`、`quality`、`image_size`、
   `image_size_tier`，并在可靠响应中按实际图片数量结算。
 - 当前 Sora/Seedance 兼容适配器为 `videos-mini`、`videos-fast`、
-  `videos-standard` 提供经过白名单校验的 `resolution_tier` 和 `seconds`。
+  `videos-standard`、`videos-4-mini`、`videos-4-fast`、`videos-4` 提供经过
+  白名单校验的 `resolution_tier` 和 `seconds`。
 - 其他视频适配器不能因为可以保存 `v2` 表达式，就被视为已支持上述视频维度。
   接入前必须为该适配器定义字段来源、默认值、合法范围及完成时实际值提取规则。
 - 固定价格、模型倍率、`v1` Token 表达式以及不含 `v2` 快照的历史任务继续走原有

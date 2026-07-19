@@ -4,7 +4,7 @@
 
 本文档说明 zmodel 对 OpenAI Video 兼容上游的异步任务和视频内容下载代理方案。
 
-当前直接场景是通过 OpenAI 渠道类型接入 FriModel 提供的 Seedance 2.0 封装接口。本文档描述的是协议兼容层和维护约束，不依赖某个具体模型名称，也不记录任何真实 API Key。
+当前直接场景是通过 OpenAI 渠道类型接入 FriModel 和 MegabyAI 提供的 Seedance 2.0 封装接口。两个供应商复用同一套 OpenAI Video 兼容协议，供应商差异限于模型列表、定价和 `metadata` 扩展字段。本文档描述的是协议兼容层和维护约束，不记录任何真实 API Key。
 
 代码和自动化测试是行为真相；本文档用于解释设计背景、关键契约和后续维护方式。
 
@@ -26,10 +26,10 @@ video_url
 metadata.url
 ```
 
-如果 zmodel 直接把上游下载地址返回给客户端，会产生鉴权不匹配：
+如果 zmodel 直接把上游下载地址返回给客户端，可能产生鉴权不匹配或绕过 zmodel 访问控制：
 
 1. 客户端持有的是 zmodel Token。
-2. 上游内容接口要求 FriModel API Key。
+2. 受保护的上游内容接口要求对应供应商的 API Key。
 3. 客户端使用 zmodel Token 请求上游域名时会被上游拒绝。
 4. 直接公开上游地址还会泄露供应商域名和上游任务 ID。
 
@@ -39,13 +39,34 @@ metadata.url
 
 ### 3.1 复用现有 OpenAI Video 协议
 
-FriModel 已经对 Seedance 2.0 海外官方接口进行了封装，并向下提供 OpenAI Video 兼容协议。因此 zmodel：
+供应商已经对 Seedance 2.0 接口进行了封装，并向下提供 OpenAI Video 兼容协议。因此 zmodel：
 
 - 使用现有 OpenAI 渠道类型。
 - 复用 OpenAI/Sora task adaptor。
 - 不新增 Seedance 专用渠道类型。
 - 不直接实现 Seedance 海外官方协议。
 - 不新增视频提交、查询或内容下载路由。
+
+当前通用 Seedance 模型能力如下：
+
+| 模型 | 分辨率 | 时长 |
+| --- | --- | --- |
+| `videos-mini` | `480p`、`720p` | 4–15 秒 |
+| `videos-fast` | `480p`、`720p` | 4–15 秒 |
+| `videos-standard` | `480p`、`720p`、`1080p`、`4K` | 4–15 秒 |
+| `videos-4-mini` | `480p`、`720p` | 4–15 秒 |
+| `videos-4-fast` | `480p`、`720p` | 4–15 秒 |
+| `videos-4` | `480p`、`720p` | 4–15 秒 |
+
+其中 `videos-4*` 由 MegabyAI 提供。模型能力按模型 ID 定义，不通过供应商域名分支实现。
+
+两个供应商均支持以下 JSON 素材字段，zmodel 保持字段名、数组顺序和 URL 原样透传，由上游执行数量、格式、时长和内容策略校验：
+
+```text
+referenceImages
+referenceVideos
+referenceAudios
+```
 
 这样可以避免重复协议实现，并减少后续合并上游 new-api 代码时的冲突面。
 
@@ -163,13 +184,24 @@ task_id
 
 ### 5.2 成功状态
 
-任务状态为 `TaskStatusSuccess` 时，以下字段必须改为 zmodel 内容代理地址：
+任务状态为 `TaskStatusSuccess` 时，以下顶层字段必须改为 zmodel 内容代理地址：
 
 ```text
 url
 video_url
 metadata.url
 ```
+
+如果上游 `metadata` 原本包含以下扩展字段，也必须重写为同一个代理地址：
+
+```text
+metadata.content_url
+metadata.local_url
+metadata.video_url
+metadata.final_video_url
+```
+
+`metadata.origin_video_url` 不属于稳定的最终结果下载契约，成功和非成功状态下均删除，避免暴露原始素材或上游存储地址。其他非 URL 元数据保持原样，例如 `cached`、`expires_in` 和 `cost_credits`。这样既兼容供应商扩展字段，也不在通用层引入供应商判断。
 
 转换示例：
 
@@ -194,9 +226,14 @@ metadata.url
 url
 video_url
 metadata.url
+metadata.content_url
+metadata.local_url
+metadata.video_url
+metadata.final_video_url
+metadata.origin_video_url
 ```
 
-删除 `metadata.url` 时必须保留 `metadata` 中的其他字段。这样既避免上游信息泄露，也不破坏其他响应元数据。
+删除 metadata URL 时必须保留 `metadata` 中的其他字段。这样既避免上游信息泄露，也不破坏其他响应元数据。
 
 ## 6. 视频内容代理契约
 
@@ -346,7 +383,7 @@ Task.Data
 | 场景 | 预期结果 |
 | --- | --- |
 | 成功任务查询 | `id` 和 `task_id` 为公开 ID |
-| 成功任务查询 | 三个下载 URL均指向 zmodel |
+| 成功任务查询 | 顶层和上游实际返回的 metadata 下载 URL 均指向 zmodel |
 | 成功任务查询 | 响应不包含上游任务 ID和上游域名 |
 | 未完成或失败任务查询 | 删除所有上游下载 URL |
 | 未完成或失败任务查询 | 保留 `metadata` 中其他字段 |
@@ -394,8 +431,8 @@ export OPENAI_VIDEO_E2E_ENABLED=true
 | `OPENAI_VIDEO_E2E_TARGET` | 使用的凭据 | 作用 |
 | --- | --- | --- |
 | `zmodel` | `ZMODEL_API_KEY` | 验证客户端经过 zmodel 的完整任务和下载代理链路，默认值 |
-| `upstream` | `FRIMODEL_API_KEY` | 直接验证 FriModel 文档协议和 Range 内容接口 |
-| `both` | 两套凭据 | 依次验证 zmodel 和 FriModel，会创建两个真实任务 |
+| `upstream` | `OPENAI_VIDEO_UPSTREAM_API_KEY` | 直接验证任意 OpenAI Video 兼容上游的协议和内容接口 |
+| `both` | 两套凭据 | 依次验证 zmodel 和指定上游，会创建两个真实任务 |
 
 验证 zmodel 完整链路：
 
@@ -410,13 +447,13 @@ GOCACHE=/tmp/zmodel-go-build go test -count=1 -v \
   ./relay/channel/task/sora
 ```
 
-直接验证 FriModel：
+直接验证任意 OpenAI Video 兼容上游：
 
 ```bash
 export OPENAI_VIDEO_E2E_ENABLED=true
 export OPENAI_VIDEO_E2E_TARGET=upstream
-export FRIMODEL_BASE_URL=https://api.frimodel.com
-export FRIMODEL_API_KEY='<frimodel-test-key>'
+export OPENAI_VIDEO_UPSTREAM_BASE_URL=https://newapi.megabyai.cc
+export OPENAI_VIDEO_UPSTREAM_API_KEY='<upstream-test-key>'
 
 GOCACHE=/tmp/zmodel-go-build go test -count=1 -v \
   -run TestLiveOpenAIVideoE2E \
@@ -432,8 +469,10 @@ GOCACHE=/tmp/zmodel-go-build go test -count=1 -v \
 | `ZMODEL_BASE_URL` | 目标包含 zmodel | 无 | 测试请求使用的 zmodel 地址 |
 | `ZMODEL_PUBLIC_BASE_URL` | 否 | `ZMODEL_BASE_URL` | 查询响应中应出现的公开地址，适用于内外网地址不同的部署 |
 | `ZMODEL_API_KEY` | 目标包含 zmodel | 无 | 专用 zmodel 测试 Token |
-| `FRIMODEL_BASE_URL` | 否 | `https://api.frimodel.com` | FriModel API 地址 |
-| `FRIMODEL_API_KEY` | 目标包含 upstream | 无 | 专用 FriModel 测试密钥 |
+| `OPENAI_VIDEO_UPSTREAM_BASE_URL` | 否 | `https://api.frimodel.com` | OpenAI Video 兼容上游地址 |
+| `OPENAI_VIDEO_UPSTREAM_API_KEY` | 目标包含 upstream | 无 | 专用上游测试密钥 |
+| `FRIMODEL_BASE_URL` | 否 | 无 | 旧版兼容变量；未设置通用地址时作为回退 |
+| `FRIMODEL_API_KEY` | 否 | 无 | 旧版兼容变量；未设置通用密钥时作为回退 |
 | `OPENAI_VIDEO_E2E_MODEL` | 否 | `videos-mini` | 待测试模型 |
 | `OPENAI_VIDEO_E2E_PROMPT` | 否 | 内置英文测试提示词 | 视频提示词 |
 | `OPENAI_VIDEO_E2E_DURATION` | 否 | `5` | 视频时长，单位为秒 |
@@ -449,9 +488,9 @@ GOCACHE=/tmp/zmodel-go-build go test -count=1 -v \
 3. 轮询任务直至 `completed`，失败或超时则测试失败。
 4. zmodel 目标的查询响应始终使用公开任务 ID。
 5. zmodel 目标在非完成状态不返回下载 URL。
-6. zmodel 完成响应的 `url`、`video_url` 和 `metadata.url` 均指向 zmodel 内容代理。
-7. 内容接口接受 zmodel Token 或上游密钥，并支持 `Range: bytes=0-1023`。
-8. 内容接口返回 `206`、`Content-Range`、`Accept-Ranges` 和非空视频字节。
+6. zmodel 完成响应中的顶层 URL 和上游实际返回的 metadata URL 均指向 zmodel 内容代理。
+7. 内容接口接受 zmodel Token 或上游密钥，并发送 `Range: bytes=0-1023`。
+8. 内容接口返回 `200` 或 `206` 以及非空视频字节；返回 `206` 时同时验证 `Content-Range` 和 `Accept-Ranges`。
 
 安全和运行约束：
 
