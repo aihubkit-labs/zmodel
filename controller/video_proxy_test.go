@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
@@ -30,8 +31,11 @@ type videoProxyTestCase struct {
 	storedKey             string
 	channelKey            string
 	expectedKey           string
+	contentDelivery       string
 	upstreamStatus        int
+	upstreamLocation      string
 	expectedStatus        int
+	expectedLocation      string
 	forwardRange          bool
 	expectedResponseBody  string
 	expectedContentLength string
@@ -123,6 +127,86 @@ func TestVideoProxyMapsUpstreamFailureToBadGateway(t *testing.T) {
 	})
 }
 
+func TestVideoProxyRedirectsWithoutFollowingUpstreamLocation(t *testing.T) {
+	statuses := []int{
+		http.StatusMovedPermanently,
+		http.StatusFound,
+		http.StatusSeeOther,
+		http.StatusTemporaryRedirect,
+		http.StatusPermanentRedirect,
+	}
+	for _, status := range statuses {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			testVideoProxyDownload(t, videoProxyTestCase{
+				storedKey:        "stored-task-key",
+				channelKey:       "current-channel-key",
+				expectedKey:      "stored-task-key",
+				contentDelivery:  "redirect",
+				upstreamStatus:   status,
+				upstreamLocation: "/object/video.mp4?signature=test",
+				expectedStatus:   status,
+				expectedLocation: "UPSTREAM_BASE/object/video.mp4?signature=test",
+				forwardRange:     true,
+			})
+		})
+	}
+}
+
+func TestVideoProxyRedirectModeRejectsVideoStreamWithoutProxyFallback(t *testing.T) {
+	testVideoProxyDownload(t, videoProxyTestCase{
+		storedKey:       "stored-task-key",
+		channelKey:      "current-channel-key",
+		expectedKey:     "stored-task-key",
+		contentDelivery: "redirect",
+		upstreamStatus:  http.StatusOK,
+		expectedStatus:  http.StatusBadGateway,
+	})
+}
+
+func TestVideoProxyRedirectModeRejectsMissingLocation(t *testing.T) {
+	testVideoProxyDownload(t, videoProxyTestCase{
+		storedKey:       "stored-task-key",
+		channelKey:      "current-channel-key",
+		expectedKey:     "stored-task-key",
+		contentDelivery: "redirect",
+		upstreamStatus:  http.StatusFound,
+		expectedStatus:  http.StatusBadGateway,
+	})
+}
+
+func TestVideoProxyRedirectModeRejectsNonHTTPLocation(t *testing.T) {
+	testVideoProxyDownload(t, videoProxyTestCase{
+		storedKey:        "stored-task-key",
+		channelKey:       "current-channel-key",
+		expectedKey:      "stored-task-key",
+		contentDelivery:  "redirect",
+		upstreamStatus:   http.StatusFound,
+		upstreamLocation: "javascript:alert(1)",
+		expectedStatus:   http.StatusBadGateway,
+	})
+}
+
+func TestVideoProxyRedirectModeBlocksUnsafeLocation(t *testing.T) {
+	setupVideoProxyTest(t)
+	fetchSetting := system_setting.GetFetchSetting()
+	fetchSetting.EnableSSRFProtection = true
+	fetchSetting.AllowPrivateIp = false
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task_zmodel_public/content", nil)
+	response := &http.Response{
+		StatusCode: http.StatusFound,
+		Header:     http.Header{"Location": []string{"http://127.0.0.1/private-video.mp4"}},
+	}
+
+	handleVideoRedirect(context, "task_zmodel_public", "https://upstream.example/v1/videos/task/content", response, "")
+
+	require.Equal(t, http.StatusForbidden, recorder.Code)
+	assert.Empty(t, recorder.Header().Get("Location"))
+	assert.Contains(t, recorder.Body.String(), "redirect blocked")
+}
+
 func testVideoProxyDownload(t *testing.T, testCase videoProxyTestCase) {
 	t.Helper()
 	db := setupVideoProxyTest(t)
@@ -143,6 +227,9 @@ func testVideoProxyDownload(t *testing.T, testCase videoProxyTestCase) {
 		w.Header().Set("Last-Modified", "Wed, 15 Jul 2026 10:00:00 GMT")
 		w.Header().Set("X-Upstream-Internal", "must-not-leak")
 		w.Header().Set("Content-Length", "4")
+		if testCase.upstreamLocation != "" {
+			w.Header().Set("Location", testCase.upstreamLocation)
+		}
 		w.WriteHeader(testCase.upstreamStatus)
 		_, _ = w.Write([]byte("test"))
 	}))
@@ -155,6 +242,9 @@ func testVideoProxyDownload(t *testing.T, testCase videoProxyTestCase) {
 		Key:     testCase.channelKey,
 		Name:    "FriModel OpenAI video",
 		BaseURL: &baseURL,
+	}
+	if testCase.contentDelivery != "" {
+		channel.SetSetting(dto.ChannelSettings{VideoContentDelivery: testCase.contentDelivery})
 	}
 	require.NoError(t, db.Create(channel).Error)
 
@@ -185,8 +275,17 @@ func testVideoProxyDownload(t *testing.T, testCase videoProxyTestCase) {
 
 	require.Equal(t, testCase.expectedStatus, recorder.Code)
 	if testCase.expectedStatus == http.StatusBadGateway {
-		assert.Contains(t, recorder.Body.String(), "Upstream service returned status 401")
+		if testCase.contentDelivery == "redirect" {
+			assert.NotEqual(t, "test", recorder.Body.String())
+		} else {
+			assert.Contains(t, recorder.Body.String(), "Upstream service returned status 401")
+		}
 		assert.Empty(t, recorder.Header().Get("Cache-Control"))
+		assert.Empty(t, recorder.Header().Get("X-Upstream-Internal"))
+	} else if testCase.expectedLocation != "" {
+		expectedLocation := strings.Replace(testCase.expectedLocation, "UPSTREAM_BASE", upstream.URL, 1)
+		assert.Equal(t, expectedLocation, recorder.Header().Get("Location"))
+		assert.NotEqual(t, "test", recorder.Body.String())
 		assert.Empty(t, recorder.Header().Get("X-Upstream-Internal"))
 	} else {
 		assert.Equal(t, testCase.expectedResponseBody, recorder.Body.String())
@@ -204,7 +303,7 @@ func testVideoProxyDownload(t *testing.T, testCase videoProxyTestCase) {
 	received := <-upstreamRequest
 	assert.Equal(t, "/v1/videos/task_frimodel_upstream/content", received.Path)
 	assert.Equal(t, "Bearer "+testCase.expectedKey, received.Authorization)
-	if testCase.forwardRange {
+	if testCase.forwardRange && testCase.contentDelivery != "redirect" {
 		assert.Equal(t, "bytes=0-3", received.Range)
 		assert.Equal(t, `"video-etag"`, received.IfRange)
 	} else {

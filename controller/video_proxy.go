@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -64,8 +65,9 @@ func VideoProxy(c *gin.Context) {
 		baseURL = "https://api.openai.com"
 	}
 
+	channelSetting := channel.GetSetting()
 	var videoURL string
-	proxy := channel.GetSetting().Proxy
+	proxy := channelSetting.Proxy
 	client := service.GetSSRFProtectedHTTPClient()
 	if proxy != "" {
 		// 渠道代理路径的连接由代理侧建立，无法做拨号时逐 IP 校验，
@@ -75,6 +77,15 @@ func VideoProxy(c *gin.Context) {
 			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to create proxy client for task %s: %s", taskID, err.Error()))
 			videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to create proxy client")
 			return
+		}
+	}
+	if channelSetting.VideoContentDelivery == dto.VideoContentDeliveryRedirect {
+		client = &http.Client{
+			Transport: client.Transport,
+			Timeout:   client.Timeout,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
 		}
 	}
 
@@ -153,11 +164,13 @@ func VideoProxy(c *gin.Context) {
 		videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to create proxy request")
 		return
 	}
-	if rangeHeader := c.GetHeader("Range"); rangeHeader != "" {
-		req.Header.Set("Range", rangeHeader)
-	}
-	if ifRangeHeader := c.GetHeader("If-Range"); ifRangeHeader != "" {
-		req.Header.Set("If-Range", ifRangeHeader)
+	if channelSetting.VideoContentDelivery != dto.VideoContentDeliveryRedirect {
+		if rangeHeader := c.GetHeader("Range"); rangeHeader != "" {
+			req.Header.Set("Range", rangeHeader)
+		}
+		if ifRangeHeader := c.GetHeader("If-Range"); ifRangeHeader != "" {
+			req.Header.Set("If-Range", ifRangeHeader)
+		}
 	}
 
 	resp, err := client.Do(req)
@@ -167,6 +180,11 @@ func VideoProxy(c *gin.Context) {
 		return
 	}
 	defer resp.Body.Close()
+
+	if channelSetting.VideoContentDelivery == dto.VideoContentDeliveryRedirect {
+		handleVideoRedirect(c, taskID, videoURL, resp, proxy)
+		return
+	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Upstream returned status %d for %s", resp.StatusCode, videoURL))
@@ -195,6 +213,63 @@ func VideoProxy(c *gin.Context) {
 	c.Writer.WriteHeader(resp.StatusCode)
 	if _, err = io.Copy(c.Writer, resp.Body); err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to stream video content: %s", err.Error()))
+	}
+}
+
+func handleVideoRedirect(c *gin.Context, taskID, upstreamURL string, resp *http.Response, proxy string) {
+	if !isVideoRedirectStatus(resp.StatusCode) {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Upstream returned non-redirect status %d for redirect-mode video task %s", resp.StatusCode, taskID))
+		videoProxyError(c, http.StatusBadGateway, "server_error",
+			fmt.Sprintf("Upstream service returned non-redirect status %d", resp.StatusCode))
+		return
+	}
+
+	location := strings.TrimSpace(resp.Header.Get("Location"))
+	if location == "" {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Upstream redirect missing Location for video task %s", taskID))
+		videoProxyError(c, http.StatusBadGateway, "server_error", "Upstream redirect missing Location header")
+		return
+	}
+
+	base, err := url.Parse(upstreamURL)
+	if err != nil {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to parse upstream URL for video task %s: %s", taskID, err.Error()))
+		videoProxyError(c, http.StatusBadGateway, "server_error", "Invalid upstream redirect URL")
+		return
+	}
+	target, err := base.Parse(location)
+	if err != nil || (target.Scheme != "http" && target.Scheme != "https") || target.Host == "" {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Invalid upstream redirect Location for video task %s", taskID))
+		videoProxyError(c, http.StatusBadGateway, "server_error", "Invalid upstream redirect URL")
+		return
+	}
+
+	var validateErr error
+	if proxy == "" {
+		validateErr = service.ValidateSSRFProtectedFetchURL(target.String())
+	} else {
+		fetchSetting := system_setting.GetFetchSetting()
+		validateErr = common.ValidateURLWithFetchSetting(target.String(), fetchSetting.EnableSSRFProtection, fetchSetting.AllowPrivateIp, fetchSetting.DomainFilterMode, fetchSetting.IpFilterMode, fetchSetting.DomainList, fetchSetting.IpList, fetchSetting.AllowedPorts, fetchSetting.ApplyIPFilterForDomain)
+	}
+	if validateErr != nil {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Video redirect URL blocked for task %s: %v", taskID, validateErr))
+		videoProxyError(c, http.StatusForbidden, "server_error", fmt.Sprintf("redirect blocked: %v", validateErr))
+		return
+	}
+
+	c.Redirect(resp.StatusCode, target.String())
+}
+
+func isVideoRedirectStatus(status int) bool {
+	switch status {
+	case http.StatusMovedPermanently,
+		http.StatusFound,
+		http.StatusSeeOther,
+		http.StatusTemporaryRedirect,
+		http.StatusPermanentRedirect:
+		return true
+	default:
+		return false
 	}
 }
 

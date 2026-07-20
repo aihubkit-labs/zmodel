@@ -283,6 +283,7 @@ const SENSITIVE_FORM_FIELDS = [
   'force_format',
   'thinking_to_content',
   'proxy',
+  'video_content_delivery',
   'pass_through_body_enabled',
   'system_prompt',
   'system_prompt_override',
@@ -333,6 +334,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.priority ||
     values.weight ||
     values.proxy?.trim() ||
+    values.video_content_delivery === 'redirect' ||
     values.system_prompt?.trim() ||
     values.force_format ||
     values.thinking_to_content ||
@@ -744,6 +746,7 @@ export function ChannelMutateDrawer({
     'disable_task_polling_sleep'
   )
   const currentProxy = form.watch('proxy')
+  const currentVideoContentDelivery = form.watch('video_content_delivery')
   const currentSystemPrompt = form.watch('system_prompt')
   const currentSystemPromptOverride = form.watch('system_prompt_override')
   const currentAllowServiceTier = form.watch('allow_service_tier')
@@ -4157,6 +4160,48 @@ export function ChannelMutateDrawer({
                                 )}
                               />
                             </div>
+
+                            <FormField
+                              control={form.control}
+                              name='video_content_delivery'
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>
+                                    {t('Video Content Delivery')}
+                                  </FormLabel>
+                                  <Select
+                                    value={field.value || 'proxy'}
+                                    onValueChange={field.onChange}
+                                  >
+                                    <FormControl>
+                                      <SelectTrigger>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                      <SelectGroup>
+                                        <SelectItem value='proxy'>
+                                          {t('Reverse Proxy')}
+                                        </SelectItem>
+                                        <SelectItem value='redirect'>
+                                          {t('HTTP Redirect')}
+                                        </SelectItem>
+                                      </SelectGroup>
+                                    </SelectContent>
+                                  </Select>
+                                  <FormDescription>
+                                    {currentVideoContentDelivery === 'redirect'
+                                      ? t(
+                                          'Require upstream content requests to return a redirect; non-redirect responses fail without proxy fallback'
+                                        )
+                                      : t(
+                                          'Stream video content through this server'
+                                        )}
+                                  </FormDescription>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
 
                             <FormField
                               control={form.control}

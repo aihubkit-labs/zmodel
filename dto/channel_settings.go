@@ -14,10 +14,16 @@ type ChannelSettings struct {
 	ForceFormat            bool   `json:"force_format,omitempty"`
 	ThinkingToContent      bool   `json:"thinking_to_content,omitempty"`
 	Proxy                  string `json:"proxy"`
+	VideoContentDelivery   string `json:"video_content_delivery,omitempty"`
 	PassThroughBodyEnabled bool   `json:"pass_through_body_enabled,omitempty"`
 	SystemPrompt           string `json:"system_prompt,omitempty"`
 	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
 }
+
+const (
+	VideoContentDeliveryProxy    = "proxy"
+	VideoContentDeliveryRedirect = "redirect"
+)
 
 type VertexKeyType string
 
