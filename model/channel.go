@@ -945,6 +945,11 @@ func (channel *Channel) ValidateSettings() error {
 			return err
 		}
 	}
+	if channelParams.VideoContentDelivery != "" &&
+		channelParams.VideoContentDelivery != dto.VideoContentDeliveryProxy &&
+		channelParams.VideoContentDelivery != dto.VideoContentDeliveryRedirect {
+		return fmt.Errorf("video_content_delivery must be proxy or redirect")
+	}
 	channelOtherSettings := &dto.ChannelOtherSettings{}
 	if channel.OtherSettings != "" {
 		err := common.UnmarshalJsonStr(channel.OtherSettings, channelOtherSettings)

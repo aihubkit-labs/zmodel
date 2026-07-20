@@ -9,6 +9,13 @@ function stableStringify(obj) {
 
 const newKeys = {
   en: {
+    'HTTP Redirect': 'HTTP Redirect',
+    'Require upstream content requests to return a redirect; non-redirect responses fail without proxy fallback':
+      'Require upstream content requests to return a redirect; non-redirect responses fail without proxy fallback',
+    'Reverse Proxy': 'Reverse Proxy',
+    'Stream video content through this server':
+      'Stream video content through this server',
+    'Video Content Delivery': 'Video Content Delivery',
     '(fixed fee + per-second price × duration) × output count':
       '(fixed fee + per-second price × duration) × output count',
     Actual: 'Actual',
@@ -69,6 +76,12 @@ const newKeys = {
     'Video resolution tier': 'Video resolution tier',
   },
   zh: {
+    'HTTP Redirect': 'HTTP 重定向',
+    'Require upstream content requests to return a redirect; non-redirect responses fail without proxy fallback':
+      '要求上游内容请求返回重定向；非重定向响应直接报错，不回退代理',
+    'Reverse Proxy': '反向代理',
+    'Stream video content through this server': '由本服务器转发视频内容',
+    'Video Content Delivery': '视频内容交付方式',
     '(fixed fee + per-second price × duration) × output count':
       '（固定费用 + 每秒价格 × 时长）× 输出数量',
     Actual: '实际',
@@ -128,6 +141,12 @@ const newKeys = {
     'Video resolution tier': '视频分辨率档位',
   },
   'zh-TW': {
+    'HTTP Redirect': 'HTTP 重新導向',
+    'Require upstream content requests to return a redirect; non-redirect responses fail without proxy fallback':
+      '要求上游內容請求傳回重新導向；非重新導向回應直接報錯，不回退代理',
+    'Reverse Proxy': '反向代理',
+    'Stream video content through this server': '由本伺服器轉發影片內容',
+    'Video Content Delivery': '影片內容交付方式',
     '(fixed fee + per-second price × duration) × output count':
       '（固定費用 + 每秒價格 × 時長）× 輸出數量',
     Actual: '實際',
@@ -187,6 +206,13 @@ const newKeys = {
     'Video resolution tier': '影片解析度級別',
   },
   fr: {
+    'HTTP Redirect': 'Redirection HTTP',
+    'Require upstream content requests to return a redirect; non-redirect responses fail without proxy fallback':
+      'Exiger une redirection du service en amont ; sinon, échouer sans repli vers le proxy',
+    'Reverse Proxy': 'Proxy inverse',
+    'Stream video content through this server':
+      'Diffuser le contenu vidéo via ce serveur',
+    'Video Content Delivery': 'Livraison du contenu vidéo',
     '(fixed fee + per-second price × duration) × output count':
       '(frais fixes + prix par seconde × durée) × nombre de sorties',
     Actual: 'Réel',
@@ -247,6 +273,13 @@ const newKeys = {
     'Video resolution tier': 'Palier de résolution vidéo',
   },
   ja: {
+    'HTTP Redirect': 'HTTP リダイレクト',
+    'Require upstream content requests to return a redirect; non-redirect responses fail without proxy fallback':
+      '上流のコンテンツ要求にリダイレクト応答を必須とし、それ以外はプロキシへフォールバックせず失敗させます',
+    'Reverse Proxy': 'リバースプロキシ',
+    'Stream video content through this server':
+      'このサーバー経由で動画コンテンツを配信します',
+    'Video Content Delivery': '動画コンテンツの配信方式',
     '(fixed fee + per-second price × duration) × output count':
       '（固定料金 + 秒単価 × 時間）× 出力数',
     Actual: '実績',
@@ -306,6 +339,13 @@ const newKeys = {
     'Video resolution tier': '動画解像度階層',
   },
   ru: {
+    'HTTP Redirect': 'HTTP-перенаправление',
+    'Require upstream content requests to return a redirect; non-redirect responses fail without proxy fallback':
+      'Требовать перенаправление от вышестоящего сервиса; при другом ответе завершать запрос с ошибкой без перехода на прокси',
+    'Reverse Proxy': 'Обратный прокси',
+    'Stream video content through this server':
+      'Передавать видеоконтент через этот сервер',
+    'Video Content Delivery': 'Доставка видеоконтента',
     '(fixed fee + per-second price × duration) × output count':
       '(фиксированная плата + цена за секунду × длительность) × число результатов',
     Actual: 'Фактически',
@@ -367,6 +407,13 @@ const newKeys = {
     'Video resolution tier': 'Уровень разрешения видео',
   },
   vi: {
+    'HTTP Redirect': 'Chuyển hướng HTTP',
+    'Require upstream content requests to return a redirect; non-redirect responses fail without proxy fallback':
+      'Yêu cầu thượng nguồn trả về chuyển hướng; nếu không, báo lỗi mà không chuyển sang proxy',
+    'Reverse Proxy': 'Proxy ngược',
+    'Stream video content through this server':
+      'Truyền nội dung video qua máy chủ này',
+    'Video Content Delivery': 'Phương thức phân phối nội dung video',
     '(fixed fee + per-second price × duration) × output count':
       '(phí cố định + giá mỗi giây × thời lượng) × số đầu ra',
     Actual: 'Thực tế',
