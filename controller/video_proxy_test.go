@@ -63,6 +63,7 @@ func setupVideoProxyTest(t *testing.T) *gorm.DB {
 	model.DB = db
 	model.LOG_DB = db
 	require.NoError(t, db.AutoMigrate(&model.Task{}, &model.Channel{}))
+	require.NoError(t, db.Exec("CREATE TABLE IF NOT EXISTS users (id integer primary key, role integer, deleted_at datetime)").Error)
 
 	service.InitHttpClient()
 	t.Cleanup(func() {
@@ -115,6 +116,74 @@ func TestVideoProxyStreamsFullUpstreamResponse(t *testing.T) {
 		expectedResponseBody:  "test",
 		expectedContentLength: "4",
 	})
+}
+
+func TestVideoProxyAllowsAdminToPreviewAnotherUsersTask(t *testing.T) {
+	db := setupVideoProxyTest(t)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "video/mp4")
+		_, _ = w.Write([]byte("test"))
+	}))
+	t.Cleanup(upstream.Close)
+
+	baseURL := upstream.URL
+	channel := &model.Channel{
+		Id:      301,
+		Type:    constant.ChannelTypeOpenAI,
+		Key:     "channel-key",
+		Name:    "OpenAI video",
+		BaseURL: &baseURL,
+	}
+	require.NoError(t, db.Create(channel).Error)
+	require.NoError(t, db.Exec("INSERT INTO users (id, role) VALUES (?, ?)", 501, common.RoleAdminUser).Error)
+
+	task := &model.Task{
+		TaskID:    "task_owned_by_another_user",
+		UserId:    401,
+		ChannelId: channel.Id,
+		Status:    model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{
+			UpstreamTaskID: "upstream_task_id",
+		},
+		Data: []byte(`{"status":"completed"}`),
+	}
+	require.NoError(t, db.Create(task).Error)
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task_owned_by_another_user/content", nil)
+	context.Params = gin.Params{{Key: "task_id", Value: task.TaskID}}
+	context.Set("id", 501)
+
+	VideoProxy(context)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	assert.Equal(t, "test", recorder.Body.String())
+}
+
+func TestVideoProxyDoesNotAllowUserToPreviewAnotherUsersTask(t *testing.T) {
+	db := setupVideoProxyTest(t)
+
+	task := &model.Task{
+		TaskID: "task_owned_by_another_user",
+		UserId: 401,
+		Status: model.TaskStatusSuccess,
+		Data:   []byte(`{"status":"completed"}`),
+	}
+	require.NoError(t, db.Create(task).Error)
+	require.NoError(t, db.Exec("INSERT INTO users (id, role) VALUES (?, ?)", 502, common.RoleCommonUser).Error)
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task_owned_by_another_user/content", nil)
+	context.Params = gin.Params{{Key: "task_id", Value: task.TaskID}}
+	context.Set("id", 502)
+
+	VideoProxy(context)
+
+	require.Equal(t, http.StatusNotFound, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "Task not found")
 }
 
 func TestVideoProxyMapsUpstreamFailureToBadGateway(t *testing.T) {

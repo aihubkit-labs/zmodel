@@ -379,6 +379,7 @@ function TaskLogsCard<TData>({
   const taskIdCell = cells.get('task_id')
   const statusCell = cells.get('status')
   const submitTimeCell = cells.get('submit_time')
+  const finishTimeCell = cells.get('finish_time')
 
   return (
     <div className='space-y-2.5'>
@@ -389,12 +390,20 @@ function TaskLogsCard<TData>({
 
       <div className='grid grid-cols-2 gap-1.5'>
         <SummaryField label={t('Submit Time')} cell={submitTimeCell} />
+        <SummaryField label={t('End Time')} cell={finishTimeCell} />
         <SummaryField label={t('User')} cell={cells.get('user')} primaryOnly />
+        <SummaryField label={t('Group')} cell={cells.get('group')} />
+        <SummaryField label={t('Platform')} cell={cells.get('platform')} />
+        <SummaryField label={t('Type')} cell={cells.get('action')} />
+        <SummaryField label={t('Model')} cell={cells.get('model')} />
+        <SummaryField label={t('Duration')} cell={cells.get('duration')} />
         <SummaryField
-          label={t('Result')}
-          cell={cells.get('fail_reason')}
-          className='col-span-2 bg-transparent px-0 py-0'
+          label={t('Progress')}
+          cell={cells.get('progress')}
+          className='col-span-2'
         />
+        <SummaryField label={t('Preview')} cell={cells.get('preview')} />
+        <SummaryField label={t('Details')} cell={cells.get('fail_reason')} />
       </div>
     </div>
   )

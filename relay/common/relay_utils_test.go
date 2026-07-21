@@ -77,6 +77,40 @@ func TestValidateMultipartDirectNormalizesImageField(t *testing.T) {
 	require.Equal(t, constant.TaskActionGenerate, info.Action)
 }
 
+func TestTaskSubmitReqSnapshotKeepsSafeMediaURLsAndOmitsInlineData(t *testing.T) {
+	req := TaskSubmitReq{
+		Prompt:          "animate this scene",
+		Image:           "data:image/png;base64,AAAA",
+		Images:          []string{"https://example.com/source.png?token=secret", "file:///tmp/source.png"},
+		ReferenceImages: []string{"https://example.com/reference.jpg"},
+		ReferenceVideos: []string{"https://example.com/reference.mp4"},
+		ReferenceAudios: []string{"https://example.com/reference.mp3"},
+		Metadata: map[string]interface{}{
+			"seed":        42,
+			"api_token":   "secret-value",
+			"inline_data": "data:video/mp4;base64,AAAA",
+			"assets":      []string{"https://example.com/asset.png", "data:image/png;base64,BBBB"},
+		},
+	}
+
+	snapshot := req.Snapshot()
+
+	assert.Equal(t, "animate this scene", snapshot.Prompt)
+	assert.Equal(t, 3, snapshot.MediaCounts.Images)
+	assert.Equal(t, 1, snapshot.MediaCounts.ReferenceImages)
+	assert.Equal(t, 1, snapshot.MediaCounts.ReferenceVideos)
+	assert.Equal(t, 1, snapshot.MediaCounts.ReferenceAudios)
+	require.Len(t, snapshot.Images, 1)
+	assert.Equal(t, "https://example.com/source.png?token=secret", snapshot.Images[0])
+	assert.Equal(t, []string{"https://example.com/reference.jpg"}, snapshot.ReferenceImages)
+	assert.Equal(t, []string{"https://example.com/reference.mp4"}, snapshot.ReferenceVideos)
+	assert.Equal(t, []string{"https://example.com/reference.mp3"}, snapshot.ReferenceAudios)
+	assert.Equal(t, "***masked***", snapshot.Metadata["api_token"])
+	assert.Equal(t, "[omitted]", snapshot.Metadata["inline_data"])
+	assert.Equal(t, 42, snapshot.Metadata["seed"])
+	assert.Equal(t, []interface{}{"https://example.com/asset.png", "[omitted]"}, snapshot.Metadata["assets"])
+}
+
 // TestTaskDurationBounds guards the billing invariant that user-supplied
 // video duration (a quota multiplier via OtherRatio "seconds") is bounded, so
 // it can never overflow quota calculation into a negative charge.

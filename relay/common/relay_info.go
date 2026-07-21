@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -704,6 +705,167 @@ type TaskSubmitReq struct {
 	Ratio           string                 `json:"ratio,omitempty"`
 	InputReference  string                 `json:"input_reference,omitempty"`
 	Metadata        map[string]interface{} `json:"metadata,omitempty"`
+}
+
+type TaskRequestMediaCounts struct {
+	Images          int `json:"images,omitempty"`
+	ReferenceImages int `json:"reference_images,omitempty"`
+	ReferenceVideos int `json:"reference_videos,omitempty"`
+	ReferenceAudios int `json:"reference_audios,omitempty"`
+}
+
+type TaskRequestSnapshot struct {
+	Prompt          string                 `json:"prompt,omitempty"`
+	Model           string                 `json:"model,omitempty"`
+	Mode            string                 `json:"mode,omitempty"`
+	Images          []string               `json:"images,omitempty"`
+	ReferenceImages []string               `json:"reference_images,omitempty"`
+	ReferenceVideos []string               `json:"reference_videos,omitempty"`
+	ReferenceAudios []string               `json:"reference_audios,omitempty"`
+	Size            string                 `json:"size,omitempty"`
+	Duration        int                    `json:"duration,omitempty"`
+	Seconds         string                 `json:"seconds,omitempty"`
+	Resolution      string                 `json:"resolution,omitempty"`
+	Ratio           string                 `json:"ratio,omitempty"`
+	Metadata        map[string]interface{} `json:"metadata,omitempty"`
+	MediaCounts     TaskRequestMediaCounts `json:"media_counts,omitempty"`
+}
+
+func (t TaskSubmitReq) Snapshot() TaskRequestSnapshot {
+	images := make([]string, 0, len(t.Images)+2)
+	if t.Image != "" {
+		images = append(images, t.Image)
+	}
+	images = append(images, t.Images...)
+	if t.InputReference != "" {
+		images = append(images, t.InputReference)
+	}
+	images = uniqueTaskSnapshotValues(images)
+
+	return TaskRequestSnapshot{
+		Prompt:          sanitizeTaskSnapshotText(t.Prompt, 16*1024),
+		Model:           sanitizeTaskSnapshotText(t.Model, 1024),
+		Mode:            sanitizeTaskSnapshotText(t.Mode, 1024),
+		Images:          taskSnapshotMediaURLs(images),
+		ReferenceImages: taskSnapshotMediaURLs(t.ReferenceImages),
+		ReferenceVideos: taskSnapshotMediaURLs(t.ReferenceVideos),
+		ReferenceAudios: taskSnapshotMediaURLs(t.ReferenceAudios),
+		Size:            sanitizeTaskSnapshotText(t.Size, 1024),
+		Duration:        t.Duration,
+		Seconds:         sanitizeTaskSnapshotText(t.Seconds, 1024),
+		Resolution:      sanitizeTaskSnapshotText(t.Resolution, 1024),
+		Ratio:           sanitizeTaskSnapshotText(t.Ratio, 1024),
+		Metadata:        sanitizeTaskSnapshotMetadata(t.Metadata),
+		MediaCounts: TaskRequestMediaCounts{
+			Images:          len(images),
+			ReferenceImages: len(t.ReferenceImages),
+			ReferenceVideos: len(t.ReferenceVideos),
+			ReferenceAudios: len(t.ReferenceAudios),
+		},
+	}
+}
+
+func uniqueTaskSnapshotValues(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	unique := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		unique = append(unique, value)
+	}
+	return unique
+}
+
+func taskSnapshotMediaURLs(values []string) []string {
+	const maxURLs = 20
+	urls := make([]string, 0, min(len(values), maxURLs))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		parsed, err := url.Parse(value)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			continue
+		}
+		urls = append(urls, sanitizeTaskSnapshotText(value, 8*1024))
+		if len(urls) == maxURLs {
+			break
+		}
+	}
+	if len(urls) == 0 {
+		return nil
+	}
+	return urls
+}
+
+func sanitizeTaskSnapshotMetadata(metadata map[string]interface{}) map[string]interface{} {
+	if len(metadata) == 0 {
+		return nil
+	}
+	sanitized, ok := sanitizeTaskSnapshotValue(metadata, 0).(map[string]interface{})
+	if !ok || len(sanitized) == 0 {
+		return nil
+	}
+	return sanitized
+}
+
+func sanitizeTaskSnapshotValue(value interface{}, depth int) interface{} {
+	const maxItems = 50
+	if depth >= 5 {
+		return "[omitted]"
+	}
+
+	switch typed := value.(type) {
+	case string:
+		trimmed := strings.TrimSpace(typed)
+		if strings.HasPrefix(trimmed, "data:") || len(trimmed) > 16*1024 {
+			return "[omitted]"
+		}
+		return sanitizeTaskSnapshotText(typed, 4*1024)
+	case map[string]interface{}:
+		result := make(map[string]interface{}, min(len(typed), maxItems))
+		count := 0
+		for key, item := range typed {
+			if count == maxItems {
+				break
+			}
+			if isSensitiveURLQueryKey(key) {
+				result[sanitizeTaskSnapshotText(key, 256)] = "***masked***"
+				count++
+				continue
+			}
+			result[sanitizeTaskSnapshotText(key, 256)] = sanitizeTaskSnapshotValue(item, depth+1)
+			count++
+		}
+		return result
+	case []interface{}:
+		limit := min(len(typed), maxItems)
+		result := make([]interface{}, 0, limit)
+		for _, item := range typed[:limit] {
+			result = append(result, sanitizeTaskSnapshotValue(item, depth+1))
+		}
+		return result
+	case []string:
+		limit := min(len(typed), maxItems)
+		result := make([]interface{}, 0, limit)
+		for _, item := range typed[:limit] {
+			result = append(result, sanitizeTaskSnapshotValue(item, depth+1))
+		}
+		return result
+	default:
+		return value
+	}
+}
+
+func sanitizeTaskSnapshotText(value string, maxLength int) string {
+	if len(value) <= maxLength {
+		return value
+	}
+	return value[:maxLength] + "..."
 }
 
 func (t *TaskSubmitReq) GetPrompt() string {
