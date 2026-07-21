@@ -153,6 +153,40 @@ func TestInsertKeepsBlankPasswordForPasswordlessUser(t *testing.T) {
 	assert.Empty(t, stored.Password)
 }
 
+func TestInsertRecordsInvitationWhenRewardsAreDisabled(t *testing.T) {
+	setupUserUpdateTestState(t)
+
+	oldQuotaForInviter := common.QuotaForInviter
+	oldQuotaForInvitee := common.QuotaForInvitee
+	common.QuotaForInviter = 0
+	common.QuotaForInvitee = 0
+	t.Cleanup(func() {
+		common.QuotaForInviter = oldQuotaForInviter
+		common.QuotaForInvitee = oldQuotaForInvitee
+	})
+
+	inviter := User{
+		Username: "inviter",
+		Password: "password",
+		AffCode:  "inviter-aff-code",
+		Status:   common.UserStatusEnabled,
+	}
+	require.NoError(t, DB.Create(&inviter).Error)
+
+	invitee := User{
+		Username: "invitee",
+		Password: "password",
+		Status:   common.UserStatusEnabled,
+	}
+	require.NoError(t, invitee.Insert(inviter.Id))
+
+	var storedInviter User
+	require.NoError(t, DB.First(&storedInviter, inviter.Id).Error)
+	assert.Equal(t, 1, storedInviter.AffCount)
+	assert.Zero(t, storedInviter.AffQuota)
+	assert.Zero(t, storedInviter.AffHistoryQuota)
+}
+
 func TestValidateAndFillRejectsPasswordlessUser(t *testing.T) {
 	setupUserUpdateTestState(t)
 
