@@ -608,6 +608,13 @@ func RelayTask(c *gin.Context) {
 		task.Quota = result.Quota
 		task.Data = result.TaskData
 		task.Action = relayInfo.Action
+		if taskRequest, requestErr := relaycommon.GetTaskRequest(c); requestErr == nil {
+			if requestSnapshot, marshalErr := common.Marshal(taskRequest.Snapshot()); marshalErr == nil {
+				task.Properties.Input = string(requestSnapshot)
+			} else {
+				common.SysError("marshal task request snapshot error: " + marshalErr.Error())
+			}
+		}
 		if insertErr := task.Insert(); insertErr != nil {
 			common.SysError("insert task error: " + insertErr.Error())
 		}

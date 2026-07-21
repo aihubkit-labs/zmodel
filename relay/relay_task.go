@@ -20,6 +20,8 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 type TaskSubmitResult struct {
@@ -558,26 +560,91 @@ func mapTaskStatusToSimple(status model.TaskStatus) string {
 }
 
 func TaskModel2Dto(task *model.Task) *dto.TaskDto {
-	return &dto.TaskDto{
-		ID:         task.ID,
-		CreatedAt:  task.CreatedAt,
-		UpdatedAt:  task.UpdatedAt,
-		TaskID:     task.TaskID,
-		Platform:   string(task.Platform),
-		UserId:     task.UserId,
-		Group:      task.Group,
-		ChannelId:  task.ChannelId,
-		Quota:      task.Quota,
-		Action:     task.Action,
-		Status:     string(task.Status),
-		FailReason: task.FailReason,
-		ResultURL:  task.GetResultURL(),
-		SubmitTime: task.SubmitTime,
-		StartTime:  task.StartTime,
-		FinishTime: task.FinishTime,
-		Progress:   task.Progress,
-		Properties: task.Properties,
-		Username:   task.Username,
-		Data:       task.Data,
+	platformName := string(task.Platform)
+	if channelType, err := strconv.Atoi(platformName); err == nil {
+		platformName = constant.GetChannelTypeName(channelType)
 	}
+
+	resultURL := task.GetResultURL()
+	data := task.Data
+	switch task.Action {
+	case constant.TaskActionGenerate,
+		constant.TaskActionTextGenerate,
+		constant.TaskActionFirstTailGenerate,
+		constant.TaskActionReferenceGenerate,
+		constant.TaskActionRemix:
+		resultURL = taskcommon.BuildProxyURL(task.TaskID)
+		data = publicVideoTaskData(task)
+	}
+
+	return &dto.TaskDto{
+		ID:           task.ID,
+		CreatedAt:    task.CreatedAt,
+		UpdatedAt:    task.UpdatedAt,
+		TaskID:       task.TaskID,
+		Platform:     string(task.Platform),
+		PlatformName: platformName,
+		UserId:       task.UserId,
+		Group:        task.Group,
+		ChannelId:    task.ChannelId,
+		Quota:        task.Quota,
+		Action:       task.Action,
+		Status:       string(task.Status),
+		FailReason:   task.FailReason,
+		ResultURL:    resultURL,
+		SubmitTime:   task.SubmitTime,
+		StartTime:    task.StartTime,
+		FinishTime:   task.FinishTime,
+		Progress:     task.Progress,
+		Properties:   task.Properties,
+		Username:     task.Username,
+		Data:         data,
+	}
+}
+
+func publicVideoTaskData(task *model.Task) []byte {
+	data := task.Data
+	if !gjson.ParseBytes(data).IsObject() {
+		return data
+	}
+
+	paths := []string{
+		"url",
+		"video_url",
+		"metadata.url",
+		"metadata.content_url",
+		"metadata.local_url",
+		"metadata.video_url",
+		"metadata.final_video_url",
+	}
+	if task.Status == model.TaskStatusSuccess {
+		proxyURL := taskcommon.BuildProxyURL(task.TaskID)
+		for _, path := range paths {
+			if !gjson.GetBytes(data, path).Exists() {
+				continue
+			}
+			updated, err := sjson.SetBytes(data, path, proxyURL)
+			if err != nil {
+				return task.Data
+			}
+			data = updated
+		}
+	} else {
+		for _, path := range paths {
+			updated, err := sjson.DeleteBytes(data, path)
+			if err != nil {
+				return task.Data
+			}
+			data = updated
+		}
+	}
+
+	for _, path := range []string{"origin_video_url", "metadata.origin_video_url"} {
+		updated, err := sjson.DeleteBytes(data, path)
+		if err != nil {
+			return task.Data
+		}
+		data = updated
+	}
+	return data
 }

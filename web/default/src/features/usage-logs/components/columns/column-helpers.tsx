@@ -23,6 +23,7 @@ import { useState } from 'react'
 
 import { DataTableColumnHeader } from '@/components/data-table'
 import { StatusBadge } from '@/components/status-badge'
+import { Progress } from '@/components/ui/progress'
 import {
   Tooltip,
   TooltipContent,
@@ -54,7 +55,7 @@ export function CacheTooltip({
       <Tooltip>
         <TooltipTrigger
           render={<Zap className={`size-3 flex-shrink-0 ${color}`} />}
-        ></TooltipTrigger>
+        />
         <TooltipContent side='top'>
           <p className='text-xs'>
             {label}: {formatTokens(tokens)}
@@ -260,10 +261,31 @@ export function createProgressColumn<T>(config: {
       if (!progress) {
         return <span className='text-muted-foreground/60 text-xs'>-</span>
       }
+
+      const numericProgress = Number.parseFloat(progress.replace('%', ''))
+      const progressValue = Number.isFinite(numericProgress)
+        ? Math.min(100, Math.max(0, numericProgress))
+        : null
+
+      if (progressValue === null) {
+        return (
+          <span className='border-border/60 bg-muted/30 inline-flex items-center rounded-md border px-1.5 py-0.5 font-mono text-xs'>
+            {progress}
+          </span>
+        )
+      }
+
       return (
-        <span className='border-border/60 bg-muted/30 inline-flex items-center rounded-md border px-1.5 py-0.5 font-mono text-xs'>
-          {progress}
-        </span>
+        <div className='flex w-28 items-center gap-2'>
+          <Progress
+            value={progressValue}
+            className='min-w-0 flex-1 gap-0 [&_[data-slot=progress-indicator]]:bg-emerald-500 [&_[data-slot=progress-track]]:h-1.5'
+            aria-label={headerLabel}
+          />
+          <span className='w-9 text-right font-mono text-xs tabular-nums'>
+            {Math.round(progressValue)}%
+          </span>
+        </div>
       )
     },
     meta: { label: headerLabel },
