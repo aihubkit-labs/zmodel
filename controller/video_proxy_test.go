@@ -626,12 +626,68 @@ func TestVideoProxySupportsGrokTaskDetailVideoURL(t *testing.T) {
 	assert.Equal(t, videoServer.URL+"/video.mp4", recorder.Header().Get("Location"))
 }
 
+func TestVideoProxySupportsCompatibleGrokTaskDetailMetadataURL(t *testing.T) {
+	db := setupVideoProxyTest(t)
+	originalTLSInsecureSkipVerify := common.TLSInsecureSkipVerify
+	common.TLSInsecureSkipVerify = true
+	service.InitHttpClient()
+	t.Cleanup(func() {
+		common.TLSInsecureSkipVerify = originalTLSInsecureSkipVerify
+		service.InitHttpClient()
+	})
+
+	videoServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "video/mp4")
+		_, _ = w.Write([]byte("test"))
+	}))
+	t.Cleanup(videoServer.Close)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"status":"completed","metadata":{"url":%q}}`, videoServer.URL+"/video.mp4")
+	}))
+	t.Cleanup(upstream.Close)
+
+	baseURL := upstream.URL
+	channel := &model.Channel{
+		Id:      301,
+		Type:    constant.ChannelTypeOpenAI,
+		Key:     "channel-key",
+		Name:    "Compatible Grok video",
+		BaseURL: &baseURL,
+	}
+	require.NoError(t, db.Create(channel).Error)
+
+	task := &model.Task{
+		TaskID:    "task_compatible_grok_video",
+		UserId:    401,
+		ChannelId: channel.Id,
+		Status:    model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{
+			UpstreamTaskID: "task_compatible_grok_upstream",
+		},
+		Data: []byte(`{"status":"completed"}`),
+	}
+	require.NoError(t, db.Create(task).Error)
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task_compatible_grok_video/content", nil)
+	context.Params = gin.Params{{Key: "task_id", Value: task.TaskID}}
+	context.Set("id", task.UserId)
+
+	VideoProxy(context)
+
+	require.Equal(t, http.StatusTemporaryRedirect, recorder.Code)
+	assert.Equal(t, videoServer.URL+"/video.mp4", recorder.Header().Get("Location"))
+}
+
 func TestVideoProxyRejectsUnrecognizedTaskDetailURLs(t *testing.T) {
 	db := setupVideoProxyTest(t)
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"completed","video_url":"https://video.example/video.mp4","metadata":{"url":"https://video.example/metadata.mp4"}}`))
+		_, _ = w.Write([]byte(`{"status":"completed","video_url":"https://video.example/video.mp4","result":{"url":"https://video.example/result.mp4"}}`))
 	}))
 	t.Cleanup(upstream.Close)
 

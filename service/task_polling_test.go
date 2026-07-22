@@ -23,6 +23,8 @@ type taskPollingFetchAdaptor struct {
 	mu           sync.Mutex
 	taskIDs      []string
 	fetched      chan string
+	status       model.TaskStatus
+	progress     string
 	blockTaskID  string
 	blockStarted chan struct{}
 	releaseBlock chan struct{}
@@ -52,12 +54,20 @@ func (a *taskPollingFetchAdaptor) FetchTask(_ string, _ string, body map[string]
 		}
 	}
 
+	status := a.status
+	if status == "" {
+		status = model.TaskStatusInProgress
+	}
+	progress := a.progress
+	if progress == "" {
+		progress = "30%"
+	}
 	response := dto.TaskResponse[model.Task]{
 		Code: dto.TaskSuccessCode,
 		Data: model.Task{
 			TaskID:   taskID,
-			Status:   model.TaskStatusInProgress,
-			Progress: "30%",
+			Status:   status,
+			Progress: progress,
 		},
 	}
 	responseBody, err := common.Marshal(response)
@@ -183,6 +193,33 @@ func TestUpdateVideoTasksCanSkipPollingSleepPerChannel(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, 2, adaptor.fetchCount())
+}
+
+func TestUpdateVideoTaskForcesTerminalProgressToComplete(t *testing.T) {
+	truncate(t)
+
+	const channelID = 103
+	seedTaskPollingChannel(t, channelID, true)
+	task := seedPollingTask(t, channelID, "task_public_terminal", "upstream_terminal")
+	adaptor := &taskPollingFetchAdaptor{
+		status:   model.TaskStatusSuccess,
+		progress: "30%",
+	}
+
+	err := updateVideoSingleTask(context.Background(), adaptor, &model.Channel{
+		Id:     channelID,
+		Type:   constant.ChannelTypeKling,
+		Key:    "sk-test",
+		Status: common.ChannelStatusEnabled,
+	}, task.GetUpstreamTaskID(), map[string]*model.Task{
+		task.GetUpstreamTaskID(): task,
+	})
+	require.NoError(t, err)
+
+	var stored model.Task
+	require.NoError(t, model.DB.First(&stored, task.ID).Error)
+	assert.Equal(t, model.TaskStatus(model.TaskStatusSuccess), stored.Status)
+	assert.Equal(t, "100%", stored.Progress)
 }
 
 func TestUpdateVideoTasksDefaultSleepDoesNotBlockOtherChannels(t *testing.T) {

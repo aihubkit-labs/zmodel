@@ -260,7 +260,13 @@ metadata.origin_video_url
 {Channel.BaseURL}/v1/videos/{upstream_task_id}
 ```
 
-视频地址优先读取响应顶层 `url` 字段；兼容 Grok 官方任务详情结构，在顶层字段为空时读取 `video.url`。不读取数据库快照、`video_url` 或 `metadata` 下的 URL 字段。
+视频地址按以下明确顺序读取：
+
+1. 响应顶层 `url`；
+2. Grok 官方任务详情结构中的 `video.url`；
+3. Grok 兼容上游任务详情结构中的 `metadata.url`。
+
+不读取数据库快照、顶层 `video_url` 或其他未定义的嵌套 URL 字段。
 
 请求鉴权头为：
 
@@ -278,7 +284,7 @@ Authorization: Bearer {stored_upstream_key}
 
 - 任务详情请求失败或返回非 2xx 状态；
 - 任务详情响应无法解析；
-- 顶层 `url` 和 `video.url` 均为空，或解析出的地址格式无效、使用 HTTP；
+- 顶层 `url`、`video.url` 和 `metadata.url` 均为空，或解析出的地址格式无效、使用 HTTP；
 - `url` 被 URL 或 SSRF 安全策略拦截。
 
 ### 6.3 分段下载
