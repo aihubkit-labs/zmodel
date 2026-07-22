@@ -682,12 +682,84 @@ func TestVideoProxySupportsCompatibleGrokTaskDetailMetadataURL(t *testing.T) {
 	assert.Equal(t, videoServer.URL+"/video.mp4", recorder.Header().Get("Location"))
 }
 
+func TestFetchOpenAIVideoTaskURLSupportsKnownCompatibleFields(t *testing.T) {
+	setupVideoProxyTest(t)
+
+	tests := []struct {
+		name     string
+		response string
+		expected string
+	}{
+		{
+			name:     "top-level video_url",
+			response: `{"video_url":"https://video.example/top-level.mp4"}`,
+			expected: "https://video.example/top-level.mp4",
+		},
+		{
+			name:     "metadata content_url",
+			response: `{"metadata":{"content_url":"https://video.example/content.mp4"}}`,
+			expected: "https://video.example/content.mp4",
+		},
+		{
+			name:     "metadata local_url",
+			response: `{"metadata":{"local_url":"https://video.example/local.mp4"}}`,
+			expected: "https://video.example/local.mp4",
+		},
+		{
+			name:     "metadata video_url",
+			response: `{"metadata":{"video_url":"https://video.example/video.mp4"}}`,
+			expected: "https://video.example/video.mp4",
+		},
+		{
+			name:     "metadata final_video_url",
+			response: `{"metadata":{"final_video_url":"https://video.example/final.mp4"}}`,
+			expected: "https://video.example/final.mp4",
+		},
+		{
+			name: "explicit field precedence",
+			response: `{
+				"url":"https://video.example/url.mp4",
+				"video":{"url":"https://video.example/nested-video.mp4"},
+				"video_url":"https://video.example/video-url.mp4",
+				"metadata":{"url":"https://video.example/metadata.mp4"}
+			}`,
+			expected: "https://video.example/url.mp4",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(test.response))
+			}))
+			t.Cleanup(upstream.Close)
+
+			recorder := httptest.NewRecorder()
+			context, _ := gin.CreateTestContext(recorder)
+			context.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task_public/content", nil)
+
+			videoURL, err := fetchOpenAIVideoTaskURL(
+				context,
+				service.GetSSRFProtectedHTTPClient(),
+				upstream.URL,
+				"task_upstream",
+				"channel-key",
+				"",
+			)
+
+			require.NoError(t, err)
+			assert.Equal(t, test.expected, videoURL)
+		})
+	}
+}
+
 func TestVideoProxyRejectsUnrecognizedTaskDetailURLs(t *testing.T) {
 	db := setupVideoProxyTest(t)
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"completed","video_url":"https://video.example/video.mp4","result":{"url":"https://video.example/result.mp4"}}`))
+		_, _ = w.Write([]byte(`{"status":"completed","result":{"url":"https://video.example/result.mp4"},"metadata":{"origin_video_url":"https://video.example/origin.mp4"}}`))
 	}))
 	t.Cleanup(upstream.Close)
 

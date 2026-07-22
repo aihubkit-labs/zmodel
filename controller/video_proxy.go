@@ -245,12 +245,17 @@ func fetchOpenAIVideoTaskURL(c *gin.Context, client *http.Client, baseURL, upstr
 	}
 
 	var taskDetail struct {
-		URL   string `json:"url"`
-		Video struct {
+		URL      string `json:"url"`
+		VideoURL string `json:"video_url"`
+		Video    struct {
 			URL string `json:"url"`
 		} `json:"video"`
 		Metadata struct {
-			URL string `json:"url"`
+			URL           string `json:"url"`
+			ContentURL    string `json:"content_url"`
+			LocalURL      string `json:"local_url"`
+			VideoURL      string `json:"video_url"`
+			FinalVideoURL string `json:"final_video_url"`
 		} `json:"metadata"`
 	}
 	if err := common.DecodeJson(resp.Body, &taskDetail); err != nil {
@@ -261,7 +266,22 @@ func fetchOpenAIVideoTaskURL(c *gin.Context, client *http.Client, baseURL, upstr
 		videoURL = strings.TrimSpace(taskDetail.Video.URL)
 	}
 	if videoURL == "" {
+		videoURL = strings.TrimSpace(taskDetail.VideoURL)
+	}
+	if videoURL == "" {
 		videoURL = strings.TrimSpace(taskDetail.Metadata.URL)
+	}
+	if videoURL == "" {
+		videoURL = strings.TrimSpace(taskDetail.Metadata.ContentURL)
+	}
+	if videoURL == "" {
+		videoURL = strings.TrimSpace(taskDetail.Metadata.LocalURL)
+	}
+	if videoURL == "" {
+		videoURL = strings.TrimSpace(taskDetail.Metadata.VideoURL)
+	}
+	if videoURL == "" {
+		videoURL = strings.TrimSpace(taskDetail.Metadata.FinalVideoURL)
 	}
 	if videoURL == "" {
 		return "", fmt.Errorf("Task detail response does not contain url")
