@@ -2,14 +2,15 @@ package controller
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
@@ -31,11 +32,8 @@ type videoProxyTestCase struct {
 	storedKey             string
 	channelKey            string
 	expectedKey           string
-	contentDelivery       string
 	upstreamStatus        int
-	upstreamLocation      string
 	expectedStatus        int
-	expectedLocation      string
 	forwardRange          bool
 	expectedResponseBody  string
 	expectedContentLength string
@@ -121,19 +119,25 @@ func TestVideoProxyStreamsFullUpstreamResponse(t *testing.T) {
 func TestVideoProxyAllowsAdminToPreviewAnotherUsersTask(t *testing.T) {
 	db := setupVideoProxyTest(t)
 
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "video/mp4")
-		_, _ = w.Write([]byte("test"))
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/video.mp4" {
+			w.Header().Set("Content-Type", "video/mp4")
+			_, _ = w.Write([]byte("test"))
+			return
+		}
+		_, _ = fmt.Fprintf(w, `{"status":"completed","url":%q}`, "http://"+r.Host+"/video.mp4")
 	}))
 	t.Cleanup(upstream.Close)
 
 	baseURL := upstream.URL
+	setting := `{"video_content_proxy_enabled":true}`
 	channel := &model.Channel{
 		Id:      301,
 		Type:    constant.ChannelTypeOpenAI,
 		Key:     "channel-key",
 		Name:    "OpenAI video",
 		BaseURL: &baseURL,
+		Setting: &setting,
 	}
 	require.NoError(t, db.Create(channel).Error)
 	require.NoError(t, db.Exec("INSERT INTO users (id, role) VALUES (?, ?)", 501, common.RoleAdminUser).Error)
@@ -186,6 +190,53 @@ func TestVideoProxyDoesNotAllowUserToPreviewAnotherUsersTask(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), "Task not found")
 }
 
+func TestVideoProxyPreservesGeminiVideoAuthentication(t *testing.T) {
+	db := setupVideoProxyTest(t)
+
+	var apiKeyHeader string
+	var apiKeyQuery string
+	videoServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiKeyHeader = r.Header.Get("x-goog-api-key")
+		apiKeyQuery = r.URL.Query().Get("key")
+		w.Header().Set("Content-Type", "video/mp4")
+		_, _ = w.Write([]byte("test"))
+	}))
+	t.Cleanup(videoServer.Close)
+
+	setting := `{"video_content_proxy_enabled":true}`
+	channel := &model.Channel{
+		Id:      301,
+		Type:    constant.ChannelTypeGemini,
+		Name:    "Gemini video",
+		Setting: &setting,
+	}
+	require.NoError(t, db.Create(channel).Error)
+
+	task := &model.Task{
+		TaskID:    "task_gemini_video",
+		UserId:    401,
+		ChannelId: channel.Id,
+		Status:    model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{
+			Key: "stored-gemini-key",
+		},
+		Data: []byte(fmt.Sprintf(`{"uri":%q}`, videoServer.URL+"/video.mp4")),
+	}
+	require.NoError(t, db.Create(task).Error)
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task_gemini_video/content", nil)
+	context.Params = gin.Params{{Key: "task_id", Value: task.TaskID}}
+	context.Set("id", task.UserId)
+
+	VideoProxy(context)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	assert.Equal(t, "stored-gemini-key", apiKeyHeader)
+	assert.Equal(t, "stored-gemini-key", apiKeyQuery)
+}
+
 func TestVideoProxyMapsUpstreamFailureToBadGateway(t *testing.T) {
 	testVideoProxyDownload(t, videoProxyTestCase{
 		storedKey:      "stored-task-key",
@@ -196,97 +247,382 @@ func TestVideoProxyMapsUpstreamFailureToBadGateway(t *testing.T) {
 	})
 }
 
-func TestVideoProxyRedirectsWithoutFollowingUpstreamLocation(t *testing.T) {
-	statuses := []int{
-		http.StatusMovedPermanently,
-		http.StatusFound,
-		http.StatusSeeOther,
-		http.StatusTemporaryRedirect,
-		http.StatusPermanentRedirect,
+func TestVideoProxyRedirectsToFreshTaskDetailURL(t *testing.T) {
+	db := setupVideoProxyTest(t)
+	originalTLSInsecureSkipVerify := common.TLSInsecureSkipVerify
+	common.TLSInsecureSkipVerify = true
+	service.InitHttpClient()
+	t.Cleanup(func() {
+		common.TLSInsecureSkipVerify = originalTLSInsecureSkipVerify
+		service.InitHttpClient()
+	})
+
+	videoServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "video/mp4")
+		w.Header().Set("Content-Range", "bytes 0-0/4")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte("t"))
+	}))
+	t.Cleanup(videoServer.Close)
+
+	var upstreamPath string
+	var upstreamAuthorization string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamPath = r.URL.Path
+		upstreamAuthorization = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"status":"completed","url":%q}`, videoServer.URL+"/video.mp4")
+	}))
+	t.Cleanup(upstream.Close)
+
+	baseURL := upstream.URL
+	channel := &model.Channel{
+		Id:      301,
+		Type:    constant.ChannelTypeOpenAI,
+		Key:     "current-channel-key",
+		Name:    "OpenAI video",
+		BaseURL: &baseURL,
 	}
-	for _, status := range statuses {
-		t.Run(http.StatusText(status), func(t *testing.T) {
-			testVideoProxyDownload(t, videoProxyTestCase{
-				storedKey:        "stored-task-key",
-				channelKey:       "current-channel-key",
-				expectedKey:      "stored-task-key",
-				contentDelivery:  "redirect",
-				upstreamStatus:   status,
-				upstreamLocation: "/object/video.mp4?signature=test",
-				expectedStatus:   status,
-				expectedLocation: "UPSTREAM_BASE/object/video.mp4?signature=test",
-				forwardRange:     true,
-			})
-		})
+	require.NoError(t, db.Create(channel).Error)
+
+	task := &model.Task{
+		TaskID:    "task_zmodel_public",
+		UserId:    401,
+		ChannelId: channel.Id,
+		Status:    model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{
+			Key:            "stored-task-key",
+			UpstreamTaskID: "task_frimodel_upstream",
+		},
+		Data: []byte(`{"status":"completed","url":"https://expired.example/video.mp4"}`),
 	}
-}
-
-func TestVideoProxyRedirectModeRejectsVideoStreamWithoutProxyFallback(t *testing.T) {
-	testVideoProxyDownload(t, videoProxyTestCase{
-		storedKey:       "stored-task-key",
-		channelKey:      "current-channel-key",
-		expectedKey:     "stored-task-key",
-		contentDelivery: "redirect",
-		upstreamStatus:  http.StatusOK,
-		expectedStatus:  http.StatusBadGateway,
-	})
-}
-
-func TestVideoProxyRedirectModeRejectsMissingLocation(t *testing.T) {
-	testVideoProxyDownload(t, videoProxyTestCase{
-		storedKey:       "stored-task-key",
-		channelKey:      "current-channel-key",
-		expectedKey:     "stored-task-key",
-		contentDelivery: "redirect",
-		upstreamStatus:  http.StatusFound,
-		expectedStatus:  http.StatusBadGateway,
-	})
-}
-
-func TestVideoProxyRedirectModeRejectsNonHTTPLocation(t *testing.T) {
-	testVideoProxyDownload(t, videoProxyTestCase{
-		storedKey:        "stored-task-key",
-		channelKey:       "current-channel-key",
-		expectedKey:      "stored-task-key",
-		contentDelivery:  "redirect",
-		upstreamStatus:   http.StatusFound,
-		upstreamLocation: "javascript:alert(1)",
-		expectedStatus:   http.StatusBadGateway,
-	})
-}
-
-func TestVideoProxyRedirectModeBlocksUnsafeLocation(t *testing.T) {
-	setupVideoProxyTest(t)
-	fetchSetting := system_setting.GetFetchSetting()
-	fetchSetting.EnableSSRFProtection = true
-	fetchSetting.AllowPrivateIp = false
+	require.NoError(t, db.Create(task).Error)
 
 	recorder := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(recorder)
 	context.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task_zmodel_public/content", nil)
-	response := &http.Response{
-		StatusCode: http.StatusFound,
-		Header:     http.Header{"Location": []string{"http://127.0.0.1/private-video.mp4"}},
+	context.Params = gin.Params{{Key: "task_id", Value: task.TaskID}}
+	context.Set("id", task.UserId)
+
+	VideoProxy(context)
+
+	require.Equal(t, http.StatusTemporaryRedirect, recorder.Code)
+	assert.Equal(t, videoServer.URL+"/video.mp4", recorder.Header().Get("Location"))
+	assert.Equal(t, "/v1/videos/task_frimodel_upstream", upstreamPath)
+	assert.Equal(t, "Bearer stored-task-key", upstreamAuthorization)
+}
+
+func TestVideoProxyRedirectsToFinalVideoURL(t *testing.T) {
+	db := setupVideoProxyTest(t)
+	originalTLSInsecureSkipVerify := common.TLSInsecureSkipVerify
+	common.TLSInsecureSkipVerify = true
+	service.InitHttpClient()
+	t.Cleanup(func() {
+		common.TLSInsecureSkipVerify = originalTLSInsecureSkipVerify
+		service.InitHttpClient()
+	})
+
+	finalVideoServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "video/mp4")
+		w.Header().Set("Content-Range", "bytes 0-0/4")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte("t"))
+	}))
+	t.Cleanup(finalVideoServer.Close)
+
+	videoRedirectServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", finalVideoServer.URL+"/video.mp4?signature=fresh")
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(videoRedirectServer.Close)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"status":"completed","url":%q}`, videoRedirectServer.URL+"/content")
+	}))
+	t.Cleanup(upstream.Close)
+
+	baseURL := upstream.URL
+	channel := &model.Channel{
+		Id:      301,
+		Type:    constant.ChannelTypeOpenAI,
+		Key:     "channel-key",
+		Name:    "OpenAI video",
+		BaseURL: &baseURL,
 	}
+	require.NoError(t, db.Create(channel).Error)
 
-	handleVideoRedirect(context, "task_zmodel_public", "https://upstream.example/v1/videos/task/content", response, "")
+	task := &model.Task{
+		TaskID:    "task_video_redirect_chain",
+		UserId:    401,
+		ChannelId: channel.Id,
+		Status:    model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{
+			UpstreamTaskID: "task_frimodel_upstream",
+		},
+		Data: []byte(`{"status":"completed"}`),
+	}
+	require.NoError(t, db.Create(task).Error)
 
-	require.Equal(t, http.StatusForbidden, recorder.Code)
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task_video_redirect_chain/content", nil)
+	context.Params = gin.Params{{Key: "task_id", Value: task.TaskID}}
+	context.Set("id", task.UserId)
+
+	VideoProxy(context)
+
+	require.Equal(t, http.StatusTemporaryRedirect, recorder.Code)
+	assert.Equal(t, finalVideoServer.URL+"/video.mp4?signature=fresh", recorder.Header().Get("Location"))
+}
+
+func TestVideoProxyRedirectAllowsPublicHTTPSCustomPort(t *testing.T) {
+	db := setupVideoProxyTest(t)
+	originalTLSInsecureSkipVerify := common.TLSInsecureSkipVerify
+	common.TLSInsecureSkipVerify = true
+	service.InitHttpClient()
+	t.Cleanup(func() {
+		common.TLSInsecureSkipVerify = originalTLSInsecureSkipVerify
+		service.InitHttpClient()
+	})
+
+	videoServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "video/mp4")
+		w.Header().Set("Content-Range", "bytes 0-0/4")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte("t"))
+	}))
+	t.Cleanup(videoServer.Close)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"status":"completed","url":%q}`, videoServer.URL+"/video.mp4")
+	}))
+	t.Cleanup(upstream.Close)
+
+	upstreamURL, err := url.Parse(upstream.URL)
+	require.NoError(t, err)
+	_, upstreamPort, err := net.SplitHostPort(upstreamURL.Host)
+	require.NoError(t, err)
+
+	fetchSetting := system_setting.GetFetchSetting()
+	fetchSetting.EnableSSRFProtection = true
+	fetchSetting.AllowPrivateIp = true
+	fetchSetting.DomainFilterMode = false
+	fetchSetting.IpFilterMode = false
+	fetchSetting.AllowedPorts = []string{upstreamPort}
+	service.InitHttpClient()
+
+	baseURL := upstream.URL
+	channel := &model.Channel{
+		Id:      301,
+		Type:    constant.ChannelTypeOpenAI,
+		Key:     "channel-key",
+		Name:    "OpenAI video",
+		BaseURL: &baseURL,
+	}
+	require.NoError(t, db.Create(channel).Error)
+
+	task := &model.Task{
+		TaskID:    "task_custom_video_port",
+		UserId:    401,
+		ChannelId: channel.Id,
+		Status:    model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{
+			UpstreamTaskID: "task_frimodel_upstream",
+		},
+		Data: []byte(`{"status":"completed"}`),
+	}
+	require.NoError(t, db.Create(task).Error)
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task_custom_video_port/content", nil)
+	context.Params = gin.Params{{Key: "task_id", Value: task.TaskID}}
+	context.Set("id", task.UserId)
+
+	VideoProxy(context)
+
+	require.Equal(t, http.StatusTemporaryRedirect, recorder.Code)
+	assert.Equal(t, videoServer.URL+"/video.mp4", recorder.Header().Get("Location"))
+}
+
+func TestValidateVideoRedirectURLRejectsPrivateAddress(t *testing.T) {
+	setupVideoProxyTest(t)
+
+	fetchSetting := system_setting.GetFetchSetting()
+	fetchSetting.EnableSSRFProtection = true
+	fetchSetting.AllowPrivateIp = false
+	fetchSetting.DomainFilterMode = false
+	fetchSetting.IpFilterMode = false
+
+	err := validateVideoRedirectURL("https://127.0.0.1:19443/video.mp4")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "private IP address not allowed")
+}
+
+func TestVideoProxyStreamsFreshTaskDetailURLWhenEnabled(t *testing.T) {
+	db := setupVideoProxyTest(t)
+
+	var receivedRange string
+	var receivedIfRange string
+	videoServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedRange = r.Header.Get("Range")
+		receivedIfRange = r.Header.Get("If-Range")
+		w.Header().Set("Content-Type", "video/mp4")
+		w.Header().Set("Content-Range", "bytes 0-3/10")
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Content-Length", "4")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte("test"))
+	}))
+	t.Cleanup(videoServer.Close)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/v1/videos/task_frimodel_upstream", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"status":"completed","url":%q}`, videoServer.URL+"/video.mp4")
+	}))
+	t.Cleanup(upstream.Close)
+
+	baseURL := upstream.URL
+	setting := `{"video_content_proxy_enabled":true}`
+	channel := &model.Channel{
+		Id:      301,
+		Type:    constant.ChannelTypeOpenAI,
+		Key:     "channel-key",
+		Name:    "OpenAI video",
+		BaseURL: &baseURL,
+		Setting: &setting,
+	}
+	require.NoError(t, db.Create(channel).Error)
+
+	task := &model.Task{
+		TaskID:    "task_zmodel_public",
+		UserId:    401,
+		ChannelId: channel.Id,
+		Status:    model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{
+			UpstreamTaskID: "task_frimodel_upstream",
+		},
+		Data: []byte(`{"status":"completed"}`),
+	}
+	require.NoError(t, db.Create(task).Error)
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task_zmodel_public/content", nil)
+	context.Request.Header.Set("Range", "bytes=0-3")
+	context.Request.Header.Set("If-Range", `"video-etag"`)
+	context.Params = gin.Params{{Key: "task_id", Value: task.TaskID}}
+	context.Set("id", task.UserId)
+
+	VideoProxy(context)
+
+	require.Equal(t, http.StatusPartialContent, recorder.Code)
+	assert.Equal(t, "test", recorder.Body.String())
+	assert.Equal(t, "bytes=0-3", receivedRange)
+	assert.Equal(t, `"video-etag"`, receivedIfRange)
+}
+
+func TestVideoProxyRejectsHTTPTaskDetailURLWhenProxyDisabled(t *testing.T) {
+	db := setupVideoProxyTest(t)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"completed","url":"http://video.example/video.mp4"}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	baseURL := upstream.URL
+	channel := &model.Channel{
+		Id:      301,
+		Type:    constant.ChannelTypeOpenAI,
+		Key:     "channel-key",
+		Name:    "OpenAI video",
+		BaseURL: &baseURL,
+	}
+	require.NoError(t, db.Create(channel).Error)
+
+	task := &model.Task{
+		TaskID:    "task_zmodel_public",
+		UserId:    401,
+		ChannelId: channel.Id,
+		Status:    model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{
+			UpstreamTaskID: "task_frimodel_upstream",
+		},
+		Data: []byte(`{"status":"completed"}`),
+	}
+	require.NoError(t, db.Create(task).Error)
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task_zmodel_public/content", nil)
+	context.Params = gin.Params{{Key: "task_id", Value: task.TaskID}}
+	context.Set("id", task.UserId)
+
+	VideoProxy(context)
+
+	require.Equal(t, http.StatusBadGateway, recorder.Code)
 	assert.Empty(t, recorder.Header().Get("Location"))
-	assert.Contains(t, recorder.Body.String(), "redirect blocked")
+	assert.Contains(t, recorder.Body.String(), "enable video content proxy")
+}
+
+func TestVideoProxyRequiresTopLevelTaskDetailURL(t *testing.T) {
+	db := setupVideoProxyTest(t)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"completed","video_url":"https://video.example/video.mp4","metadata":{"url":"https://video.example/metadata.mp4"}}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	baseURL := upstream.URL
+	channel := &model.Channel{
+		Id:      301,
+		Type:    constant.ChannelTypeOpenAI,
+		Key:     "channel-key",
+		Name:    "OpenAI video",
+		BaseURL: &baseURL,
+	}
+	require.NoError(t, db.Create(channel).Error)
+
+	task := &model.Task{
+		TaskID:    "task_zmodel_public",
+		UserId:    401,
+		ChannelId: channel.Id,
+		Status:    model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{
+			UpstreamTaskID: "task_frimodel_upstream",
+		},
+		Data: []byte(`{"status":"completed"}`),
+	}
+	require.NoError(t, db.Create(task).Error)
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task_zmodel_public/content", nil)
+	context.Params = gin.Params{{Key: "task_id", Value: task.TaskID}}
+	context.Set("id", task.UserId)
+
+	VideoProxy(context)
+
+	require.Equal(t, http.StatusBadGateway, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "Task detail response does not contain url")
 }
 
 func testVideoProxyDownload(t *testing.T, testCase videoProxyTestCase) {
 	t.Helper()
 	db := setupVideoProxyTest(t)
 
-	upstreamRequest := make(chan videoProxyUpstreamRequest, 1)
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		upstreamRequest <- videoProxyUpstreamRequest{
-			Path:          r.URL.Path,
-			Authorization: r.Header.Get("Authorization"),
-			Range:         r.Header.Get("Range"),
-			IfRange:       r.Header.Get("If-Range"),
+	videoRequest := make(chan videoProxyUpstreamRequest, 1)
+	videoServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		videoRequest <- videoProxyUpstreamRequest{
+			Path:    r.URL.Path,
+			Range:   r.Header.Get("Range"),
+			IfRange: r.Header.Get("If-Range"),
 		}
 		w.Header().Set("Content-Type", "video/mp4")
 		w.Header().Set("Content-Range", "bytes 0-3/10")
@@ -296,24 +632,34 @@ func testVideoProxyDownload(t *testing.T, testCase videoProxyTestCase) {
 		w.Header().Set("Last-Modified", "Wed, 15 Jul 2026 10:00:00 GMT")
 		w.Header().Set("X-Upstream-Internal", "must-not-leak")
 		w.Header().Set("Content-Length", "4")
-		if testCase.upstreamLocation != "" {
-			w.Header().Set("Location", testCase.upstreamLocation)
-		}
 		w.WriteHeader(testCase.upstreamStatus)
 		_, _ = w.Write([]byte("test"))
+	}))
+	t.Cleanup(videoServer.Close)
+
+	taskDetailRequest := make(chan videoProxyUpstreamRequest, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		taskDetailRequest <- videoProxyUpstreamRequest{
+			Path:          r.URL.Path,
+			Authorization: r.Header.Get("Authorization"),
+		}
+		if testCase.upstreamStatus == http.StatusUnauthorized {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_, _ = fmt.Fprintf(w, `{"status":"completed","url":%q}`, videoServer.URL+"/video.mp4")
 	}))
 	t.Cleanup(upstream.Close)
 
 	baseURL := upstream.URL
+	setting := `{"video_content_proxy_enabled":true}`
 	channel := &model.Channel{
 		Id:      301,
 		Type:    constant.ChannelTypeOpenAI,
 		Key:     testCase.channelKey,
 		Name:    "FriModel OpenAI video",
 		BaseURL: &baseURL,
-	}
-	if testCase.contentDelivery != "" {
-		channel.SetSetting(dto.ChannelSettings{VideoContentDelivery: testCase.contentDelivery})
+		Setting: &setting,
 	}
 	require.NoError(t, db.Create(channel).Error)
 
@@ -344,17 +690,8 @@ func testVideoProxyDownload(t *testing.T, testCase videoProxyTestCase) {
 
 	require.Equal(t, testCase.expectedStatus, recorder.Code)
 	if testCase.expectedStatus == http.StatusBadGateway {
-		if testCase.contentDelivery == "redirect" {
-			assert.NotEqual(t, "test", recorder.Body.String())
-		} else {
-			assert.Contains(t, recorder.Body.String(), "Upstream service returned status 401")
-		}
+		assert.Contains(t, recorder.Body.String(), "upstream task detail returned status 401")
 		assert.Empty(t, recorder.Header().Get("Cache-Control"))
-		assert.Empty(t, recorder.Header().Get("X-Upstream-Internal"))
-	} else if testCase.expectedLocation != "" {
-		expectedLocation := strings.Replace(testCase.expectedLocation, "UPSTREAM_BASE", upstream.URL, 1)
-		assert.Equal(t, expectedLocation, recorder.Header().Get("Location"))
-		assert.NotEqual(t, "test", recorder.Body.String())
 		assert.Empty(t, recorder.Header().Get("X-Upstream-Internal"))
 	} else {
 		assert.Equal(t, testCase.expectedResponseBody, recorder.Body.String())
@@ -369,14 +706,18 @@ func testVideoProxyDownload(t *testing.T, testCase videoProxyTestCase) {
 		assert.Empty(t, recorder.Header().Get("X-Upstream-Internal"))
 	}
 
-	received := <-upstreamRequest
-	assert.Equal(t, "/v1/videos/task_frimodel_upstream/content", received.Path)
-	assert.Equal(t, "Bearer "+testCase.expectedKey, received.Authorization)
-	if testCase.forwardRange && testCase.contentDelivery != "redirect" {
-		assert.Equal(t, "bytes=0-3", received.Range)
-		assert.Equal(t, `"video-etag"`, received.IfRange)
-	} else {
-		assert.Empty(t, received.Range)
-		assert.Empty(t, received.IfRange)
+	detailReceived := <-taskDetailRequest
+	assert.Equal(t, "/v1/videos/task_frimodel_upstream", detailReceived.Path)
+	assert.Equal(t, "Bearer "+testCase.expectedKey, detailReceived.Authorization)
+	if testCase.expectedStatus != http.StatusBadGateway {
+		videoReceived := <-videoRequest
+		assert.Equal(t, "/video.mp4", videoReceived.Path)
+		if testCase.forwardRange {
+			assert.Equal(t, "bytes=0-3", videoReceived.Range)
+			assert.Equal(t, `"video-etag"`, videoReceived.IfRange)
+		} else {
+			assert.Empty(t, videoReceived.Range)
+			assert.Empty(t, videoReceived.IfRange)
+		}
 	}
 }

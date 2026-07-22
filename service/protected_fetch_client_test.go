@@ -213,6 +213,23 @@ func TestGetSSRFProtectedHTTPClientFallsBackToDefaultClientWhenProtectionDisable
 	require.Same(t, expected, GetSSRFProtectedHTTPClient())
 }
 
+func TestVideoContentProtectionAllowsPublicCustomPort(t *testing.T) {
+	configureSSRFTestFetchSetting(t)
+
+	err := validateURLWithProtection("https://8.8.8.8:19443/video.mp4", currentVideoContentProtection)
+
+	require.NoError(t, err)
+}
+
+func TestVideoContentProtectionRejectsPrivateCustomPort(t *testing.T) {
+	configureSSRFTestFetchSetting(t)
+
+	err := validateURLWithProtection("https://127.0.0.1:19443/video.mp4", currentVideoContentProtection)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "private IP address not allowed")
+}
+
 func TestProtectedFetchRoundTripperUsesConfiguredProxy(t *testing.T) {
 	configureSSRFTestFetchSetting(t)
 	proxyURL := mustParseURL(t, "http://127.0.0.1:3128")

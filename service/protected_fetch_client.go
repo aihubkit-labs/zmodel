@@ -35,6 +35,14 @@ type ssrfProtectedRoundTripper struct {
 }
 
 func currentFetchProtection() (*common.SSRFProtection, bool, error) {
+	return currentFetchProtectionWithPorts(system_setting.GetFetchSetting().AllowedPorts)
+}
+
+func currentVideoContentProtection() (*common.SSRFProtection, bool, error) {
+	return currentFetchProtectionWithPorts(nil)
+}
+
+func currentFetchProtectionWithPorts(allowedPorts []string) (*common.SSRFProtection, bool, error) {
 	fetchSetting := system_setting.GetFetchSetting()
 	if !fetchSetting.EnableSSRFProtection {
 		return nil, false, nil
@@ -46,7 +54,7 @@ func currentFetchProtection() (*common.SSRFProtection, bool, error) {
 		fetchSetting.IpFilterMode,
 		fetchSetting.DomainList,
 		fetchSetting.IpList,
-		fetchSetting.AllowedPorts,
+		allowedPorts,
 		fetchSetting.ApplyIPFilterForDomain,
 	)
 	if err != nil {
@@ -89,7 +97,15 @@ func newProtectedFetchHTTPClientWithProxy(resolver ssrfResolver, dialContext fun
 			proxy:         proxy,
 			transports:    make(map[string]*http.Transport),
 		},
-		CheckRedirect: checkProtectedFetchRedirect,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if err := validateURLWithProtection(req.URL.String(), getProtection); err != nil {
+				return fmt.Errorf("redirect to %s blocked: %v", req.URL.String(), err)
+			}
+			if len(via) >= 10 {
+				return fmt.Errorf("stopped after 10 redirects")
+			}
+			return nil
+		},
 	}
 	if common.RelayTimeout != 0 {
 		client.Timeout = time.Duration(common.RelayTimeout) * time.Second
@@ -101,7 +117,7 @@ func (t *ssrfProtectedRoundTripper) RoundTrip(req *http.Request) (*http.Response
 	if req == nil || req.URL == nil {
 		return nil, fmt.Errorf("invalid request")
 	}
-	if err := ValidateSSRFProtectedFetchURL(req.URL.String()); err != nil {
+	if err := validateURLWithProtection(req.URL.String(), t.getProtection); err != nil {
 		return nil, err
 	}
 
@@ -110,6 +126,17 @@ func (t *ssrfProtectedRoundTripper) RoundTrip(req *http.Request) (*http.Response
 		return nil, err
 	}
 	return t.transportFor(proxyURL).RoundTrip(req)
+}
+
+func validateURLWithProtection(rawURL string, getProtection func() (*common.SSRFProtection, bool, error)) error {
+	protection, enabled, err := getProtection()
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return nil
+	}
+	return protection.ValidateURL(rawURL)
 }
 
 func (t *ssrfProtectedRoundTripper) CloseIdleConnections() {

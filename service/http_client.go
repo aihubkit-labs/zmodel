@@ -18,6 +18,7 @@ import (
 var (
 	httpClient              *http.Client
 	ssrfProtectedHTTPClient *http.Client
+	videoContentHTTPClient  *http.Client
 	proxyClientLock         sync.Mutex
 	proxyClients            = make(map[string]*http.Client)
 )
@@ -78,6 +79,7 @@ func InitHttpClient() {
 		}
 	}
 	ssrfProtectedHTTPClient = newProtectedFetchHTTPClient()
+	videoContentHTTPClient = newProtectedFetchHTTPClientWithDialer(nil, nil, currentVideoContentProtection)
 }
 
 // GetHttpClient returns the general outbound client used by relay/provider
@@ -98,6 +100,16 @@ func GetSSRFProtectedHTTPClient() *http.Client {
 		return GetHttpClient()
 	}
 	return ssrfProtectedHTTPClient
+}
+
+// GetVideoContentHTTPClient returns an SSRF-protected client for provider-issued
+// video URLs. Public custom ports are allowed because video providers commonly
+// expose a short-lived redirect endpoint outside the global fetch port list.
+func GetVideoContentHTTPClient() *http.Client {
+	if fetchSetting := system_setting.GetFetchSetting(); fetchSetting != nil && !fetchSetting.EnableSSRFProtection {
+		return GetHttpClient()
+	}
+	return videoContentHTTPClient
 }
 
 // GetHttpClientWithProxy returns the default client or a proxy-enabled one when proxyURL is provided.

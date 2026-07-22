@@ -237,28 +237,30 @@ metadata.origin_video_url
 
 ## 6. 视频内容代理契约
 
-渠道 `setting` 支持以下内容交付配置：
+渠道 `setting` 支持以下视频代理配置：
 
 ```json
 {
-  "video_content_delivery": "proxy"
+  "video_content_proxy_enabled": true
 }
 ```
 
-可选值：
+配置行为：
 
-- `proxy`：默认值，由 zmodel 获取并流式转发视频内容。
-- `redirect`：要求上游内容接口返回 HTTP 重定向，由 zmodel 校验 `Location` 后将重定向返回客户端。
+- `true`：由 zmodel 获取并流式转发视频内容。
+- `false`：默认值，zmodel 将客户端重定向到任务详情响应中的 HTTPS `url`。
 
-空值和历史渠道均按 `proxy` 处理。`redirect` 模式不会在任何错误场景回退到流式代理，避免异常消耗服务器出口带宽和长连接资源。
+关闭代理时，如果上游任务详情返回 HTTP `url`，接口返回错误并提示管理员开启视频代理，避免 HTTPS 页面加载混合内容。
 
 ### 6.1 上游请求
 
-OpenAI/Sora 渠道的上游内容地址为：
+每次访问公开内容接口时，OpenAI/Sora 渠道先实时请求上游任务详情：
 
 ```text
-{Channel.BaseURL}/v1/videos/{upstream_task_id}/content
+{Channel.BaseURL}/v1/videos/{upstream_task_id}
 ```
+
+视频地址只读取响应顶层 `url` 字段，不读取数据库快照、`video_url` 或 `metadata` 下的 URL 字段。
 
 请求鉴权头为：
 
@@ -270,15 +272,14 @@ Authorization: Bearer {stored_upstream_key}
 
 ### 6.2 重定向交付
 
-`redirect` 模式禁止 HTTP 客户端自动跟随上游重定向，仅接受 `301`、`302`、`303`、`307` 和 `308`。zmodel 会解析相对 `Location`，执行 URL 与 SSRF 安全校验，再原样返回重定向状态和规范化后的绝对地址。
+关闭视频代理时，zmodel 校验任务详情响应中的顶层 `url`，然后返回 `307 Temporary Redirect`。该 URL 必须使用 HTTPS，并通过 URL 与 SSRF 安全校验。
 
-以下情况直接报错，不读取或转发上游视频流：
+以下情况直接报错：
 
-- 上游返回 `200`、`206` 或其他非重定向状态；
-- 重定向缺少 `Location`；
-- `Location` 无法解析；
-- 重定向目标被 URL 或 SSRF 安全策略拦截；
-- 上游请求失败。
+- 任务详情请求失败或返回非 2xx 状态；
+- 任务详情响应无法解析；
+- 顶层 `url` 为空、格式无效或使用 HTTP；
+- `url` 被 URL 或 SSRF 安全策略拦截。
 
 ### 6.3 分段下载
 
@@ -340,7 +341,7 @@ Cache-Control: private, max-age=86400
 
 ### 7.2 任务归属
 
-内容代理必须使用当前用户 ID和公开任务 ID共同查询任务。不能仅凭任务 ID下载内容，否则可能造成跨用户访问。
+普通用户访问内容接口时，必须使用当前用户 ID 和公开任务 ID 共同查询任务。管理员可以在自己的任务查询不到时按公开任务 ID 跨用户查询，以便查看和排查所有用户的任务；普通用户访问其他用户的任务统一返回未找到。
 
 ### 7.3 上游信息隔离
 

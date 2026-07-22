@@ -37,7 +37,7 @@ const ADVANCED_SETTINGS_FIELDS = new Set<FieldPath<ChannelFormValues>>([
   'advanced_custom',
   'force_format',
   'thinking_to_content',
-  'video_content_delivery',
+  'video_content_proxy_enabled',
   'pass_through_body_enabled',
   'proxy',
   'system_prompt',
