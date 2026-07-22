@@ -245,16 +245,22 @@ func fetchOpenAIVideoTaskURL(c *gin.Context, client *http.Client, baseURL, upstr
 	}
 
 	var taskDetail struct {
-		URL string `json:"url"`
+		URL   string `json:"url"`
+		Video struct {
+			URL string `json:"url"`
+		} `json:"video"`
 	}
 	if err := common.DecodeJson(resp.Body, &taskDetail); err != nil {
 		return "", fmt.Errorf("failed to decode task detail response: %w", err)
 	}
-	taskDetail.URL = strings.TrimSpace(taskDetail.URL)
-	if taskDetail.URL == "" {
+	videoURL := strings.TrimSpace(taskDetail.URL)
+	if videoURL == "" {
+		videoURL = strings.TrimSpace(taskDetail.Video.URL)
+	}
+	if videoURL == "" {
 		return "", fmt.Errorf("Task detail response does not contain url")
 	}
-	return taskDetail.URL, nil
+	return videoURL, nil
 }
 
 func validateVideoFetchURL(rawURL, proxy string) error {
