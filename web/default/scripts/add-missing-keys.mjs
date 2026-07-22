@@ -9,6 +9,11 @@ function stableStringify(obj) {
 
 const newKeys = {
   en: {
+    'Proxy Video Content': 'Proxy Video Content',
+    'Redirect to the HTTPS URL returned by upstream task details':
+      'Redirect to the HTTPS URL returned by upstream task details',
+    'Stream video content through this server for reliable preview and download':
+      'Stream video content through this server for reliable preview and download',
     'HTTP Redirect': 'HTTP Redirect',
     'Require upstream content requests to return a redirect; non-redirect responses fail without proxy fallback':
       'Require upstream content requests to return a redirect; non-redirect responses fail without proxy fallback',
@@ -76,6 +81,11 @@ const newKeys = {
     'Video resolution tier': 'Video resolution tier',
   },
   zh: {
+    'Proxy Video Content': '代理视频内容',
+    'Redirect to the HTTPS URL returned by upstream task details':
+      '重定向到上游任务详情返回的 HTTPS 地址',
+    'Stream video content through this server for reliable preview and download':
+      '由本服务器转发视频内容，以获得稳定的预览和下载体验',
     'HTTP Redirect': 'HTTP 重定向',
     'Require upstream content requests to return a redirect; non-redirect responses fail without proxy fallback':
       '要求上游内容请求返回重定向；非重定向响应直接报错，不回退代理',
@@ -141,6 +151,11 @@ const newKeys = {
     'Video resolution tier': '视频分辨率档位',
   },
   'zh-TW': {
+    'Proxy Video Content': '代理影片內容',
+    'Redirect to the HTTPS URL returned by upstream task details':
+      '重新導向到上游任務詳情傳回的 HTTPS 位址',
+    'Stream video content through this server for reliable preview and download':
+      '由本伺服器轉發影片內容，以獲得穩定的預覽和下載體驗',
     'HTTP Redirect': 'HTTP 重新導向',
     'Require upstream content requests to return a redirect; non-redirect responses fail without proxy fallback':
       '要求上游內容請求傳回重新導向；非重新導向回應直接報錯，不回退代理',
@@ -206,6 +221,11 @@ const newKeys = {
     'Video resolution tier': '影片解析度級別',
   },
   fr: {
+    'Proxy Video Content': 'Proxy du contenu vidéo',
+    'Redirect to the HTTPS URL returned by upstream task details':
+      'Rediriger vers l’URL HTTPS renvoyée par les détails de la tâche en amont',
+    'Stream video content through this server for reliable preview and download':
+      'Transmettre la vidéo via ce serveur pour fiabiliser l’aperçu et le téléchargement',
     'HTTP Redirect': 'Redirection HTTP',
     'Require upstream content requests to return a redirect; non-redirect responses fail without proxy fallback':
       'Exiger une redirection du service en amont ; sinon, échouer sans repli vers le proxy',
@@ -273,6 +293,11 @@ const newKeys = {
     'Video resolution tier': 'Palier de résolution vidéo',
   },
   ja: {
+    'Proxy Video Content': '動画コンテンツをプロキシ',
+    'Redirect to the HTTPS URL returned by upstream task details':
+      '上流のタスク詳細が返す HTTPS URL にリダイレクトします',
+    'Stream video content through this server for reliable preview and download':
+      '安定したプレビューとダウンロードのため、このサーバー経由で動画を配信します',
     'HTTP Redirect': 'HTTP リダイレクト',
     'Require upstream content requests to return a redirect; non-redirect responses fail without proxy fallback':
       '上流のコンテンツ要求にリダイレクト応答を必須とし、それ以外はプロキシへフォールバックせず失敗させます',
@@ -339,6 +364,11 @@ const newKeys = {
     'Video resolution tier': '動画解像度階層',
   },
   ru: {
+    'Proxy Video Content': 'Проксировать видео',
+    'Redirect to the HTTPS URL returned by upstream task details':
+      'Перенаправлять на HTTPS-адрес из сведений о задаче вышестоящего сервиса',
+    'Stream video content through this server for reliable preview and download':
+      'Передавать видео через этот сервер для стабильного просмотра и скачивания',
     'HTTP Redirect': 'HTTP-перенаправление',
     'Require upstream content requests to return a redirect; non-redirect responses fail without proxy fallback':
       'Требовать перенаправление от вышестоящего сервиса; при другом ответе завершать запрос с ошибкой без перехода на прокси',
@@ -407,6 +437,11 @@ const newKeys = {
     'Video resolution tier': 'Уровень разрешения видео',
   },
   vi: {
+    'Proxy Video Content': 'Proxy nội dung video',
+    'Redirect to the HTTPS URL returned by upstream task details':
+      'Chuyển hướng đến URL HTTPS do chi tiết tác vụ thượng nguồn trả về',
+    'Stream video content through this server for reliable preview and download':
+      'Truyền video qua máy chủ này để xem trước và tải xuống ổn định',
     'HTTP Redirect': 'Chuyển hướng HTTP',
     'Require upstream content requests to return a redirect; non-redirect responses fail without proxy fallback':
       'Yêu cầu thượng nguồn trả về chuyển hướng; nếu không, báo lỗi mà không chuyển sang proxy',

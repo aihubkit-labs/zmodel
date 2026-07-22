@@ -283,7 +283,7 @@ const SENSITIVE_FORM_FIELDS = [
   'force_format',
   'thinking_to_content',
   'proxy',
-  'video_content_delivery',
+  'video_content_proxy_enabled',
   'pass_through_body_enabled',
   'system_prompt',
   'system_prompt_override',
@@ -334,7 +334,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.priority ||
     values.weight ||
     values.proxy?.trim() ||
-    values.video_content_delivery === 'redirect' ||
+    values.video_content_proxy_enabled ||
     values.system_prompt?.trim() ||
     values.force_format ||
     values.thinking_to_content ||
@@ -746,7 +746,6 @@ export function ChannelMutateDrawer({
     'disable_task_polling_sleep'
   )
   const currentProxy = form.watch('proxy')
-  const currentVideoContentDelivery = form.watch('video_content_delivery')
   const currentSystemPrompt = form.watch('system_prompt')
   const currentSystemPromptOverride = form.watch('system_prompt_override')
   const currentAllowServiceTier = form.watch('allow_service_tier')
@@ -4163,42 +4162,29 @@ export function ChannelMutateDrawer({
 
                             <FormField
                               control={form.control}
-                              name='video_content_delivery'
+                              name='video_content_proxy_enabled'
                               render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>
-                                    {t('Video Content Delivery')}
-                                  </FormLabel>
-                                  <Select
-                                    value={field.value || 'proxy'}
-                                    onValueChange={field.onChange}
-                                  >
-                                    <FormControl>
-                                      <SelectTrigger>
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                    </FormControl>
-                                    <SelectContent>
-                                      <SelectGroup>
-                                        <SelectItem value='proxy'>
-                                          {t('Reverse Proxy')}
-                                        </SelectItem>
-                                        <SelectItem value='redirect'>
-                                          {t('HTTP Redirect')}
-                                        </SelectItem>
-                                      </SelectGroup>
-                                    </SelectContent>
-                                  </Select>
-                                  <FormDescription>
-                                    {currentVideoContentDelivery === 'redirect'
-                                      ? t(
-                                          'Require upstream content requests to return a redirect; non-redirect responses fail without proxy fallback'
-                                        )
-                                      : t(
-                                          'Stream video content through this server'
-                                        )}
-                                  </FormDescription>
-                                  <FormMessage />
+                                <FormItem className='flex items-center justify-between gap-4'>
+                                  <div className='space-y-0.5'>
+                                    <FormLabel>
+                                      {t('Proxy Video Content')}
+                                    </FormLabel>
+                                    <FormDescription>
+                                      {field.value
+                                        ? t(
+                                            'Stream video content through this server for reliable preview and download'
+                                          )
+                                        : t(
+                                            'Redirect to the HTTPS URL returned by upstream task details'
+                                          )}
+                                    </FormDescription>
+                                  </div>
+                                  <FormControl>
+                                    <Switch
+                                      checked={field.value || false}
+                                      onCheckedChange={field.onChange}
+                                    />
+                                  </FormControl>
                                 </FormItem>
                               )}
                             />
