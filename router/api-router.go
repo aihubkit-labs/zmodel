@@ -324,7 +324,9 @@ func SetApiRouter(router *gin.Engine) {
 
 		taskRoute := apiRouter.Group("/task")
 		{
+			taskRoute.GET("/self/filter-options", middleware.UserAuth(), controller.GetUserTaskFilterOptions)
 			taskRoute.GET("/self", middleware.UserAuth(), controller.GetUserTask)
+			taskRoute.GET("/filter-options", middleware.AdminAuth(), controller.GetAllTaskFilterOptions)
 			taskRoute.GET("/", middleware.AdminAuth(), controller.GetAllTask)
 		}
 

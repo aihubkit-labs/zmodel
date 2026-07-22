@@ -67,6 +67,15 @@ export interface DrawingLogFilters extends CommonFilters {
  */
 export interface TaskLogFilters extends CommonFilters {
   taskId?: string
+  username?: string
+  group?: string
+  model?: string
+}
+
+export interface TaskFilterOptions {
+  usernames: string[]
+  groups: string[]
+  models: string[]
 }
 
 /**
@@ -393,6 +402,9 @@ export interface GetTaskLogsParams {
   page_size?: number
   channel_id?: string
   task_id?: string
+  username?: string
+  group?: string
+  model?: string
   start_timestamp?: number
   end_timestamp?: number
 }

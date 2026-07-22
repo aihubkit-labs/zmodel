@@ -31,8 +31,12 @@ const TaskLogsFilters = ({
   formApi,
   loading,
   isAdminUser,
+  filterOptions,
   t,
 }) => {
+  const toOptionList = (values) =>
+    values.map((value) => ({ label: value, value }));
+
   return (
     <Form
       initValues={formInitValues}
@@ -85,6 +89,38 @@ const TaskLogsFilters = ({
               size='small'
             />
           )}
+
+          {isAdminUser && (
+            <Form.Select
+              field='username'
+              placeholder={t('用户名')}
+              optionList={toOptionList(filterOptions.usernames)}
+              filter
+              showClear
+              pure
+              size='small'
+            />
+          )}
+
+          <Form.Select
+            field='group'
+            placeholder={t('分组')}
+            optionList={toOptionList(filterOptions.groups)}
+            filter
+            showClear
+            pure
+            size='small'
+          />
+
+          <Form.Select
+            field='model'
+            placeholder={t('模型')}
+            optionList={toOptionList(filterOptions.models)}
+            filter
+            showClear
+            pure
+            size='small'
+          />
         </div>
 
         {/* 操作按钮区域 */}
