@@ -36,6 +36,22 @@ func TestTaskModel2DtoProvidesReadablePlatformName(t *testing.T) {
 	assert.Equal(t, "OpenAI", dtoTask.PlatformName)
 }
 
+func TestTaskModel2DtoReportsTerminalTasksAsComplete(t *testing.T) {
+	for _, status := range []model.TaskStatus{model.TaskStatusSuccess, model.TaskStatusFailure} {
+		t.Run(string(status), func(t *testing.T) {
+			task := &model.Task{
+				Status:   status,
+				Progress: "30%",
+			}
+
+			dtoTask := TaskModel2Dto(task)
+
+			assert.Equal(t, taskcommon.ProgressComplete, dtoTask.Progress)
+			assert.Equal(t, "30%", task.Progress)
+		})
+	}
+}
+
 func TestTaskModel2DtoKeepsNonVideoResultURL(t *testing.T) {
 	task := &model.Task{
 		TaskID: "task_audio_id",

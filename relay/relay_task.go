@@ -485,6 +485,9 @@ func tryRealtimeFetch(task *model.Task, isOpenAIVideoAPI bool) []byte {
 	if ti.Progress != "" {
 		task.Progress = ti.Progress
 	}
+	if task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure {
+		task.Progress = taskcommon.ProgressComplete
+	}
 	if strings.HasPrefix(ti.Url, "data:") {
 		// data: URI — kept in Data, not ResultURL
 	} else if ti.Url != "" {
@@ -567,6 +570,10 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 
 	resultURL := task.GetResultURL()
 	data := task.Data
+	progress := task.Progress
+	if task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure {
+		progress = taskcommon.ProgressComplete
+	}
 	switch task.Action {
 	case constant.TaskActionGenerate,
 		constant.TaskActionTextGenerate,
@@ -595,7 +602,7 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 		SubmitTime:   task.SubmitTime,
 		StartTime:    task.StartTime,
 		FinishTime:   task.FinishTime,
-		Progress:     task.Progress,
+		Progress:     progress,
 		Properties:   task.Properties,
 		Username:     task.Username,
 		Data:         data,
