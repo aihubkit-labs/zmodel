@@ -56,6 +56,11 @@ export const useTaskLogsData = () => {
   const [activePage, setActivePage] = useState(1);
   const [logCount, setLogCount] = useState(0);
   const [pageSize, setPageSize] = useState(ITEMS_PER_PAGE);
+  const [filterOptions, setFilterOptions] = useState({
+    usernames: [],
+    groups: [],
+    models: [],
+  });
 
   // User and admin
   const isAdminUser = isAdmin();
@@ -88,6 +93,9 @@ export const useTaskLogsData = () => {
   const formInitValues = {
     channel_id: '',
     task_id: '',
+    username: '',
+    group: '',
+    model: '',
     dateRange: [
       timestamp2string(zeroNow.getTime() / 1000),
       timestamp2string(now.getTime() / 1000 + 3600),
@@ -202,6 +210,9 @@ export const useTaskLogsData = () => {
     return {
       channel_id: formValues.channel_id || '',
       task_id: formValues.task_id || '',
+      username: formValues.username || '',
+      group: formValues.group || '',
+      model: formValues.model || '',
       start_timestamp,
       end_timestamp,
     };
@@ -228,14 +239,29 @@ export const useTaskLogsData = () => {
   // Load logs function
   const loadLogs = async (page = 1, size = pageSize) => {
     setLoading(true);
-    const { channel_id, task_id, start_timestamp, end_timestamp } =
-      getFormValues();
+    const {
+      channel_id,
+      task_id,
+      username,
+      group,
+      model,
+      start_timestamp,
+      end_timestamp,
+    } = getFormValues();
     let localStartTimestamp = parseInt(Date.parse(start_timestamp) / 1000);
     let localEndTimestamp = parseInt(Date.parse(end_timestamp) / 1000);
-    let url = isAdminUser
-      ? `/api/task/?p=${page}&page_size=${size}&channel_id=${channel_id}&task_id=${task_id}&start_timestamp=${localStartTimestamp}&end_timestamp=${localEndTimestamp}`
-      : `/api/task/self?p=${page}&page_size=${size}&task_id=${task_id}&start_timestamp=${localStartTimestamp}&end_timestamp=${localEndTimestamp}`;
-    const res = await API.get(url);
+    const params = {
+      p: page,
+      page_size: size,
+      task_id,
+      group,
+      model,
+      start_timestamp: localStartTimestamp,
+      end_timestamp: localEndTimestamp,
+      ...(isAdminUser ? { channel_id, username } : {}),
+    };
+    const endpoint = isAdminUser ? '/api/task/' : '/api/task/self';
+    const res = await API.get(endpoint, { params });
     const { success, message, data } = res.data;
     if (success) {
       syncPageData(data);
@@ -243,6 +269,23 @@ export const useTaskLogsData = () => {
       showError(message);
     }
     setLoading(false);
+  };
+
+  const loadFilterOptions = async () => {
+    const endpoint = isAdminUser
+      ? '/api/task/filter-options'
+      : '/api/task/self/filter-options';
+    const res = await API.get(endpoint);
+    const { success, message, data } = res.data;
+    if (success) {
+      setFilterOptions({
+        usernames: data.usernames || [],
+        groups: data.groups || [],
+        models: data.models || [],
+      });
+    } else {
+      showError(message);
+    }
   };
 
   // Page handlers
@@ -307,6 +350,7 @@ export const useTaskLogsData = () => {
       parseInt(localStorage.getItem('task-page-size')) || ITEMS_PER_PAGE;
     setPageSize(localPageSize);
     loadLogs(1, localPageSize).then();
+    loadFilterOptions().then();
   }, []);
 
   return {
@@ -317,6 +361,7 @@ export const useTaskLogsData = () => {
     logCount,
     pageSize,
     isAdminUser,
+    filterOptions,
 
     // Modal state
     isModalOpen,

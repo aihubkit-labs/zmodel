@@ -16,13 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQueryClient, useIsFetching } from '@tanstack/react-query'
+import { useQuery, useQueryClient, useIsFetching } from '@tanstack/react-query'
 import { useNavigate, getRouteApi } from '@tanstack/react-router'
-import { type Table } from '@tanstack/react-table'
-import { useState, useEffect, useCallback } from 'react'
+import type { Table } from '@tanstack/react-table'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { Combobox } from '@/components/ui/combobox'
+
 import { buildSearchParams } from '../lib/filter'
+import { getTaskFilterOptions } from '../lib/task-filter-options'
 import { getDefaultTimeRange } from '../lib/utils'
 import type { DrawingLogFilters, LogCategory, TaskLogFilters } from '../types'
 import { CompactDateTimeRangePicker } from './compact-date-time-range-picker'
@@ -71,6 +74,11 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
   const searchParams = route.useSearch()
   const { isAdminView: isAdmin } = useLogsViewScope()
   const fetchingLogs = useIsFetching({ queryKey: ['logs'] })
+  const taskFilterOptionsQuery = useQuery({
+    queryKey: ['task-filter-options', isAdmin],
+    queryFn: () => getTaskFilterOptions(isAdmin),
+    enabled: props.logCategory === 'task',
+  })
 
   const [filters, setFilters] = useState<TaskLogsFilters>(() => {
     const { start, end } = getDefaultTimeRange()
@@ -97,6 +105,11 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
         : {
             ...baseFilters,
             ...(searchParams.filter ? { taskId: searchParams.filter } : {}),
+            ...(searchParams.username
+              ? { username: searchParams.username }
+              : {}),
+            ...(searchParams.group ? { group: searchParams.group } : {}),
+            ...(searchParams.model ? { model: searchParams.model } : {}),
           }
 
     setFilters(next)
@@ -106,10 +119,16 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
     searchParams.endTime,
     searchParams.channel,
     searchParams.filter,
+    searchParams.username,
+    searchParams.group,
+    searchParams.model,
   ])
 
   const handleChange = useCallback(
-    (field: keyof TaskLogsFilters, value: Date | string | undefined) => {
+    (
+      field: keyof DrawingLogFilters | keyof TaskLogFilters,
+      value: Date | string | undefined
+    ) => {
       setFilters((prev) => ({ ...prev, [field]: value }))
     },
     []
@@ -160,11 +179,48 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
   )
 
   const filterValue = getFilterValue(filters, props.logCategory)
+  const taskFilters =
+    props.logCategory === 'task' ? (filters as TaskLogFilters) : undefined
+  const taskFilterOptions = taskFilterOptionsQuery.data
+  const usernameOptions = useMemo(
+    () =>
+      (taskFilterOptions?.usernames ?? []).map((value) => ({
+        value,
+        label: value,
+      })),
+    [taskFilterOptions?.usernames]
+  )
+  const groupOptions = useMemo(
+    () =>
+      (taskFilterOptions?.groups ?? []).map((value) => ({
+        value,
+        label: value,
+      })),
+    [taskFilterOptions?.groups]
+  )
+  const modelOptions = useMemo(
+    () =>
+      (taskFilterOptions?.models ?? []).map((value) => ({
+        value,
+        label: value,
+      })),
+    [taskFilterOptions?.models]
+  )
+  const withClearOption = useCallback(
+    (options: { value: string; label: string }[], selected?: string) =>
+      selected ? [{ value: '', label: t('All') }, ...options] : options,
+    [t]
+  )
   const placeholder =
     props.logCategory === 'drawing'
       ? t('Filter by MjProxy task ID')
       : t('Filter by task ID')
-  const hasAdditionalFilters = !!filterValue || !!filters.channel
+  const hasAdditionalFilters =
+    !!filterValue ||
+    !!filters.channel ||
+    !!taskFilters?.username ||
+    !!taskFilters?.group ||
+    !!taskFilters?.model
   const dateRangeFilter = (
     <LogsFilterField wide>
       <CompactDateTimeRangePicker
@@ -198,6 +254,48 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
       />
     </LogsFilterField>
   ) : null
+  const usernameFilter =
+    props.logCategory === 'task' && isAdmin ? (
+      <LogsFilterField>
+        <Combobox
+          options={withClearOption(usernameOptions, taskFilters?.username)}
+          placeholder={t('Username')}
+          value={taskFilters?.username || ''}
+          onValueChange={(value) => handleChange('username', value || '')}
+          emptyText={t('No results found')}
+          allowCustomValue={false}
+          className='h-8 min-w-0 text-sm'
+        />
+      </LogsFilterField>
+    ) : null
+  const groupFilter =
+    props.logCategory === 'task' ? (
+      <LogsFilterField>
+        <Combobox
+          options={withClearOption(groupOptions, taskFilters?.group)}
+          placeholder={t('Group')}
+          value={taskFilters?.group || ''}
+          onValueChange={(value) => handleChange('group', value || '')}
+          emptyText={t('No results found')}
+          allowCustomValue={false}
+          className='h-8 min-w-0 text-sm'
+        />
+      </LogsFilterField>
+    ) : null
+  const modelFilter =
+    props.logCategory === 'task' ? (
+      <LogsFilterField>
+        <Combobox
+          options={withClearOption(modelOptions, taskFilters?.model)}
+          placeholder={t('Model')}
+          value={taskFilters?.model || ''}
+          onValueChange={(value) => handleChange('model', value || '')}
+          emptyText={t('No results found')}
+          allowCustomValue={false}
+          className='h-8 min-w-0 text-sm'
+        />
+      </LogsFilterField>
+    ) : null
 
   return (
     <LogsFilterToolbar
@@ -207,6 +305,9 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
           {dateRangeFilter}
           {taskIdFilter}
           {channelFilter}
+          {usernameFilter}
+          {groupFilter}
+          {modelFilter}
         </>
       }
       mobilePinnedFilters={dateRangeFilter}
@@ -214,9 +315,20 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
         <>
           {taskIdFilter}
           {channelFilter}
+          {usernameFilter}
+          {groupFilter}
+          {modelFilter}
         </>
       }
-      mobileFilterCount={[filterValue, filters.channel].filter(Boolean).length}
+      mobileFilterCount={
+        [
+          filterValue,
+          filters.channel,
+          taskFilters?.username,
+          taskFilters?.group,
+          taskFilters?.model,
+        ].filter(Boolean).length
+      }
       hasActiveFilters={hasAdditionalFilters}
       onSearch={handleApply}
       searchLoading={fetchingLogs > 0}
