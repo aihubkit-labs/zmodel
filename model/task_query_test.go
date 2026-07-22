@@ -44,6 +44,11 @@ func setupTaskQueryTest(t *testing.T) {
 			Group:      "default",
 			Properties: Properties{UpstreamModelName: "upstream-only-model"},
 		},
+		{
+			TaskID:     "task_bob_model_without_group",
+			UserId:     102,
+			Properties: Properties{OriginModelName: "model-without-group"},
+		},
 	}
 	require.NoError(t, DB.Create(&tasks).Error)
 }
@@ -92,7 +97,7 @@ func TestTaskFilterOptionsRespectUserScope(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"alice", "bob"}, adminOptions.Usernames)
 	assert.Equal(t, []string{"default", "vip"}, adminOptions.Groups)
-	assert.Equal(t, []string{"upstream-only-model", "video-model-a", "video-model-b"}, adminOptions.Models)
+	assert.Equal(t, []string{"model-without-group", "upstream-only-model", "video-model-a", "video-model-b"}, adminOptions.Models)
 
 	userID := 101
 	userOptions, err := GetTaskFilterOptions(&userID)

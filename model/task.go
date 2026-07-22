@@ -200,12 +200,15 @@ func GetTaskFilterOptions(userID *int) (TaskFilterOptions, error) {
 		Groups:    []string{},
 		Models:    []string{},
 	}
-	taskQuery := DB.Model(&Task{})
-	if userID != nil {
-		taskQuery = taskQuery.Where("user_id = ?", *userID)
+	newTaskQuery := func() *gorm.DB {
+		query := DB.Model(&Task{})
+		if userID != nil {
+			query = query.Where("user_id = ?", *userID)
+		}
+		return query
 	}
 
-	if err := taskQuery.
+	if err := newTaskQuery().
 		Where(commonGroupCol+" != ''").
 		Distinct(commonGroupCol).
 		Order(commonGroupCol).
@@ -224,7 +227,7 @@ func GetTaskFilterOptions(userID *int) (TaskFilterOptions, error) {
 		Model string `gorm:"column:model"`
 	}
 	var modelOptions []modelOption
-	if err := taskQuery.
+	if err := newTaskQuery().
 		Select(modelExpression + " AS model").
 		Where(modelExpression + " IS NOT NULL").
 		Where(modelExpression + " != ''").
