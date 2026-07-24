@@ -146,6 +146,7 @@ func InitOptionMap() {
 	common.OptionMap["GroupRatio"] = ratio_setting.GroupRatio2JSONString()
 	common.OptionMap["GroupGroupRatio"] = ratio_setting.GroupGroupRatio2JSONString()
 	common.OptionMap["UserUsableGroups"] = setting.UserUsableGroups2JSONString()
+	common.OptionMap["GroupDescriptions"] = setting.UserUsableGroups2JSONString()
 	common.OptionMap["CompletionRatio"] = ratio_setting.CompletionRatio2JSONString()
 	common.OptionMap["ImageRatio"] = ratio_setting.ImageRatio2JSONString()
 	common.OptionMap["AudioRatio"] = ratio_setting.AudioRatio2JSONString()
@@ -188,11 +189,20 @@ func InitOptionMap() {
 
 func loadOptionsFromDatabase() {
 	options, _ := AllOption()
+	hasGroupDescriptions := false
 	for _, option := range options {
+		if option.Key == "GroupDescriptions" {
+			hasGroupDescriptions = true
+		}
 		err := updateOptionMap(option.Key, option.Value)
 		if err != nil {
 			common.SysLog("failed to update option map: " + err.Error())
 		}
+	}
+	if !hasGroupDescriptions {
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap["GroupDescriptions"] = common.OptionMap["UserUsableGroups"]
+		common.OptionMapRWMutex.Unlock()
 	}
 }
 
@@ -205,6 +215,39 @@ func SyncOptions(frequency int) {
 }
 
 func UpdateOption(key string, value string) error {
+	if key == "UserUsableGroups" {
+		var selectableDescriptions map[string]string
+		if err := common.UnmarshalJsonStr(value, &selectableDescriptions); err != nil {
+			return err
+		}
+
+		common.OptionMapRWMutex.RLock()
+		groupDescriptionsJSON := common.OptionMap["GroupDescriptions"]
+		common.OptionMapRWMutex.RUnlock()
+
+		groupDescriptions := make(map[string]string)
+		if groupDescriptionsJSON != "" {
+			if err := common.UnmarshalJsonStr(groupDescriptionsJSON, &groupDescriptions); err != nil {
+				return err
+			}
+		}
+		if groupDescriptions == nil {
+			groupDescriptions = make(map[string]string)
+		}
+		for group, description := range selectableDescriptions {
+			groupDescriptions[group] = description
+		}
+
+		groupDescriptionsBytes, err := common.Marshal(groupDescriptions)
+		if err != nil {
+			return err
+		}
+		return UpdateOptionsBulk(map[string]string{
+			"GroupDescriptions": string(groupDescriptionsBytes),
+			"UserUsableGroups":  value,
+		})
+	}
+
 	// Save to database first
 	option := Option{
 		Key: key,
