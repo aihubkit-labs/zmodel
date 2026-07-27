@@ -23,13 +23,15 @@ import { describe, test } from 'node:test';
 import { mergeTaskLogProgress } from './taskLogProgress';
 
 describe('task log polling', () => {
-  test('merges only progress and status into existing rows', () => {
+  test('merges only progress, status, and finish time into existing rows', () => {
     const current = [
       {
         id: 1,
         task_id: 'task-1',
         progress: '20%',
         status: 'IN_PROGRESS',
+        submit_time: 100,
+        finish_time: 0,
         fail_reason: '',
         result_url: 'current-result',
       },
@@ -46,6 +48,8 @@ describe('task log polling', () => {
         task_id: 'task-1',
         progress: '80%',
         status: 'SUCCESS',
+        submit_time: 999,
+        finish_time: 180,
         fail_reason: 'must not replace current data',
         result_url: 'refreshed-result',
       },
@@ -58,6 +62,7 @@ describe('task log polling', () => {
         ...current[0],
         progress: '80%',
         status: 'SUCCESS',
+        finish_time: 180,
       },
       current[1],
     ]);
