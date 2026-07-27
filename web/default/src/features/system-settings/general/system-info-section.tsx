@@ -59,6 +59,7 @@ const _systemInfoSchema = z.object({
   }),
   SystemName: z.string().min(1),
   ServerAddress: z.string().optional(),
+  ApiServerAddress: z.string().optional(),
   Logo: z.string().url().optional().or(z.literal('')),
   Footer: z.string().optional(),
   About: z.string().optional(),
@@ -91,6 +92,7 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
     },
     SystemName: normalizeValue(defaultValues.SystemName),
     ServerAddress: normalizeValue(defaultValues.ServerAddress),
+    ApiServerAddress: normalizeValue(defaultValues.ApiServerAddress),
     Logo: normalizeValue(defaultValues.Logo),
     Footer: normalizeValue(defaultValues.Footer),
     About: normalizeValue(defaultValues.About),
@@ -109,6 +111,7 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
       error: () => t('System name is required'),
     }),
     ServerAddress: z.string().optional(),
+    ApiServerAddress: z.string().optional(),
     Logo: z.string().url().optional().or(z.literal('')),
     Footer: z.string().optional(),
     About: z.string().optional(),
@@ -138,7 +141,7 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
         let allSucceeded = true
         for (const [key, value] of otherEntries) {
           let v = normalizeValue(value)
-          if (key === 'ServerAddress') {
+          if (key === 'ServerAddress' || key === 'ApiServerAddress') {
             v = v.replace(/\/+$/, '')
           }
           const res = await updateOption.mutateAsync({
@@ -265,6 +268,23 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                       {t(
                         'The public URL of your server, used for OAuth callbacks, webhooks, and other external integrations'
                       )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='ApiServerAddress'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('API Server Address')}</FormLabel>
+                    <FormControl>
+                      <Input placeholder='https://api.yourdomain.com' {...field} />
+                    </FormControl>
+                    <FormDescription>
+                      {t('API服务地址，若空则使用"服务器地址"')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
