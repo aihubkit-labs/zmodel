@@ -41,7 +41,10 @@ import type {
   TaskLog,
 } from '../types'
 
-type TaskLogPollingState = Pick<TaskLog, 'id' | 'progress' | 'status'>
+type TaskLogPollingState = Pick<
+  TaskLog,
+  'id' | 'progress' | 'status' | 'finish_time'
+>
 
 export function mergeTaskLogProgress<
   TItem extends TaskLogPollingState,
@@ -50,7 +53,11 @@ export function mergeTaskLogProgress<
   const pollingStateById = new Map(
     refreshedPage.items.map((item) => [
       item.id,
-      { progress: item.progress, status: item.status },
+      {
+        progress: item.progress,
+        status: item.status,
+        finish_time: item.finish_time,
+      },
     ])
   )
 
@@ -63,7 +70,8 @@ export function mergeTaskLogProgress<
 
     if (
       pollingState.progress === item.progress &&
-      pollingState.status === item.status
+      pollingState.status === item.status &&
+      pollingState.finish_time === item.finish_time
     ) {
       return item
     }

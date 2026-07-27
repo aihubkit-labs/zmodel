@@ -21,7 +21,11 @@ export const mergeTaskLogProgress = (currentItems, refreshedItems) => {
   const pollingStateById = new Map(
     refreshedItems.map((item) => [
       item.id,
-      { progress: item.progress, status: item.status },
+      {
+        progress: item.progress,
+        status: item.status,
+        finish_time: item.finish_time,
+      },
     ]),
   );
 
@@ -34,7 +38,8 @@ export const mergeTaskLogProgress = (currentItems, refreshedItems) => {
 
     if (
       pollingState.progress === item.progress &&
-      pollingState.status === item.status
+      pollingState.status === item.status &&
+      pollingState.finish_time === item.finish_time
     ) {
       return item;
     }
