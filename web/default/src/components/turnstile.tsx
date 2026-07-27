@@ -16,15 +16,29 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useRef } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+
+import { Spinner } from '@/components/ui/spinner'
+import { cn } from '@/lib/utils'
+
+import { getTurnstilePlaceholderCopy } from './turnstile-placeholder'
+import { subscribeToTurnstileScript } from './turnstile-script'
+import { subscribeToTurnstileWidget } from './turnstile-widget'
 
 declare global {
   interface Window {
     turnstile?: {
-      render: (element: HTMLElement, options: Record<string, unknown>) => void
+      render: (
+        element: HTMLElement,
+        options: Record<string, unknown>
+      ) => string | undefined
+      remove?: (widgetId: string) => void
     }
   }
 }
+
+const TURNSTILE_SLOW_LOAD_MS = 8000
 
 interface TurnstileProps {
   siteKey: string
@@ -33,44 +47,116 @@ interface TurnstileProps {
   className?: string
 }
 
-export function Turnstile({
-  siteKey,
-  onVerify,
-  onExpire,
-  className,
-}: TurnstileProps) {
+export function Turnstile(props: TurnstileProps) {
+  const { t } = useTranslation()
   const ref = useRef<HTMLDivElement | null>(null)
+  const [isReady, setIsReady] = useState(false)
+  const [isSlow, setIsSlow] = useState(false)
+  const onExpire = useEffectEvent(() => props.onExpire?.())
+  const onVerify = useEffectEvent(props.onVerify)
+
+  const placeholderCopy = getTurnstilePlaceholderCopy({ isReady, isSlow })
 
   useEffect(() => {
+    let isActive = true
+    let widgetId: string | undefined
+    let unsubscribeFromScript = () => {}
+    let unsubscribeFromWidget = () => {}
+
+    setIsReady(false)
+    setIsSlow(false)
+
+    const slowTimer = window.setTimeout(() => {
+      if (isActive) {
+        setIsSlow(true)
+      }
+    }, TURNSTILE_SLOW_LOAD_MS)
+
     const render = () => {
-      if (!ref.current || !window.turnstile) return
+      if (!isActive || !ref.current || !window.turnstile) return
+
+      unsubscribeFromWidget = subscribeToTurnstileWidget(ref.current, () => {
+        if (!isActive) return
+
+        window.clearTimeout(slowTimer)
+        setIsSlow(false)
+        setIsReady(true)
+      })
+
       try {
-        window.turnstile.render(ref.current, {
-          sitekey: siteKey,
-          callback: (token: string) => onVerify(token),
-          'error-callback': () => onExpire?.(),
-          'expired-callback': () => onExpire?.(),
+        widgetId = window.turnstile.render(ref.current, {
+          sitekey: props.siteKey,
+          callback: (token: string) => {
+            if (!isActive) return
+
+            onVerify(token)
+          },
+          'error-callback': () => {
+            if (isActive) {
+              onExpire()
+            }
+          },
+          'expired-callback': () => {
+            if (isActive) {
+              onExpire()
+            }
+          },
         })
       } catch {
-        /* empty */
+        unsubscribeFromWidget()
       }
     }
 
     if (window.turnstile) {
       render()
-      return
+    } else {
+      unsubscribeFromScript = subscribeToTurnstileScript(render)
     }
-    const scriptId = 'cf-turnstile'
-    if (document.getElementById(scriptId)) return
-    const s = document.createElement('script')
-    s.id = scriptId
-    s.src =
-      'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
-    s.async = true
-    s.defer = true
-    s.onload = () => render()
-    document.head.appendChild(s)
-  }, [siteKey, onVerify, onExpire])
 
-  return <div ref={ref} className={className} />
+    return () => {
+      isActive = false
+      window.clearTimeout(slowTimer)
+      unsubscribeFromScript()
+      unsubscribeFromWidget()
+
+      if (widgetId) {
+        window.turnstile?.remove?.(widgetId)
+      }
+    }
+  }, [props.siteKey])
+
+  return (
+    <div
+      className={cn(
+        'relative transition-[min-height] duration-200',
+        isReady ? 'min-h-0' : 'min-h-[66px]',
+        props.className
+      )}
+    >
+      {placeholderCopy ? (
+        <div
+          className='bg-background text-muted-foreground pointer-events-none absolute inset-0 z-0 flex min-h-[66px] items-center gap-3 rounded-md px-4 py-3'
+          role='status'
+        >
+          <Spinner className='size-4 shrink-0' aria-hidden='true' />
+          <div className='min-w-0 space-y-0.5'>
+            <p className='text-foreground text-sm font-medium'>
+              {t(placeholderCopy.title)}
+            </p>
+            <p className='text-xs leading-5'>
+              {t(placeholderCopy.description)}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      <div
+        ref={ref}
+        className={cn(
+          'relative z-10 transition-[min-height] duration-200',
+          isReady ? 'min-h-0' : 'min-h-[66px]'
+        )}
+      />
+    </div>
+  )
 }

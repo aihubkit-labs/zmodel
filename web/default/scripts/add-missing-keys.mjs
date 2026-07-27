@@ -9,6 +9,12 @@ function stableStringify(obj) {
 
 const newKeys = {
   en: {
+    'Human verification is loading': 'Human verification is loading',
+    'Human verification is taking longer than expected':
+      'Human verification is taking longer than expected',
+    'If it does not appear for a long time, refresh the page and try again.':
+      'If it does not appear for a long time, refresh the page and try again.',
+    'Please wait a moment...': 'Please wait a moment...',
     'Proxy Video Content': 'Proxy Video Content',
     'Redirect to the HTTPS URL returned by upstream task details':
       'Redirect to the HTTPS URL returned by upstream task details',
@@ -81,6 +87,11 @@ const newKeys = {
     'Video resolution tier': 'Video resolution tier',
   },
   zh: {
+    'Human verification is loading': '人机验证加载中',
+    'Human verification is taking longer than expected': '人机验证加载时间较长',
+    'If it does not appear for a long time, refresh the page and try again.':
+      '如果长时间没有出现，请刷新页面后重试。',
+    'Please wait a moment...': '请稍等...',
     'Proxy Video Content': '代理视频内容',
     'Redirect to the HTTPS URL returned by upstream task details':
       '重定向到上游任务详情返回的 HTTPS 地址',
@@ -151,6 +162,11 @@ const newKeys = {
     'Video resolution tier': '视频分辨率档位',
   },
   'zh-TW': {
+    'Human verification is loading': '人機驗證載入中',
+    'Human verification is taking longer than expected': '人機驗證載入時間較長',
+    'If it does not appear for a long time, refresh the page and try again.':
+      '如果長時間沒有出現，請重新整理頁面後再試。',
+    'Please wait a moment...': '請稍候...',
     'Proxy Video Content': '代理影片內容',
     'Redirect to the HTTPS URL returned by upstream task details':
       '重新導向到上游任務詳情傳回的 HTTPS 位址',
@@ -221,6 +237,13 @@ const newKeys = {
     'Video resolution tier': '影片解析度級別',
   },
   fr: {
+    'Human verification is loading':
+      'La vérification humaine est en cours de chargement',
+    'Human verification is taking longer than expected':
+      'La vérification humaine prend plus de temps que prévu',
+    'If it does not appear for a long time, refresh the page and try again.':
+      'Si elle ne s’affiche pas après un long moment, actualisez la page et réessayez.',
+    'Please wait a moment...': 'Veuillez patienter...',
     'Proxy Video Content': 'Proxy du contenu vidéo',
     'Redirect to the HTTPS URL returned by upstream task details':
       'Rediriger vers l’URL HTTPS renvoyée par les détails de la tâche en amont',
@@ -293,6 +316,12 @@ const newKeys = {
     'Video resolution tier': 'Palier de résolution vidéo',
   },
   ja: {
+    'Human verification is loading': '人間による確認を読み込み中です',
+    'Human verification is taking longer than expected':
+      '人間による確認の読み込みに時間がかかっています',
+    'If it does not appear for a long time, refresh the page and try again.':
+      '長時間表示されない場合は、ページを再読み込みしてもう一度お試しください。',
+    'Please wait a moment...': 'しばらくお待ちください...',
     'Proxy Video Content': '動画コンテンツをプロキシ',
     'Redirect to the HTTPS URL returned by upstream task details':
       '上流のタスク詳細が返す HTTPS URL にリダイレクトします',
@@ -364,6 +393,12 @@ const newKeys = {
     'Video resolution tier': '動画解像度階層',
   },
   ru: {
+    'Human verification is loading': 'Проверка на человека загружается',
+    'Human verification is taking longer than expected':
+      'Проверка на человека загружается дольше, чем ожидалось',
+    'If it does not appear for a long time, refresh the page and try again.':
+      'Если проверка долго не появляется, обновите страницу и попробуйте снова.',
+    'Please wait a moment...': 'Пожалуйста, подождите...',
     'Proxy Video Content': 'Проксировать видео',
     'Redirect to the HTTPS URL returned by upstream task details':
       'Перенаправлять на HTTPS-адрес из сведений о задаче вышестоящего сервиса',
@@ -437,6 +472,12 @@ const newKeys = {
     'Video resolution tier': 'Уровень разрешения видео',
   },
   vi: {
+    'Human verification is loading': 'Đang tải bước xác minh người dùng',
+    'Human verification is taking longer than expected':
+      'Quá trình xác minh người dùng đang mất nhiều thời gian hơn dự kiến',
+    'If it does not appear for a long time, refresh the page and try again.':
+      'Nếu bước xác minh không xuất hiện sau một thời gian dài, hãy tải lại trang và thử lại.',
+    'Please wait a moment...': 'Vui lòng chờ một lát...',
     'Proxy Video Content': 'Proxy nội dung video',
     'Redirect to the HTTPS URL returned by upstream task details':
       'Chuyển hướng đến URL HTTPS do chi tiết tác vụ thượng nguồn trả về',

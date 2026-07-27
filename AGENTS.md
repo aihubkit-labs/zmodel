@@ -56,6 +56,14 @@ web/             — Frontend themes container
 
 ## Rules
 
+### Workspace Isolation
+
+- For any task that is expected to modify files, ALWAYS create or switch into a dedicated git worktree before making the first edit, unless the user explicitly asks to work in the current checkout.
+- Consider this the default for implementation work, including small bug fixes, UI tweaks, tests, docs that accompany code changes, and follow-up fixes to an in-progress task.
+- Name the worktree directory and branch after the concrete user requirement or task slug, not a generic label. For example, use `codex/login-turnstile-loading` and a matching worktree path segment for a login Turnstile loading task.
+- Announce the worktree path and branch before or as implementation begins.
+- If the current checkout is the main workspace or already contains unrelated changes, do not implement there; create a new isolated worktree instead.
+
 ### Common Code Quality
 
 - New code should stay direct and readable. Prefer early returns, clear branches, and well-named local variables to deep nesting or layered control flow.
