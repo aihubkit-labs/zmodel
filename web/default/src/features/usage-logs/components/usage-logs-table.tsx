@@ -16,9 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
-import { type ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef } from '@tanstack/react-table'
+import { useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -38,14 +39,37 @@ import {
 } from '../constants'
 import { useColumnsByCategory } from '../lib/columns'
 import { parseLogOther } from '../lib/format'
-import { fetchLogsByCategory } from '../lib/utils'
-import type { LogCategory } from '../types'
+import { fetchLogsByCategory, mergeTaskLogProgress } from '../lib/utils'
+import type { LogCategory, TaskLog } from '../types'
 import { CommonLogsFilterBar } from './common-logs-filter-bar'
 import { TaskLogsFilterBar } from './task-logs-filter-bar'
 import { UsageLogsMobileList } from './usage-logs-mobile-card'
 import { useLogsViewScope } from './usage-logs-provider'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
+
+const TASK_LOG_AUTO_REFRESH_INTERVAL_MS = 5000
+
+function isTaskLogActive(log: Record<string, unknown>): boolean {
+  const status = typeof log.status === 'string' ? log.status : ''
+  if (status === 'SUCCESS' || status === 'FAILURE') {
+    return false
+  }
+
+  const progress = typeof log.progress === 'string' ? log.progress : ''
+  const numericProgress = Number.parseFloat(progress.replace('%', ''))
+  if (Number.isFinite(numericProgress)) {
+    return numericProgress < 100
+  }
+
+  return (
+    status === '' ||
+    status === 'NOT_START' ||
+    status === 'SUBMITTED' ||
+    status === 'IN_PROGRESS' ||
+    status === 'QUEUED'
+  )
+}
 
 const logTypeRowTint: Record<number, string> = {
   [LOG_TYPE_ENUM.ERROR]: 'bg-rose-50/40 dark:bg-rose-950/20',
@@ -64,7 +88,12 @@ function getColumnVisibilityStorageKey(
 }
 
 function deserializeLogTypeFilter(value: unknown): unknown[] {
-  const values = Array.isArray(value) ? value : value ? [value] : []
+  let values: unknown[] = []
+  if (Array.isArray(value)) {
+    values = value
+  } else if (value) {
+    values = [value]
+  }
   return values.filter((item) => String(item) !== LOG_TYPE_ALL_VALUE)
 }
 
@@ -74,6 +103,7 @@ interface UsageLogsTableProps {
 
 export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const { isAdminView: isAdmin } = useLogsViewScope()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const searchParams = route.useSearch()
@@ -116,8 +146,8 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
     ],
   })
 
-  const { data, isLoading, isFetching } = useQuery({
-    queryKey: [
+  const logsQueryKey = useMemo(
+    () => [
       'logs',
       logCategory,
       isAdmin,
@@ -127,6 +157,19 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       searchParams,
       t,
     ],
+    [
+      columnFilters,
+      isAdmin,
+      logCategory,
+      pagination.pageIndex,
+      pagination.pageSize,
+      searchParams,
+      t,
+    ]
+  )
+
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: logsQueryKey,
     queryFn: async () => {
       const result = await fetchLogsByCategory({
         logCategory,
@@ -153,6 +196,67 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   })
 
   const logs = data?.items || []
+  const hasActiveTaskLogs =
+    logCategory === 'task' &&
+    logs.some((item) => isTaskLogActive(item as Record<string, unknown>))
+
+  useEffect(() => {
+    if (!hasActiveTaskLogs) {
+      return undefined
+    }
+
+    let stopped = false
+    const timer = window.setInterval(async () => {
+      const result = await fetchLogsByCategory({
+        logCategory,
+        isAdmin,
+        page: pagination.pageIndex + 1,
+        pageSize: pagination.pageSize,
+        searchParams,
+        columnFilters,
+      })
+
+      const refreshedData = result.data
+      if (stopped || !result?.success || !refreshedData) {
+        return
+      }
+
+      queryClient.setQueryData(logsQueryKey, (currentData: typeof data) => {
+        if (!currentData) {
+          return currentData
+        }
+        return mergeTaskLogProgress(
+          { ...currentData, items: currentData.items as TaskLog[] },
+          { items: refreshedData.items as TaskLog[] }
+        )
+      })
+
+      const refreshedItems = refreshedData.items
+      if (
+        !refreshedItems.some((item) =>
+          isTaskLogActive(item as Record<string, unknown>)
+        )
+      ) {
+        window.clearInterval(timer)
+      }
+    }, TASK_LOG_AUTO_REFRESH_INTERVAL_MS)
+
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+    }
+  }, [
+    columnFilters,
+    hasActiveTaskLogs,
+    isAdmin,
+    logCategory,
+    logsQueryKey,
+    pagination.pageIndex,
+    pagination.pageSize,
+    queryClient,
+    searchParams,
+  ])
+
   const columns = useColumnsByCategory(logCategory, isAdmin)
   const isLoadingData = isLoading || (isFetching && !data)
 

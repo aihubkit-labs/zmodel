@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery, useQueryClient, useIsFetching } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, getRouteApi } from '@tanstack/react-router'
 import type { Table } from '@tanstack/react-table'
 import { useState, useEffect, useCallback, useMemo } from 'react'
@@ -73,7 +73,6 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
   const queryClient = useQueryClient()
   const searchParams = route.useSearch()
   const { isAdminView: isAdmin } = useLogsViewScope()
-  const fetchingLogs = useIsFetching({ queryKey: ['logs'] })
   const taskFilterOptionsQuery = useQuery({
     queryKey: ['task-filter-options', isAdmin],
     queryFn: () => getTaskFilterOptions(isAdmin),
@@ -331,7 +330,6 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
       }
       hasActiveFilters={hasAdditionalFilters}
       onSearch={handleApply}
-      searchLoading={fetchingLogs > 0}
       onReset={handleReset}
     />
   )

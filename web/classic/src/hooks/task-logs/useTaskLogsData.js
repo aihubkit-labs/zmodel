@@ -30,6 +30,39 @@ import {
 } from '../../helpers';
 import { ITEMS_PER_PAGE } from '../../constants';
 import { useTableCompactMode } from '../common/useTableCompactMode';
+import { mergeTaskLogProgress } from './taskLogProgress';
+
+const TASK_LOG_AUTO_REFRESH_INTERVAL = 5000;
+
+const ACTIVE_TASK_STATUSES = new Set([
+  '',
+  'NOT_START',
+  'SUBMITTED',
+  'IN_PROGRESS',
+  'QUEUED',
+]);
+
+const hasActiveTaskLogs = (items) => {
+  if (!Array.isArray(items) || items.length === 0) {
+    return false;
+  }
+
+  return items.some((item) => {
+    const status = typeof item?.status === 'string' ? item.status : '';
+    if (status === 'SUCCESS' || status === 'FAILURE') {
+      return false;
+    }
+
+    const progressText =
+      typeof item?.progress === 'string' ? item.progress : '';
+    const numericProgress = Number.parseFloat(progressText.replace('%', ''));
+    if (Number.isFinite(numericProgress)) {
+      return numericProgress < 100;
+    }
+
+    return ACTIVE_TASK_STATUSES.has(status);
+  });
+};
 
 export const useTaskLogsData = () => {
   const { t } = useTranslation();
@@ -61,6 +94,7 @@ export const useTaskLogsData = () => {
     groups: [],
     models: [],
   });
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
 
   // User and admin
   const isAdminUser = isAdmin();
@@ -234,11 +268,15 @@ export const useTaskLogsData = () => {
     setLogCount(payload.total || 0);
     setActivePage(payload.page || 1);
     setPageSize(payload.page_size || pageSize);
+    setAutoRefreshEnabled(hasActiveTaskLogs(items));
   };
 
   // Load logs function
-  const loadLogs = async (page = 1, size = pageSize) => {
-    setLoading(true);
+  const loadLogs = async (page = 1, size = pageSize, options = {}) => {
+    const { progressOnly = false, silent = false } = options;
+    if (!silent) {
+      setLoading(true);
+    }
     const {
       channel_id,
       task_id,
@@ -264,11 +302,21 @@ export const useTaskLogsData = () => {
     const res = await API.get(endpoint, { params });
     const { success, message, data } = res.data;
     if (success) {
-      syncPageData(data);
+      if (progressOnly) {
+        const refreshedItems = data.items || [];
+        setLogs((currentItems) =>
+          mergeTaskLogProgress(currentItems, refreshedItems),
+        );
+        setAutoRefreshEnabled(hasActiveTaskLogs(refreshedItems));
+      } else {
+        syncPageData(data);
+      }
     } else {
       showError(message);
     }
-    setLoading(false);
+    if (!silent) {
+      setLoading(false);
+    }
   };
 
   const loadFilterOptions = async () => {
@@ -353,6 +401,23 @@ export const useTaskLogsData = () => {
     loadFilterOptions().then();
   }, []);
 
+  useEffect(() => {
+    if (!autoRefreshEnabled || !formApi) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      loadLogs(activePage, pageSize, {
+        progressOnly: true,
+        silent: true,
+      }).then();
+    }, TASK_LOG_AUTO_REFRESH_INTERVAL);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [activePage, autoRefreshEnabled, formApi, pageSize]);
+
   return {
     // Basic state
     logs,
@@ -362,6 +427,7 @@ export const useTaskLogsData = () => {
     pageSize,
     isAdminUser,
     filterOptions,
+    autoRefreshEnabled,
 
     // Modal state
     isModalOpen,

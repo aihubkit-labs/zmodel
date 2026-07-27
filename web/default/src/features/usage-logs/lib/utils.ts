@@ -38,7 +38,42 @@ import type {
   FetchLogsConfig,
   GetMidjourneyLogsParams,
   GetTaskLogsParams,
+  TaskLog,
 } from '../types'
+
+type TaskLogPollingState = Pick<TaskLog, 'id' | 'progress' | 'status'>
+
+export function mergeTaskLogProgress<
+  TItem extends TaskLogPollingState,
+  TPage extends { items: TItem[] },
+>(currentPage: TPage, refreshedPage: { items: TaskLogPollingState[] }): TPage {
+  const pollingStateById = new Map(
+    refreshedPage.items.map((item) => [
+      item.id,
+      { progress: item.progress, status: item.status },
+    ])
+  )
+
+  let changed = false
+  const items = currentPage.items.map((item) => {
+    const pollingState = pollingStateById.get(item.id)
+    if (!pollingState) {
+      return item
+    }
+
+    if (
+      pollingState.progress === item.progress &&
+      pollingState.status === item.status
+    ) {
+      return item
+    }
+
+    changed = true
+    return { ...item, ...pollingState }
+  })
+
+  return changed ? { ...currentPage, items } : currentPage
+}
 
 // ============================================================================
 // Type Checkers & Utilities
