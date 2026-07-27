@@ -34,6 +34,7 @@ export function VideoPreviewDialog(props: VideoPreviewDialogProps) {
   const { t } = useTranslation()
   const [hasError, setHasError] = useState(false)
   const videoUrl = `/v1/videos/${encodeURIComponent(props.taskId)}/content`
+  const downloadUrl = `${videoUrl}?download_name=${encodeURIComponent(props.taskId)}`
 
   return (
     <Dialog
@@ -61,7 +62,7 @@ export function VideoPreviewDialog(props: VideoPreviewDialogProps) {
         <Button
           size='lg'
           className='h-10 min-w-40 px-5 max-sm:w-full'
-          render={<a href={videoUrl} download />}
+          render={<a href={downloadUrl} download={`${props.taskId}.mp4`} />}
         >
           <Download />
           {t('Download video')}
