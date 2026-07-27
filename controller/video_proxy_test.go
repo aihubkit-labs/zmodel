@@ -37,6 +37,7 @@ type videoProxyTestCase struct {
 	forwardRange          bool
 	expectedResponseBody  string
 	expectedContentLength string
+	downloadName          string
 }
 
 func setupVideoProxyTest(t *testing.T) *gorm.DB {
@@ -88,6 +89,19 @@ func TestVideoProxyUsesStoredTaskKeyAndForwardsRange(t *testing.T) {
 		forwardRange:          true,
 		expectedResponseBody:  "test",
 		expectedContentLength: "4",
+	})
+}
+
+func TestVideoProxyUsesRequestedDownloadName(t *testing.T) {
+	testVideoProxyDownload(t, videoProxyTestCase{
+		storedKey:             "stored-task-key",
+		channelKey:            "current-channel-key",
+		expectedKey:           "stored-task-key",
+		upstreamStatus:        http.StatusOK,
+		expectedStatus:        http.StatusOK,
+		expectedResponseBody:  "test",
+		expectedContentLength: "4",
+		downloadName:          "custom/video",
 	})
 }
 
@@ -832,7 +846,11 @@ func testVideoProxyDownload(t *testing.T, testCase videoProxyTestCase) {
 
 	recorder := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(recorder)
-	context.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task_zmodel_public/content", nil)
+	requestURL := "/v1/videos/task_zmodel_public/content"
+	if testCase.downloadName != "" {
+		requestURL += "?download_name=" + url.QueryEscape(testCase.downloadName)
+	}
+	context.Request = httptest.NewRequest(http.MethodGet, requestURL, nil)
 	if testCase.forwardRange {
 		context.Request.Header.Set("Range", "bytes=0-3")
 		context.Request.Header.Set("If-Range", `"video-etag"`)
@@ -853,7 +871,11 @@ func testVideoProxyDownload(t *testing.T, testCase videoProxyTestCase) {
 		assert.Equal(t, testCase.expectedContentLength, recorder.Header().Get("Content-Length"))
 		assert.Equal(t, "bytes 0-3/10", recorder.Header().Get("Content-Range"))
 		assert.Equal(t, "bytes", recorder.Header().Get("Accept-Ranges"))
-		assert.Equal(t, `inline; filename="video.mp4"`, recorder.Header().Get("Content-Disposition"))
+		expectedDisposition := `inline; filename="video.mp4"`
+		if testCase.downloadName != "" {
+			expectedDisposition = `attachment; filename=custom_video.mp4`
+		}
+		assert.Equal(t, expectedDisposition, recorder.Header().Get("Content-Disposition"))
 		assert.Equal(t, `"video-etag"`, recorder.Header().Get("ETag"))
 		assert.Equal(t, "Wed, 15 Jul 2026 10:00:00 GMT", recorder.Header().Get("Last-Modified"))
 		assert.Equal(t, "private, max-age=86400", recorder.Header().Get("Cache-Control"))

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"strings"
@@ -33,6 +34,19 @@ func VideoProxy(c *gin.Context) {
 	if taskID == "" {
 		videoProxyError(c, http.StatusBadRequest, "invalid_request_error", "task_id is required")
 		return
+	}
+	downloadName := strings.TrimSpace(c.Query("download_name"))
+	if downloadName != "" {
+		downloadName = strings.Map(func(r rune) rune {
+			if r < 0x20 || r == 0x7f || strings.ContainsRune(`<>:"/\|?*`, r) {
+				return '_'
+			}
+			return r
+		}, downloadName)
+		downloadName = strings.TrimRight(downloadName, ". ")
+		if downloadName != "" && !strings.HasSuffix(strings.ToLower(downloadName), ".mp4") {
+			downloadName += ".mp4"
+		}
 	}
 
 	task, exists, err := model.GetByOnlyTaskId(taskID)
@@ -126,6 +140,9 @@ func VideoProxy(c *gin.Context) {
 	}
 
 	if strings.HasPrefix(videoURL, "data:") {
+		if downloadName != "" {
+			c.Writer.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": downloadName}))
+		}
 		if err := writeVideoDataURL(c, videoURL); err != nil {
 			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to decode video data URL for task %s: %s", taskID, err.Error()))
 			videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to fetch video content")
@@ -156,8 +173,10 @@ func VideoProxy(c *gin.Context) {
 			videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to resolve final video URL")
 			return
 		}
-		c.Redirect(http.StatusTemporaryRedirect, videoURL)
-		return
+		if downloadName == "" {
+			c.Redirect(http.StatusTemporaryRedirect, videoURL)
+			return
+		}
 	}
 
 	if err := validateVideoFetchURL(videoURL, proxy); err != nil {
@@ -211,6 +230,9 @@ func VideoProxy(c *gin.Context) {
 		for _, value := range values {
 			c.Writer.Header().Add(key, value)
 		}
+	}
+	if downloadName != "" {
+		c.Writer.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": downloadName}))
 	}
 
 	c.Writer.Header().Set("Cache-Control", "private, max-age=86400")
