@@ -66,14 +66,30 @@ function getServerAddress(): string {
   return window.location.origin
 }
 
+function getApiServerAddress(): string {
+  try {
+    const raw = localStorage.getItem('status')
+    if (raw) {
+      const status = JSON.parse(raw)
+      if (status.api_server_address) return status.api_server_address
+      if (status.server_address) return status.server_address
+    }
+  } catch {
+    /* empty */
+  }
+  return window.location.origin
+}
+
 function buildCCSwitchURL(
   app: string,
   name: string,
   models: Record<string, string>,
   apiKey: string
 ): string {
-  const serverAddress = getServerAddress()
-  const endpoint = app === 'codex' ? serverAddress + '/v1' : serverAddress
+  const homepage = getServerAddress()
+  const apiServerAddress = getApiServerAddress()
+  const endpoint =
+    app === 'codex' ? `${apiServerAddress}/v1` : apiServerAddress
   const params = new URLSearchParams()
   params.set('resource', 'provider')
   params.set('app', app)
@@ -83,7 +99,7 @@ function buildCCSwitchURL(
   for (const [k, v] of Object.entries(models)) {
     if (v) params.set(k, v)
   }
-  params.set('homepage', serverAddress)
+  params.set('homepage', homepage)
   params.set('enabled', 'true')
   return `ccswitch://v1/import?${params.toString()}`
 }
