@@ -61,6 +61,7 @@ type AsyncImageTask struct {
 	OriginModelName            string `json:"origin_model_name" gorm:"type:varchar(191);index"`
 	UsingGroup                 string `json:"using_group" gorm:"type:varchar(64)"`
 	LastChannelID              int    `json:"last_channel_id" gorm:"index"`
+	LastChannelType            int    `json:"last_channel_type"`
 	RequestPayload             string `json:"-" gorm:"type:text"`
 	BillingContext             string `json:"-" gorm:"type:text"`
 	ArchiveManifest            string `json:"-" gorm:"type:text"`

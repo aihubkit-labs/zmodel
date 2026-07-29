@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/objectstorage"
 	"github.com/QuantumNous/new-api/service"
@@ -21,7 +22,12 @@ const asyncImageRetryBatchLimit = 100
 type asyncImageTaskListItem struct {
 	TaskID                string `json:"task_id"`
 	UserID                int    `json:"user_id"`
+	Username              string `json:"username,omitempty"`
 	Model                 string `json:"model"`
+	UsingGroup            string `json:"using_group"`
+	ChannelID             int    `json:"channel_id,omitempty"`
+	ChannelName           string `json:"channel_name,omitempty"`
+	Platform              string `json:"platform,omitempty"`
 	Status                string `json:"status"`
 	OutputAvailability    string `json:"output_availability"`
 	BillingStatus         string `json:"billing_status"`
@@ -67,8 +73,11 @@ type asyncImageTaskObjectDetail struct {
 type asyncImageTaskDetail struct {
 	TaskID                 string                       `json:"task_id"`
 	UserID                 int                          `json:"user_id"`
+	Username               string                       `json:"username,omitempty"`
 	TokenID                int                          `json:"token_id,omitempty"`
 	Model                  string                       `json:"model"`
+	ChannelName            string                       `json:"channel_name,omitempty"`
+	Platform               string                       `json:"platform,omitempty"`
 	Status                 string                       `json:"status"`
 	OutputAvailability     string                       `json:"output_availability"`
 	BillingStatus          string                       `json:"billing_status"`
@@ -167,6 +176,18 @@ func writeAsyncImageTaskDetail(c *gin.Context, task *model.AsyncImageTask, root 
 		detail.TokenID = task.TokenID
 		detail.LastChannelID = task.LastChannelID
 		detail.Error = task.LastError
+		if usernames, userErr := model.GetUsernamesByIds([]int{task.UserID}); userErr == nil {
+			detail.Username = usernames[task.UserID]
+		}
+		if channel, channelErr := model.GetChannelById(task.LastChannelID, false); channelErr == nil {
+			detail.ChannelName = channel.Name
+			if task.LastChannelType == 0 {
+				detail.Platform = constant.GetChannelTypeName(channel.Type)
+			}
+		}
+		if task.LastChannelType > 0 {
+			detail.Platform = constant.GetChannelTypeName(task.LastChannelType)
+		}
 	} else {
 		detail.Error = task.PublicErrorMessage
 	}
@@ -243,6 +264,44 @@ func writeAsyncImageTaskList(c *gin.Context, filter model.AsyncImageTaskFilter, 
 		common.ApiError(c, err)
 		return
 	}
+	usernames := make(map[int]string)
+	channelNames := make(map[int]string)
+	channelPlatforms := make(map[int]string)
+	if root {
+		userIDs := make(map[int]struct{})
+		channelIDs := make(map[int]struct{})
+		for index := range tasks {
+			userIDs[tasks[index].UserID] = struct{}{}
+			if tasks[index].LastChannelID > 0 {
+				channelIDs[tasks[index].LastChannelID] = struct{}{}
+			}
+		}
+		userIDList := make([]int, 0, len(userIDs))
+		for userID := range userIDs {
+			userIDList = append(userIDList, userID)
+		}
+		var userErr error
+		usernames, userErr = model.GetUsernamesByIds(userIDList)
+		if userErr != nil {
+			common.SysError("get async image task usernames error: " + userErr.Error())
+			usernames = make(map[int]string)
+		}
+		channelIDList := make([]int, 0, len(channelIDs))
+		for channelID := range channelIDs {
+			channelIDList = append(channelIDList, channelID)
+		}
+		if len(channelIDList) > 0 {
+			channels, channelErr := model.GetChannelsByIds(channelIDList)
+			if channelErr != nil {
+				common.SysError("get async image task channel metadata error: " + channelErr.Error())
+			} else {
+				for _, channel := range channels {
+					channelNames[channel.Id] = channel.Name
+					channelPlatforms[channel.Id] = constant.GetChannelTypeName(channel.Type)
+				}
+			}
+		}
+	}
 	items := make([]asyncImageTaskListItem, 0, len(tasks))
 	for index := range tasks {
 		objects, objectErr := model.ListStorageObjects(tasks[index].TaskID)
@@ -261,7 +320,8 @@ func writeAsyncImageTaskList(c *gin.Context, filter model.AsyncImageTaskFilter, 
 		}
 		item := asyncImageTaskListItem{
 			TaskID: tasks[index].TaskID, UserID: tasks[index].UserID, Model: tasks[index].OriginModelName,
-			Status: tasks[index].Status, OutputAvailability: tasks[index].OutputAvailability,
+			UsingGroup: tasks[index].UsingGroup,
+			Status:     tasks[index].Status, OutputAvailability: tasks[index].OutputAvailability,
 			BillingStatus: tasks[index].BillingStatus, ObjectAvailableCount: available, ObjectTotalCount: len(objects),
 			ArchiveAttempts: tasks[index].ArchiveAttempts, StagingIntegrity: integrity,
 			CreatedAt: tasks[index].CreatedAt, GenerationCompletedAt: tasks[index].GenerationCompletedAt,
@@ -269,6 +329,14 @@ func writeAsyncImageTaskList(c *gin.Context, filter model.AsyncImageTaskFilter, 
 			ManuallyRecoveredAt: tasks[index].ManuallyRecoveredAt,
 		}
 		if root {
+			item.Username = usernames[tasks[index].UserID]
+			item.ChannelID = tasks[index].LastChannelID
+			item.ChannelName = channelNames[tasks[index].LastChannelID]
+			if tasks[index].LastChannelType > 0 {
+				item.Platform = constant.GetChannelTypeName(tasks[index].LastChannelType)
+			} else {
+				item.Platform = channelPlatforms[tasks[index].LastChannelID]
+			}
 			item.Error = tasks[index].LastError
 			item.ReservedQuota = tasks[index].ReservedQuota
 			item.ActualQuota = tasks[index].ActualQuota

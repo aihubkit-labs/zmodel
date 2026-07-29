@@ -168,10 +168,14 @@ func generateAsyncImageTask(ctx context.Context, task *model.AsyncImageTask, own
 			finalError = channelErr
 			break
 		}
-		if err := model.UpdateAsyncImageTaskWithLease(task.TaskID, owner, map[string]any{"last_channel_id": channel.Id}); err != nil {
+		if err := model.UpdateAsyncImageTaskWithLease(task.TaskID, owner, map[string]any{
+			"last_channel_id":   channel.Id,
+			"last_channel_type": channel.Type,
+		}); err != nil {
 			return err
 		}
 		task.LastChannelID = channel.Id
+		task.LastChannelType = channel.Type
 		addUsedChannel(c, channel.Id)
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
 		if bodyErr != nil {

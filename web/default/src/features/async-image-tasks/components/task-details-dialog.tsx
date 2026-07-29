@@ -39,6 +39,7 @@ import type {
 type AsyncImageTaskDetailsDialogProps = {
   task: AsyncImageTask | null
   root: boolean
+  view: 'preview' | 'details'
   onClose: () => void
 }
 
@@ -236,25 +237,7 @@ function LoadedTaskDetail(props: {
 
   return (
     <div className='space-y-5'>
-      <section className='space-y-3'>
-        <h3 className='text-sm font-medium'>{t('Images')}</h3>
-        {detail.objects.length > 0 ? (
-          <div className='grid gap-3 md:grid-cols-2'>
-            {detail.objects.map((object) => (
-              <ObjectPreview
-                key={object.index}
-                object={object}
-                taskId={detail.task_id}
-                root={props.root}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className='text-muted-foreground rounded-md border py-12 text-center text-sm'>
-            {t('No image is available for preview or download')}
-          </div>
-        )}
-      </section>
+      <TaskImages detail={detail} root={props.root} />
 
       <section className='space-y-2'>
         <h3 className='text-sm font-medium'>{t('Generation details')}</h3>
@@ -268,15 +251,26 @@ function LoadedTaskDetail(props: {
             </span>
           </DetailItem>
           {props.root ? (
-            <DetailItem label={t('User')}>{detail.user_id}</DetailItem>
+            <DetailItem label={t('User')}>
+              {detail.username
+                ? `${detail.username} (#${detail.user_id})`
+                : detail.user_id}
+            </DetailItem>
           ) : null}
           <DetailItem label={t('Model')}>{detail.model}</DetailItem>
           <DetailItem label={t('Group')}>
             {detail.using_group || '-'}
           </DetailItem>
           {props.root ? (
-            <DetailItem label={t('Channel ID')}>
-              {detail.last_channel_id || '-'}
+            <DetailItem label={t('Channel')}>
+              {detail.channel_name
+                ? `${detail.channel_name} (#${detail.last_channel_id})`
+                : detail.last_channel_id || '-'}
+            </DetailItem>
+          ) : null}
+          {props.root ? (
+            <DetailItem label={t('Platform')}>
+              {detail.platform || '-'}
             </DetailItem>
           ) : null}
           {props.root ? (
@@ -393,6 +387,32 @@ function LoadedTaskDetail(props: {
   )
 }
 
+function TaskImages(props: { detail: AsyncImageTaskDetail; root: boolean }) {
+  const { t } = useTranslation()
+
+  return (
+    <section className='space-y-3'>
+      <h3 className='text-sm font-medium'>{t('Images')}</h3>
+      {props.detail.objects.length > 0 ? (
+        <div className='grid gap-3 md:grid-cols-2'>
+          {props.detail.objects.map((object) => (
+            <ObjectPreview
+              key={object.index}
+              object={object}
+              taskId={props.detail.task_id}
+              root={props.root}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className='text-muted-foreground rounded-md border py-12 text-center text-sm'>
+          {t('No image is available for preview or download')}
+        </div>
+      )}
+    </section>
+  )
+}
+
 export function AsyncImageTaskDetailsDialog(
   props: AsyncImageTaskDetailsDialogProps
 ) {
@@ -420,7 +440,12 @@ export function AsyncImageTaskDetailsDialog(
       </div>
     )
   } else {
-    content = <LoadedTaskDetail detail={detail} root={props.root} />
+    content =
+      props.view === 'preview' ? (
+        <TaskImages detail={detail} root={props.root} />
+      ) : (
+        <LoadedTaskDetail detail={detail} root={props.root} />
+      )
   }
 
   return (
@@ -434,7 +459,7 @@ export function AsyncImageTaskDetailsDialog(
           <IconBadge tone='primary' size='sm'>
             <ImageIcon />
           </IconBadge>
-          {t('Task details')}
+          {props.view === 'preview' ? t('Preview') : t('Task details')}
         </>
       }
       description={taskId ? `${t('Task ID:')} ${taskId}` : undefined}

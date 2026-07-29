@@ -19,7 +19,12 @@ For commercial licensing, please contact support@quantumnous.com
 export type AsyncImageTask = {
   task_id: string
   user_id: number
+  username?: string
   model: string
+  using_group: string
+  channel_id?: number
+  channel_name?: string
+  platform?: string
   status: string
   output_availability: string
   billing_status: string
@@ -65,8 +70,11 @@ export type AsyncImageTaskObject = {
 export type AsyncImageTaskDetail = {
   task_id: string
   user_id: number
+  username?: string
   token_id?: number
   model: string
+  channel_name?: string
+  platform?: string
   status: string
   output_availability: string
   billing_status: string

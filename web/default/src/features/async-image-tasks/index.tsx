@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
-import { Eye } from 'lucide-react'
+import { Eye, FileText } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -88,6 +88,10 @@ function statusVariant(value: string) {
   return 'outline' as const
 }
 
+function formatTaskTime(timestamp: number) {
+  return timestamp ? dayjs.unix(timestamp).format('YYYY-MM-DD HH:mm:ss') : '-'
+}
+
 export function AsyncImageTasksPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -101,6 +105,9 @@ export function AsyncImageTasksPage() {
   const [billingStatus, setBillingStatus] = useState('')
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [detailsTask, setDetailsTask] = useState<AsyncImageTask | null>(null)
+  const [detailsView, setDetailsView] = useState<'preview' | 'details'>(
+    'details'
+  )
 
   const filters: AsyncImageTaskFilters = {
     page,
@@ -278,9 +285,15 @@ export function AsyncImageTasksPage() {
                       />
                     </TableHead>
                   )}
-                  <TableHead>{t('Task ID')}</TableHead>
+                  <TableHead>{t('Submit Time')}</TableHead>
+                  <TableHead>{t('End Time')}</TableHead>
+                  {root && <TableHead>{t('Channel')}</TableHead>}
                   {root && <TableHead>{t('User')}</TableHead>}
+                  <TableHead>{t('Task ID')}</TableHead>
+                  <TableHead>{t('Group')}</TableHead>
+                  {root && <TableHead>{t('Platform')}</TableHead>}
                   <TableHead>{t('Model')}</TableHead>
+                  <TableHead>{t('Duration')}</TableHead>
                   <TableHead>{t('Generation status')}</TableHead>
                   <TableHead>{t('Output availability')}</TableHead>
                   <TableHead>{t('Billing status')}</TableHead>
@@ -288,7 +301,7 @@ export function AsyncImageTasksPage() {
                   <TableHead>{t('Attempts')}</TableHead>
                   <TableHead>{t('Staging integrity')}</TableHead>
                   <TableHead>{t('Error')}</TableHead>
-                  <TableHead>{t('Created at')}</TableHead>
+                  <TableHead>{t('Preview')}</TableHead>
                   <TableHead>{t('Details')}</TableHead>
                 </TableRow>
               </TableHeader>
@@ -297,6 +310,16 @@ export function AsyncImageTasksPage() {
                   const retryable = retryableRows.some(
                     (item) => item.task_id === task.task_id
                   )
+                  const durationSeconds =
+                    task.completed_at > task.created_at
+                      ? task.completed_at - task.created_at
+                      : null
+                  let channelLabel = '-'
+                  if (task.channel_name) {
+                    channelLabel = `${task.channel_name} (#${task.channel_id})`
+                  } else if (task.channel_id) {
+                    channelLabel = `#${task.channel_id}`
+                  }
                   return (
                     <TableRow key={task.task_id}>
                       {root && (
@@ -318,11 +341,47 @@ export function AsyncImageTasksPage() {
                           />
                         </TableCell>
                       )}
+                      <TableCell className='font-mono text-xs whitespace-nowrap tabular-nums'>
+                        {formatTaskTime(task.created_at)}
+                      </TableCell>
+                      <TableCell className='font-mono text-xs whitespace-nowrap tabular-nums'>
+                        {formatTaskTime(task.completed_at)}
+                      </TableCell>
+                      {root && (
+                        <TableCell className='max-w-44 truncate'>
+                          {channelLabel}
+                        </TableCell>
+                      )}
+                      {root && (
+                        <TableCell className='max-w-40 truncate'>
+                          {task.username
+                            ? `${task.username} (#${task.user_id})`
+                            : task.user_id}
+                        </TableCell>
+                      )}
                       <TableCell className='max-w-52 truncate font-mono text-xs'>
                         {task.task_id}
                       </TableCell>
-                      {root && <TableCell>{task.user_id}</TableCell>}
-                      <TableCell>{task.model}</TableCell>
+                      <TableCell className='max-w-32 truncate'>
+                        {task.using_group || '-'}
+                      </TableCell>
+                      {root && (
+                        <TableCell>
+                          {task.platform ? (
+                            <Badge variant='outline'>{task.platform}</Badge>
+                          ) : (
+                            '-'
+                          )}
+                        </TableCell>
+                      )}
+                      <TableCell className='max-w-52 truncate'>
+                        {task.model}
+                      </TableCell>
+                      <TableCell className='font-mono text-xs whitespace-nowrap tabular-nums'>
+                        {durationSeconds === null
+                          ? '-'
+                          : `${durationSeconds.toFixed(1)}s`}
+                      </TableCell>
                       <TableCell>
                         <Badge variant={statusVariant(task.status)}>
                           {t(task.status)}
@@ -349,19 +408,35 @@ export function AsyncImageTasksPage() {
                         {task.error || '-'}
                       </TableCell>
                       <TableCell>
-                        {dayjs
-                          .unix(task.created_at)
-                          .format('YYYY-MM-DD HH:mm:ss')}
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='xs'
+                          disabled={
+                            task.output_availability !== 'available' ||
+                            task.object_available_count === 0
+                          }
+                          onClick={() => {
+                            setDetailsView('preview')
+                            setDetailsTask(task)
+                          }}
+                        >
+                          <Eye />
+                          {t('Preview')}
+                        </Button>
                       </TableCell>
                       <TableCell>
                         <Button
                           type='button'
                           variant='ghost'
                           size='xs'
-                          onClick={() => setDetailsTask(task)}
+                          onClick={() => {
+                            setDetailsView('details')
+                            setDetailsTask(task)
+                          }}
                         >
-                          <Eye />
-                          {t('Preview and download')}
+                          <FileText />
+                          {t('Details')}
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -371,7 +446,7 @@ export function AsyncImageTasksPage() {
                   (tasksQuery.data?.items.length ?? 0) === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={root ? 13 : 11}
+                        colSpan={root ? 19 : 15}
                         className='text-muted-foreground h-32 text-center'
                       >
                         {t('No async image tasks found')}
@@ -413,6 +488,7 @@ export function AsyncImageTasksPage() {
       <AsyncImageTaskDetailsDialog
         task={detailsTask}
         root={root}
+        view={detailsView}
         onClose={() => setDetailsTask(null)}
       />
     </SectionPageLayout>

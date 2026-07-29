@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/objectstorage"
 	"github.com/QuantumNous/new-api/setting/storage_setting"
@@ -48,7 +49,7 @@ func setupAsyncImageDetailTest(t *testing.T) {
 	originalDB := model.DB
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "async-image-detail.db")), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.AsyncImageTask{}, &model.StorageObject{}))
+	require.NoError(t, db.AutoMigrate(&model.AsyncImageTask{}, &model.StorageObject{}, &model.User{}, &model.Channel{}))
 	model.DB = db
 	t.Cleanup(func() { model.DB = originalDB })
 
@@ -76,12 +77,20 @@ func setupAsyncImageDetailTest(t *testing.T) {
 func createAsyncImageDetailFixture(t *testing.T) {
 	t.Helper()
 	now := common.GetTimestamp()
+	require.NoError(t, model.DB.Create(&model.User{
+		Id: 42, Username: "async-image-user", Password: "test-password", Role: common.RoleCommonUser,
+		Status: common.UserStatusEnabled, Group: "default",
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.Channel{
+		Id: 9, Name: "openai-images", Type: constant.ChannelTypeOpenAI, Key: "test-key",
+	}).Error)
 	require.NoError(t, model.DB.Create(&model.AsyncImageTask{
 		TaskID: "img_task_detail", UserID: 42, TokenID: 7,
 		Status: model.AsyncImageStatusSucceeded, OutputAvailability: model.AsyncImageOutputAvailable,
 		BillingStatus: model.AsyncImageBillingSettled, BillingSource: "wallet",
 		ReservedQuota: 100, ActualQuota: 90, OriginModelName: "gpt-image-test",
-		UsingGroup: "default", LastChannelID: 9, RequestPayload: `{"prompt":"red apple","n":1}`,
+		UsingGroup: "default", LastChannelID: 9, LastChannelType: constant.ChannelTypeOpenAI,
+		RequestPayload:   `{"prompt":"red apple","n":1}`,
 		RetentionSeconds: 86400, ArchiveTimeoutSeconds: 600, ArchiveMaxAttempts: 8,
 		OutputExpiresAt: now + 3600, StartedAt: now - 20, GenerationCompletedAt: now - 10,
 		BillingFinalizedAt: now - 10, CompletedAt: now - 5,
@@ -121,6 +130,9 @@ func TestAsyncImageTaskDetailReturnsPreviewAndDownloadURLs(t *testing.T) {
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 	assert.True(t, response.Success)
 	assert.Equal(t, "red apple", response.Data.Request.(map[string]any)["prompt"])
+	assert.Equal(t, "async-image-user", response.Data.Username)
+	assert.Equal(t, "openai-images", response.Data.ChannelName)
+	assert.Equal(t, "OpenAI", response.Data.Platform)
 	require.Len(t, response.Data.Objects, 1)
 	assert.Equal(t, "https://storage.example/preview", response.Data.Objects[0].PreviewURL)
 	assert.Equal(t, "https://storage.example/download", response.Data.Objects[0].DownloadURL)
@@ -159,6 +171,41 @@ func TestSelfAsyncImageTaskDetailEnforcesOwnershipAndHidesStorageLocation(t *tes
 	ginContext.Request = httptest.NewRequest(http.MethodGet, "/api/async-image-task/self/img_task_detail", nil)
 	GetSelfAsyncImageTaskDetail(ginContext)
 	assert.NotContains(t, recorder.Body.String(), "red apple")
+}
+
+func TestAsyncImageTaskListIncludesRootDisplayMetadataOnly(t *testing.T) {
+	setupAsyncImageDetailTest(t)
+	createAsyncImageDetailFixture(t)
+	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", 9).Update("type", constant.ChannelTypeAzure).Error)
+
+	recorder := httptest.NewRecorder()
+	ginContext, _ := gin.CreateTestContext(recorder)
+	ginContext.Request = httptest.NewRequest(http.MethodGet, "/api/async-image-task?page=1&page_size=20", nil)
+	GetAllAsyncImageTasks(ginContext)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var rootResponse struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Items []asyncImageTaskListItem `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &rootResponse))
+	require.True(t, rootResponse.Success)
+	require.Len(t, rootResponse.Data.Items, 1)
+	assert.Equal(t, "async-image-user", rootResponse.Data.Items[0].Username)
+	assert.Equal(t, "openai-images", rootResponse.Data.Items[0].ChannelName)
+	assert.Equal(t, constant.GetChannelTypeName(constant.ChannelTypeOpenAI), rootResponse.Data.Items[0].Platform)
+	assert.Equal(t, "default", rootResponse.Data.Items[0].UsingGroup)
+
+	recorder = httptest.NewRecorder()
+	ginContext, _ = gin.CreateTestContext(recorder)
+	ginContext.Set("id", 42)
+	ginContext.Request = httptest.NewRequest(http.MethodGet, "/api/async-image-task/self?page=1&page_size=20", nil)
+	GetSelfAsyncImageTasks(ginContext)
+	assert.NotContains(t, recorder.Body.String(), "async-image-user")
+	assert.NotContains(t, recorder.Body.String(), "openai-images")
+	assert.NotContains(t, recorder.Body.String(), `"platform"`)
+	assert.Contains(t, recorder.Body.String(), `"using_group":"default"`)
 }
 
 var _ objectstorage.Storage = (*asyncImageDetailTestStorage)(nil)
