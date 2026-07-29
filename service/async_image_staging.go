@@ -423,10 +423,7 @@ func validatedAsyncImageStagingRoot(directory string) (string, error) {
 	}
 	allowedRoots := strings.TrimSpace(os.Getenv(asyncImageStagingAllowedRootsEnv))
 	if allowedRoots == "" {
-		allowedRoots = strings.TrimSpace(os.Getenv(asyncImageStagingEnv))
-	}
-	if allowedRoots == "" {
-		return "", fmt.Errorf("%s is not configured", asyncImageStagingAllowedRootsEnv)
+		return root, nil
 	}
 	allowedRoots = strings.ReplaceAll(allowedRoots, ",", string(os.PathListSeparator))
 	for _, allowedRoot := range filepath.SplitList(allowedRoots) {

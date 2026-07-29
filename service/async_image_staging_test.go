@@ -63,6 +63,17 @@ func TestCheckAsyncImageStagingDirectoryRejectsPathOutsideAllowedRoots(t *testin
 	require.ErrorContains(t, err, asyncImageStagingAllowedRootsEnv)
 }
 
+func TestCheckAsyncImageStagingDirectoryAllowsAdminPathWithoutAllowedRoots(t *testing.T) {
+	stagingRoot := filepath.Join(t.TempDir(), "admin-configured")
+	t.Setenv(asyncImageStagingAllowedRootsEnv, "")
+
+	require.NoError(t, CheckAsyncImageStagingDirectory(stagingRoot))
+	assert.DirExists(t, stagingRoot)
+	entries, err := os.ReadDir(stagingRoot)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
 func TestStageAsyncImageResponseNormalizesBase64AndDataURI(t *testing.T) {
 	originalLimit := constant.MaxFileDownloadMB
 	constant.MaxFileDownloadMB = 1

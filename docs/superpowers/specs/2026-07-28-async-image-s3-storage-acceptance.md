@@ -23,17 +23,18 @@
 - 一个私有 S3 Bucket，以及可临时调整权限的验收专用 IAM 凭据。
 - 至少一个真实图片渠道；验证 Base64 和 data URI 时还需要支持相应输出的渠道或模拟渠道。
 
-部署时配置后台允许选择的持久卷根目录和统一停机时限：
+部署时准备持久卷目录并配置统一停机时限：
 
 ```bash
-export ASYNC_IMAGE_STAGING_ALLOWED_ROOTS=/data/zmodel,/mnt/shared
 export SHUTDOWN_TIMEOUT_SECONDS=120
-mkdir -p /data/zmodel
+mkdir -p /data/zmodel/async-image-staging
 ```
 
-容器必须把允许根目录挂载到持久卷。多节点部署必须让全部 Worker 使用同一个共享卷和一致的挂载
-路径。应用账号应能在允许根目录下创建目录、写入、`fsync`、原子重命名、读取和删除文件，其他
-系统账号不应具有不必要的访问权限。旧部署可暂时保留
+容器必须把后台填写的目录挂载到持久卷。多节点部署必须让全部 Worker 使用同一个共享卷和一致的
+挂载路径。应用账号应能创建目录、写入、`fsync`、原子重命名、读取和删除文件，其他系统账号不
+应具有不必要的访问权限。部署方如需限制 Root 可填写的目录范围，可选配置
+`ASYNC_IMAGE_STAGING_ALLOWED_ROOTS=/data/zmodel,/mnt/shared`；未配置时允许 Root 保存任意非文件系统
+根目录的绝对路径。旧部署可暂时保留
 `ASYNC_IMAGE_STAGING_DIR=/data/zmodel/async-image-staging`；数据库尚未保存目录时会回退使用该值，
 完成后台保存后以数据库 Option 为准。
 
@@ -69,7 +70,8 @@ AWS IAM 最小对象权限可参考以下策略，并把 `<bucket>` 替换为实
 
 1. 启动服务，确认启动过程没有数据库迁移错误。
 2. 确认数据库存在 `async_image_tasks` 和 `storage_objects` 表。
-3. 确认 `ASYNC_IMAGE_STAGING_ALLOWED_ROOTS` 中的目录位于持久卷，而不是容器临时文件系统。
+3. 确认后台准备填写的暂存目录位于持久卷，而不是容器临时文件系统；若设置了
+   `ASYNC_IMAGE_STAGING_ALLOWED_ROOTS`，确认该目录在允许范围内。
 4. 多节点环境分别进入各节点，确认相同相对路径指向同一文件。
 5. 执行自动化验证：
 
@@ -107,9 +109,10 @@ Endpoint 留空；MinIO 等兼容服务填写 HTTP(S) 地址。持久暂存目�
 随机探针对象的 `Put -> Head -> Delete`。预期保存成功，暂存目录和 Bucket 中均不遗留探针文件。
 刷新页面后持久暂存目录保持原值；Secret 输入框必须为空，只显示“已配置”状态。
 
-把目录改为允许根目录之外的绝对路径并保存，预期拒绝且数据库原值不变。没有在途任务和保留文件
-时，把目录改为允许根目录内的另一个目录，预期探针通过并保存成功；确认后切回验收目录。若测试从
-旧版本升级，先清空 `ObjectStorageStagingDirectory` Option，确认页面读取
+未设置 `ASYNC_IMAGE_STAGING_ALLOWED_ROOTS` 时，把目录改为另一个非根绝对路径，预期探针通过并
+保存成功；设置该变量并重启后，把目录改为允许根目录之外的绝对路径，预期拒绝且数据库原值不变。
+没有在途任务和保留文件时，把目录改回允许根目录内的目录，预期保存成功。若测试从旧版本升级，
+先清空 `ObjectStorageStagingDirectory` Option，确认页面读取
 `ASYNC_IMAGE_STAGING_DIR` 的兼容值，再保存并确认 Option 已落库。
 
 通过浏览器网络面板或已认证请求检查：
