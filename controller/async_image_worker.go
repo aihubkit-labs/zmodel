@@ -35,6 +35,7 @@ const (
 	asyncImageLeaseDuration     = 5 * time.Minute
 	asyncImageLeaseRenewal      = time.Minute
 	asyncImageProcessBatchSize  = 16
+	asyncImageObjectPrefix      = "prod/user-files/zmodel@async-images"
 )
 
 type asyncImageProcessHandler struct{}
@@ -351,7 +352,7 @@ func asyncImageObjectKey(userID int, taskID string, item service.AsyncImageManif
 	if len(parts) >= 4 {
 		year, month = parts[1], parts[2]
 	}
-	return fmt.Sprintf("prod/user-files/zmodel@async-images/%d/%s/%s/%s/%d.%s", userID, year, month, taskID, item.Index, item.Extension)
+	return fmt.Sprintf("%s/%d/%s/%s/%s/%d.%s", asyncImageObjectPrefix, userID, year, month, taskID, item.Index, item.Extension)
 }
 
 func filepathSlash(value string) string { return strings.ReplaceAll(value, "\\", "/") }

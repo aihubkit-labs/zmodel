@@ -36,7 +36,16 @@ export async function updateObjectStorageSettings(
 ) {
   const response = await api.put<ApiResponse<ObjectStorageSettings>>(
     '/api/option/object-storage',
-    values
+    values,
+    {
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    }
   )
+  if (!response.data.success) {
+    throw new Error(
+      response.data.message || 'Failed to save object storage settings'
+    )
+  }
   return response.data.data
 }

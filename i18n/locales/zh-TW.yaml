@@ -24,6 +24,13 @@ common.already_exists: "已存在"
 common.name_cannot_be_empty: "名稱不能為空"
 common.batch_too_many: "批次請求數量過多，最多 {{.Max}} 條"
 
+# 物件儲存設定訊息
+object_storage.probe_failed: "物件儲存探針失敗，請檢查端點、區域、憑證和 Bucket 權限。"
+object_storage.probe_connection_failed: "物件儲存連線探針失敗，請檢查端點、區域和憑證。"
+object_storage.probe_write_failed: "物件儲存寫入探針失敗，請檢查非同步圖片前綴的 PutObject 權限。"
+object_storage.probe_verify_failed: "物件儲存驗證探針失敗，請檢查非同步圖片前綴的 HeadObject 權限。"
+object_storage.probe_cleanup_failed: "物件儲存清理探針失敗，請檢查非同步圖片前綴的 DeleteObject 權限。"
+
 # Auth middleware messages
 auth.not_logged_in: "無權進行此操作，未登入且未提供 access token"
 auth.access_token_invalid: "無權進行此操作，access token 無效"

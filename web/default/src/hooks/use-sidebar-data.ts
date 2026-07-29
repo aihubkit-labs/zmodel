@@ -162,12 +162,6 @@ export function useSidebarData(): SidebarData {
             activeUrls: ['/system-settings'],
             icon: Settings,
           },
-          {
-            title: t('Object Storage'),
-            url: '/system-settings/object-storage',
-            icon: ServerCog,
-            requiredRole: ROLE.SUPER_ADMIN,
-          },
         ],
       },
     ],

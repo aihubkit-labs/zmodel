@@ -24,6 +24,13 @@ common.already_exists: "已存在"
 common.name_cannot_be_empty: "名称不能为空"
 common.batch_too_many: "批量请求数量过多，最多 {{.Max}} 条"
 
+# 对象存储设置消息
+object_storage.probe_failed: "对象存储探针失败，请检查端点、区域、凭据和 Bucket 权限。"
+object_storage.probe_connection_failed: "对象存储连接探针失败，请检查端点、区域和凭据。"
+object_storage.probe_write_failed: "对象存储写入探针失败，请检查异步图片前缀的 PutObject 权限。"
+object_storage.probe_verify_failed: "对象存储校验探针失败，请检查异步图片前缀的 HeadObject 权限。"
+object_storage.probe_cleanup_failed: "对象存储清理探针失败，请检查异步图片前缀的 DeleteObject 权限。"
+
 # Auth middleware messages
 auth.not_logged_in: "无权进行此操作，未登录且未提供 access token"
 auth.access_token_invalid: "无权进行此操作，access token 无效"

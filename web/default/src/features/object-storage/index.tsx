@@ -101,7 +101,13 @@ export function ObjectStorageSettingsPage() {
         queryKey: ['object-storage-settings'],
       })
     },
-    onError: () => toast.error(t('Failed to save object storage settings')),
+    onError: (error) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t('Failed to save object storage settings')
+      )
+    },
   })
 
   const onSubmit = (values: ObjectStorageFormValues) => {

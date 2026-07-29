@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/objectstorage"
 	"github.com/QuantumNous/new-api/service"
@@ -42,6 +44,32 @@ type updateObjectStorageSettingsRequest struct {
 	ArchiveMaxAttempts        int    `json:"archive_max_attempts"`
 	ArchiveRetryWindowSeconds int64  `json:"archive_retry_window_seconds"`
 	CleanupIntervalSeconds    int64  `json:"cleanup_interval_seconds"`
+}
+
+type objectStorageProbeError struct {
+	operation string
+	err       error
+}
+
+func (e *objectStorageProbeError) Error() string {
+	return fmt.Sprintf("object storage %s probe failed: %v", e.operation, e.err)
+}
+
+func objectStorageProbeErrorMessageKey(err error) string {
+	probeErr, ok := err.(*objectStorageProbeError)
+	if !ok {
+		return i18n.MsgObjectStorageProbeFailed
+	}
+	switch probeErr.operation {
+	case "write":
+		return i18n.MsgObjectStorageProbeWriteFailed
+	case "verify":
+		return i18n.MsgObjectStorageProbeVerifyFailed
+	case "cleanup":
+		return i18n.MsgObjectStorageProbeCleanupFailed
+	default:
+		return i18n.MsgObjectStorageProbeConnectionFailed
+	}
 }
 
 func GetObjectStorageSettings(c *gin.Context) {
@@ -108,7 +136,8 @@ func UpdateObjectStorageSettings(c *gin.Context) {
 		}
 	}
 	if err := probeObjectStorage(c.Request.Context(), candidate); err != nil {
-		common.ApiError(c, fmt.Errorf("object storage probe failed: %w", err))
+		logger.LogWarn(c.Request.Context(), common.LocalLogPreview(err.Error()))
+		common.ApiErrorI18n(c, objectStorageProbeErrorMessageKey(err))
 		return
 	}
 	values := map[string]string{
@@ -195,7 +224,7 @@ func prepareAsyncImageStorageRebind(ctx context.Context, current storage_setting
 	return taskIDs, nil
 }
 
-func probeObjectStorage(parent context.Context, settings storage_setting.Settings) error {
+func probeObjectStorage(parent context.Context, settings storage_setting.Settings) (resultErr error) {
 	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 	storage, err := objectstorage.NewStorage(ctx, objectstorage.Config{
@@ -205,13 +234,13 @@ func probeObjectStorage(parent context.Context, settings storage_setting.Setting
 		SecretAccessKey: settings.SecretAccessKey,
 	})
 	if err != nil {
-		return err
+		return &objectStorageProbeError{operation: "connection", err: err}
 	}
 	random, err := common.GenerateRandomCharsKey(24)
 	if err != nil {
-		return err
+		return &objectStorageProbeError{operation: "connection", err: err}
 	}
-	key := "zmodel-object-storage-probe/" + random
+	key := asyncImageObjectPrefix + "/.probe/" + random
 	_, err = storage.PutObject(ctx, objectstorage.PutObjectInput{
 		Bucket:      settings.Bucket,
 		Key:         key,
@@ -220,14 +249,19 @@ func probeObjectStorage(parent context.Context, settings storage_setting.Setting
 		Metadata:    map[string]string{"probe": "true"},
 	})
 	if err != nil {
-		return err
+		return &objectStorageProbeError{operation: "write", err: err}
 	}
+	defer func() {
+		if err := storage.DeleteObject(ctx, objectstorage.DeleteObjectInput{Bucket: settings.Bucket, Key: key}); err != nil && resultErr == nil {
+			resultErr = &objectStorageProbeError{operation: "cleanup", err: err}
+		}
+	}()
 	head, err := storage.HeadObject(ctx, objectstorage.HeadObjectInput{Bucket: settings.Bucket, Key: key})
 	if err != nil {
-		return err
+		return &objectStorageProbeError{operation: "verify", err: err}
 	}
 	if !head.Exists || head.ContentLength != 2 {
-		return fmt.Errorf("probe object verification failed")
+		return &objectStorageProbeError{operation: "verify", err: fmt.Errorf("probe object verification returned an unexpected result")}
 	}
-	return storage.DeleteObject(ctx, objectstorage.DeleteObjectInput{Bucket: settings.Bucket, Key: key})
+	return nil
 }

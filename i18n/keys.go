@@ -28,6 +28,15 @@ const (
 	MsgBatchTooMany      = "common.batch_too_many"
 )
 
+// Object storage settings messages
+const (
+	MsgObjectStorageProbeFailed           = "object_storage.probe_failed"
+	MsgObjectStorageProbeConnectionFailed = "object_storage.probe_connection_failed"
+	MsgObjectStorageProbeWriteFailed      = "object_storage.probe_write_failed"
+	MsgObjectStorageProbeVerifyFailed     = "object_storage.probe_verify_failed"
+	MsgObjectStorageProbeCleanupFailed    = "object_storage.probe_cleanup_failed"
+)
+
 // Auth middleware messages
 const (
 	MsgAuthNotLoggedIn           = "auth.not_logged_in"
