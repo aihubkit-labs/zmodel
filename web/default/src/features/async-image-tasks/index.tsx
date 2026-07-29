@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
+import { Eye } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -62,6 +63,8 @@ import {
   retryAsyncImageTasks,
   type AsyncImageTaskFilters,
 } from './api'
+import { AsyncImageTaskDetailsDialog } from './components/task-details-dialog'
+import type { AsyncImageTask } from './types'
 
 const pageSize = 20
 const statusOptions = ['', 'queued', 'running', 'succeeded', 'failed']
@@ -97,6 +100,7 @@ export function AsyncImageTasksPage() {
   const [outputAvailability, setOutputAvailability] = useState('')
   const [billingStatus, setBillingStatus] = useState('')
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const [detailsTask, setDetailsTask] = useState<AsyncImageTask | null>(null)
 
   const filters: AsyncImageTaskFilters = {
     page,
@@ -285,6 +289,7 @@ export function AsyncImageTasksPage() {
                   <TableHead>{t('Staging integrity')}</TableHead>
                   <TableHead>{t('Error')}</TableHead>
                   <TableHead>{t('Created at')}</TableHead>
+                  <TableHead>{t('Details')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -348,6 +353,17 @@ export function AsyncImageTasksPage() {
                           .unix(task.created_at)
                           .format('YYYY-MM-DD HH:mm:ss')}
                       </TableCell>
+                      <TableCell>
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='xs'
+                          onClick={() => setDetailsTask(task)}
+                        >
+                          <Eye />
+                          {t('Preview and download')}
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   )
                 })}
@@ -355,7 +371,7 @@ export function AsyncImageTasksPage() {
                   (tasksQuery.data?.items.length ?? 0) === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={root ? 12 : 10}
+                        colSpan={root ? 13 : 11}
                         className='text-muted-foreground h-32 text-center'
                       >
                         {t('No async image tasks found')}
@@ -394,6 +410,11 @@ export function AsyncImageTasksPage() {
           </div>
         </div>
       </SectionPageLayout.Content>
+      <AsyncImageTaskDetailsDialog
+        task={detailsTask}
+        root={root}
+        onClose={() => setDetailsTask(null)}
+      />
     </SectionPageLayout>
   )
 }

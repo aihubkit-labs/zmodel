@@ -18,7 +18,12 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
 
-import type { ApiResponse, AsyncImageTaskList, RetryResult } from './types'
+import type {
+  ApiResponse,
+  AsyncImageTaskDetail,
+  AsyncImageTaskList,
+  RetryResult,
+} from './types'
 
 export type AsyncImageTaskFilters = {
   page: number
@@ -38,6 +43,14 @@ export async function getAsyncImageTasks(
   const response = await api.get<ApiResponse<AsyncImageTaskList>>(endpoint, {
     params: filters,
   })
+  return response.data.data
+}
+
+export async function getAsyncImageTaskDetail(taskId: string, root: boolean) {
+  const endpoint = root
+    ? `/api/async-image-task/${encodeURIComponent(taskId)}`
+    : `/api/async-image-task/self/${encodeURIComponent(taskId)}`
+  const response = await api.get<ApiResponse<AsyncImageTaskDetail>>(endpoint)
   return response.data.data
 }
 

@@ -39,6 +39,66 @@ type asyncImageTaskListItem struct {
 	ActualQuota           int    `json:"actual_quota,omitempty"`
 }
 
+type asyncImageTaskObjectDetail struct {
+	Index          int    `json:"index"`
+	Status         string `json:"status"`
+	StagingStatus  string `json:"staging_status"`
+	MimeType       string `json:"mime_type"`
+	Extension      string `json:"extension"`
+	SizeBytes      int64  `json:"size_bytes"`
+	StagingSize    int64  `json:"staging_size_bytes"`
+	UploadedAt     int64  `json:"uploaded_at"`
+	ExpiresAt      int64  `json:"expires_at"`
+	StagedAt       int64  `json:"staged_at"`
+	DeletedAt      int64  `json:"deleted_at"`
+	DeleteAttempts int    `json:"delete_attempts"`
+	PreviewURL     string `json:"preview_url,omitempty"`
+	DownloadURL    string `json:"download_url,omitempty"`
+	URLUnavailable bool   `json:"url_unavailable,omitempty"`
+	Provider       string `json:"provider,omitempty"`
+	Endpoint       string `json:"endpoint,omitempty"`
+	Region         string `json:"region,omitempty"`
+	Bucket         string `json:"bucket,omitempty"`
+	ObjectKey      string `json:"object_key,omitempty"`
+	ETag           string `json:"etag,omitempty"`
+	LastError      string `json:"last_error,omitempty"`
+}
+
+type asyncImageTaskDetail struct {
+	TaskID                 string                       `json:"task_id"`
+	UserID                 int                          `json:"user_id"`
+	TokenID                int                          `json:"token_id,omitempty"`
+	Model                  string                       `json:"model"`
+	Status                 string                       `json:"status"`
+	OutputAvailability     string                       `json:"output_availability"`
+	BillingStatus          string                       `json:"billing_status"`
+	BillingSource          string                       `json:"billing_source"`
+	SubscriptionID         int                          `json:"subscription_id,omitempty"`
+	ReservedQuota          int                          `json:"reserved_quota"`
+	ActualQuota            int                          `json:"actual_quota"`
+	UsingGroup             string                       `json:"using_group"`
+	LastChannelID          int                          `json:"last_channel_id,omitempty"`
+	Request                any                          `json:"request,omitempty"`
+	RetentionSeconds       int64                        `json:"retention_seconds"`
+	ArchiveTimeoutSeconds  int64                        `json:"archive_timeout_seconds"`
+	ArchiveMaxAttempts     int                          `json:"archive_max_attempts"`
+	ArchiveAttempts        int                          `json:"archive_attempts"`
+	ArchiveRetryDeadlineAt int64                        `json:"archive_retry_deadline_at"`
+	NextAttemptAt          int64                        `json:"next_attempt_at"`
+	SourceKind             string                       `json:"source_kind"`
+	ErrorCode              string                       `json:"error_code,omitempty"`
+	Error                  string                       `json:"error,omitempty"`
+	CreatedAt              int64                        `json:"created_at"`
+	StartedAt              int64                        `json:"started_at"`
+	GenerationCompletedAt  int64                        `json:"generation_completed_at"`
+	BillingFinalizedAt     int64                        `json:"billing_finalized_at"`
+	CompletedAt            int64                        `json:"completed_at"`
+	UpdatedAt              int64                        `json:"updated_at"`
+	OutputExpiresAt        int64                        `json:"output_expires_at"`
+	ManuallyRecoveredAt    int64                        `json:"manually_recovered_at"`
+	Objects                []asyncImageTaskObjectDetail `json:"objects"`
+}
+
 func GetSelfAsyncImageTasks(c *gin.Context) {
 	filter := asyncImageTaskFilterFromQuery(c)
 	filter.UserID = c.GetInt("id")
@@ -47,6 +107,119 @@ func GetSelfAsyncImageTasks(c *gin.Context) {
 
 func GetAllAsyncImageTasks(c *gin.Context) {
 	writeAsyncImageTaskList(c, asyncImageTaskFilterFromQuery(c), true)
+}
+
+func GetSelfAsyncImageTaskDetail(c *gin.Context) {
+	task, err := model.GetAsyncImageTaskForUser(c.Param("task_id"), c.GetInt("id"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	writeAsyncImageTaskDetail(c, task, false)
+}
+
+func GetAsyncImageTaskDetail(c *gin.Context) {
+	task, err := model.GetAsyncImageTaskByTaskID(c.Param("task_id"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	writeAsyncImageTaskDetail(c, task, true)
+}
+
+func writeAsyncImageTaskDetail(c *gin.Context, task *model.AsyncImageTask, root bool) {
+	now := common.GetTimestamp()
+	if task.OutputAvailability == model.AsyncImageOutputAvailable && task.OutputExpiresAt > 0 && task.OutputExpiresAt <= now {
+		if err := model.MarkExpiredAsyncImageTask(task.TaskID, now); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		task.OutputAvailability = model.AsyncImageOutputExpired
+	}
+	objects, err := model.ListStorageObjects(task.TaskID)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	request := any(nil)
+	if task.RequestPayload != "" {
+		if err := common.UnmarshalJsonStr(task.RequestPayload, &request); err != nil {
+			request = nil
+		}
+	}
+	detail := asyncImageTaskDetail{
+		TaskID: task.TaskID, UserID: task.UserID, Model: task.OriginModelName,
+		Status: task.Status, OutputAvailability: task.OutputAvailability, BillingStatus: task.BillingStatus,
+		BillingSource: task.BillingSource, SubscriptionID: task.SubscriptionID,
+		ReservedQuota: task.ReservedQuota, ActualQuota: task.ActualQuota,
+		UsingGroup: task.UsingGroup, Request: request,
+		RetentionSeconds: task.RetentionSeconds, ArchiveTimeoutSeconds: task.ArchiveTimeoutSeconds,
+		ArchiveMaxAttempts: task.ArchiveMaxAttempts, ArchiveAttempts: task.ArchiveAttempts,
+		ArchiveRetryDeadlineAt: task.ArchiveRetryDeadlineAt, NextAttemptAt: task.NextAttemptAt,
+		SourceKind: task.SourceKind, ErrorCode: task.PublicErrorCode,
+		CreatedAt: task.CreatedAt, StartedAt: task.StartedAt,
+		GenerationCompletedAt: task.GenerationCompletedAt, BillingFinalizedAt: task.BillingFinalizedAt,
+		CompletedAt: task.CompletedAt, UpdatedAt: task.UpdatedAt,
+		OutputExpiresAt: task.OutputExpiresAt, ManuallyRecoveredAt: task.ManuallyRecoveredAt,
+		Objects: make([]asyncImageTaskObjectDetail, 0, len(objects)),
+	}
+	if root {
+		detail.TokenID = task.TokenID
+		detail.LastChannelID = task.LastChannelID
+		detail.Error = task.LastError
+	} else {
+		detail.Error = task.PublicErrorMessage
+	}
+	settings := storage_setting.GetSettings()
+	for _, object := range objects {
+		objectDetail := asyncImageTaskObjectDetail{
+			Index: object.ObjectIndex, Status: object.Status, StagingStatus: object.StagingStatus,
+			MimeType: object.MimeType, Extension: object.Extension, SizeBytes: object.SizeBytes,
+			StagingSize: object.StagingSizeBytes, UploadedAt: object.UploadedAt, ExpiresAt: object.ExpiresAt,
+			StagedAt: object.StagedAt, DeletedAt: object.DeletedAt, DeleteAttempts: object.DeleteAttempts,
+		}
+		if root {
+			objectDetail.Provider = object.Provider
+			objectDetail.Endpoint = object.Endpoint
+			objectDetail.Region = object.Region
+			objectDetail.Bucket = object.Bucket
+			objectDetail.ObjectKey = object.ObjectKey
+			objectDetail.ETag = object.ETag
+			objectDetail.LastError = object.LastError
+		}
+		if task.OutputAvailability == model.AsyncImageOutputAvailable && object.Status == model.StorageObjectStatusAvailable && object.ExpiresAt > now {
+			storage, storageErr := objectstorage.NewStorage(c.Request.Context(), objectstorage.Config{
+				Endpoint: object.Endpoint, Region: object.Region,
+				AccessKey: settings.AccessKey, SecretAccessKey: settings.SecretAccessKey,
+			})
+			if storageErr == nil {
+				seconds := settings.PresignSeconds
+				if remaining := object.ExpiresAt - now; remaining < seconds {
+					seconds = remaining
+				}
+				filename := fmt.Sprintf("%s-%d.%s", task.TaskID, object.ObjectIndex, object.Extension)
+				objectDetail.PreviewURL, storageErr = storage.PresignGetObject(c.Request.Context(), objectstorage.PresignGetObjectInput{
+					Bucket: object.Bucket, Key: object.ObjectKey, Expires: time.Duration(seconds) * time.Second,
+					ResponseContentType: object.MimeType,
+					ResponseDisposition: fmt.Sprintf("inline; filename=\"%s\"", filename),
+				})
+				if storageErr == nil {
+					objectDetail.DownloadURL, storageErr = storage.PresignGetObject(c.Request.Context(), objectstorage.PresignGetObjectInput{
+						Bucket: object.Bucket, Key: object.ObjectKey, Expires: time.Duration(seconds) * time.Second,
+						ResponseContentType: object.MimeType,
+						ResponseDisposition: fmt.Sprintf("attachment; filename=\"%s\"", filename),
+					})
+				}
+			}
+			if storageErr != nil {
+				objectDetail.PreviewURL = ""
+				objectDetail.DownloadURL = ""
+				objectDetail.URLUnavailable = true
+			}
+		}
+		detail.Objects = append(detail.Objects, objectDetail)
+	}
+	common.ApiSuccess(c, detail)
 }
 
 func asyncImageTaskFilterFromQuery(c *gin.Context) model.AsyncImageTaskFilter {

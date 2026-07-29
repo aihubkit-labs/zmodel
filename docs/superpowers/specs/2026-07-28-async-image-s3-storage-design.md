@@ -1154,12 +1154,19 @@ Head、删除或签名尝试只使用开始该次尝试时取得的一份不可�
 
 ```text
 GET  /api/async-image-task/self
+GET  /api/async-image-task/self/:task_id
 GET  /api/async-image-task
+GET  /api/async-image-task/:task_id
 POST /api/async-image-task/retry
 POST /api/async-image-task/retry-failed
 ```
 
 - `/self` 使用 `UserAuth`，只返回当前用户任务，不包含内部错误、对象物理位置或管理操作。
+- 两个 `/:task_id` 详情接口按需返回任务状态、计费、生命周期和逐对象元数据；普通用户详情继续校验
+  所有权并隐藏 Bucket、Object Key、ETag、内部错误和渠道信息，Root 详情可返回这些运维字段。
+  仅当任务输出和对象均处于有效可用状态时，为每张图片临时生成 `inline` 预览 URL 和
+  `attachment` 下载 URL。签名 URL 不写数据库、不进入列表轮询响应；过期、删除、上传失败或签名
+  失败时仍返回对象状态，但不返回无效链接。
 - Root 列表和重试接口使用 `RootAuth`；列表支持任务 ID、用户、模型、生成状态、输出可用性、计费
   状态、暂存完整性和创建时间筛选，并返回分页结果和对象成功数/总数。
 - `retry` 接收去重后的任务 ID 数组并设置合理批量上限；`retry-failed` 创建或复用一个
@@ -1216,7 +1223,11 @@ POST /api/async-image-task/retry-failed
 
 - 任务 ID、用户、模型、生成状态、输出可用性、计费状态、暂存完整性和时间筛选。
 - 任务 ID、用户、模型、生成状态、输出状态、计费状态、对象成功数/总数、尝试次数、脱敏错误和
-  时间列；详情抽屉展示逐对象状态，但不显示 S3 凭据或完整临时来源 URL。
+  时间列；每行提供“预览和下载”操作。
+- 详情弹窗优先展示图片画廊，每张图片提供原图预览和下载；随后展示任务状态、计费结果、归档重试
+  参数、生命周期、尚未按隐私规则清理的请求参数，以及逐对象的上传/暂存/删除状态、文件类型、
+  文件大小和时间。Root 额外显示 Token、订阅、渠道、Provider、Endpoint、Region、Bucket、Object
+  Key、ETag 和内部错误，但任何角色都不显示 S3 凭据或持久暂存相对路径。
 - 表格勾选后的“Retry selected uploads”操作，可选中全部普通归档失败任务。
 - Root 顶部“Retry all failed image uploads”按钮，中文为“重新上传全部失败的图片文件”；二次确认后
   调用批量接口，并展示已接受、已跳过和暂存完整性异常数量。本期范围是异步图片，因此不使用

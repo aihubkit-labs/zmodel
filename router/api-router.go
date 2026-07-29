@@ -335,7 +335,9 @@ func SetApiRouter(router *gin.Engine) {
 		asyncImageTaskRoute := apiRouter.Group("/async-image-task")
 		{
 			asyncImageTaskRoute.GET("/self", middleware.UserAuth(), controller.GetSelfAsyncImageTasks)
+			asyncImageTaskRoute.GET("/self/:task_id", middleware.UserAuth(), controller.GetSelfAsyncImageTaskDetail)
 			asyncImageTaskRoute.GET("", middleware.RootAuth(), controller.GetAllAsyncImageTasks)
+			asyncImageTaskRoute.GET("/:task_id", middleware.RootAuth(), controller.GetAsyncImageTaskDetail)
 			asyncImageTaskRoute.POST("/retry", middleware.RootAuth(), controller.RetryAsyncImageTasks)
 			asyncImageTaskRoute.POST("/retry-failed", middleware.RootAuth(), controller.RetryAllFailedAsyncImageTasks)
 		}

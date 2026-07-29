@@ -1,0 +1,164 @@
+package controller
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/objectstorage"
+	"github.com/QuantumNous/new-api/setting/storage_setting"
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+)
+
+type asyncImageDetailTestStorage struct {
+	presignInputs []objectstorage.PresignGetObjectInput
+}
+
+func (s *asyncImageDetailTestStorage) PutObject(context.Context, objectstorage.PutObjectInput) (objectstorage.PutObjectResult, error) {
+	return objectstorage.PutObjectResult{}, nil
+}
+
+func (s *asyncImageDetailTestStorage) HeadObject(context.Context, objectstorage.HeadObjectInput) (objectstorage.HeadObjectResult, error) {
+	return objectstorage.HeadObjectResult{}, nil
+}
+
+func (s *asyncImageDetailTestStorage) DeleteObject(context.Context, objectstorage.DeleteObjectInput) error {
+	return nil
+}
+
+func (s *asyncImageDetailTestStorage) PresignGetObject(_ context.Context, input objectstorage.PresignGetObjectInput) (string, error) {
+	s.presignInputs = append(s.presignInputs, input)
+	if strings.HasPrefix(input.ResponseDisposition, "attachment;") {
+		return "https://storage.example/download", nil
+	}
+	return "https://storage.example/preview", nil
+}
+
+func setupAsyncImageDetailTest(t *testing.T) {
+	t.Helper()
+	originalDB := model.DB
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "async-image-detail.db")), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.AsyncImageTask{}, &model.StorageObject{}))
+	model.DB = db
+	t.Cleanup(func() { model.DB = originalDB })
+
+	common.OptionMapRWMutex.Lock()
+	originalOptions := common.OptionMap
+	common.OptionMap = map[string]string{
+		storage_setting.OptionS3AccessKey:               "test-access-key",
+		storage_setting.OptionS3SecretAccessKey:         "secret-that-must-not-leak",
+		storage_setting.OptionPresignSeconds:            "600",
+		storage_setting.OptionStagingDirectory:          t.TempDir(),
+		storage_setting.OptionRetentionSeconds:          "86400",
+		storage_setting.OptionArchiveTimeoutSeconds:     "600",
+		storage_setting.OptionArchiveMaxAttempts:        "8",
+		storage_setting.OptionArchiveRetryWindowSeconds: "21600",
+		storage_setting.OptionCleanupIntervalSeconds:    "900",
+	}
+	common.OptionMapRWMutex.Unlock()
+	t.Cleanup(func() {
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap = originalOptions
+		common.OptionMapRWMutex.Unlock()
+	})
+}
+
+func createAsyncImageDetailFixture(t *testing.T) {
+	t.Helper()
+	now := common.GetTimestamp()
+	require.NoError(t, model.DB.Create(&model.AsyncImageTask{
+		TaskID: "img_task_detail", UserID: 42, TokenID: 7,
+		Status: model.AsyncImageStatusSucceeded, OutputAvailability: model.AsyncImageOutputAvailable,
+		BillingStatus: model.AsyncImageBillingSettled, BillingSource: "wallet",
+		ReservedQuota: 100, ActualQuota: 90, OriginModelName: "gpt-image-test",
+		UsingGroup: "default", LastChannelID: 9, RequestPayload: `{"prompt":"red apple","n":1}`,
+		RetentionSeconds: 86400, ArchiveTimeoutSeconds: 600, ArchiveMaxAttempts: 8,
+		OutputExpiresAt: now + 3600, StartedAt: now - 20, GenerationCompletedAt: now - 10,
+		BillingFinalizedAt: now - 10, CompletedAt: now - 5,
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.StorageObject{
+		BusinessID: model.StorageObjectBusinessAsyncImages, ResourceID: "img_task_detail", ObjectIndex: 0,
+		Provider: model.StorageObjectProviderS3, Status: model.StorageObjectStatusAvailable,
+		Endpoint: "https://s3.example.com", Region: "test-region", Bucket: "test-bucket",
+		ObjectKey: "prod/user-files/test.img", MimeType: "image/png", Extension: "png",
+		SizeBytes: 128, ETag: "test-etag", UploadedAt: now - 5, ExpiresAt: now + 3600,
+		StagingRelativePath: "42/2026/07/img_task_detail/0.img",
+		StagingStatus:       model.StorageStagingAvailable, StagingSizeBytes: 128, StagedAt: now - 10,
+	}).Error)
+}
+
+func TestAsyncImageTaskDetailReturnsPreviewAndDownloadURLs(t *testing.T) {
+	setupAsyncImageDetailTest(t)
+	createAsyncImageDetailFixture(t)
+	storage := &asyncImageDetailTestStorage{}
+	originalFactory := objectstorage.NewStorage
+	objectstorage.NewStorage = func(context.Context, objectstorage.Config) (objectstorage.Storage, error) {
+		return storage, nil
+	}
+	t.Cleanup(func() { objectstorage.NewStorage = originalFactory })
+
+	recorder := httptest.NewRecorder()
+	ginContext, _ := gin.CreateTestContext(recorder)
+	ginContext.Params = gin.Params{{Key: "task_id", Value: "img_task_detail"}}
+	ginContext.Request = httptest.NewRequest(http.MethodGet, "/api/async-image-task/img_task_detail", nil)
+	GetAsyncImageTaskDetail(ginContext)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response struct {
+		Success bool                 `json:"success"`
+		Data    asyncImageTaskDetail `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.True(t, response.Success)
+	assert.Equal(t, "red apple", response.Data.Request.(map[string]any)["prompt"])
+	require.Len(t, response.Data.Objects, 1)
+	assert.Equal(t, "https://storage.example/preview", response.Data.Objects[0].PreviewURL)
+	assert.Equal(t, "https://storage.example/download", response.Data.Objects[0].DownloadURL)
+	assert.Equal(t, "prod/user-files/test.img", response.Data.Objects[0].ObjectKey)
+	require.Len(t, storage.presignInputs, 2)
+	assert.Contains(t, storage.presignInputs[0].ResponseDisposition, "inline;")
+	assert.Contains(t, storage.presignInputs[1].ResponseDisposition, "attachment;")
+	assert.NotContains(t, recorder.Body.String(), "secret-that-must-not-leak")
+	assert.NotContains(t, recorder.Body.String(), "42/2026/07/img_task_detail/0.img")
+}
+
+func TestSelfAsyncImageTaskDetailEnforcesOwnershipAndHidesStorageLocation(t *testing.T) {
+	setupAsyncImageDetailTest(t)
+	createAsyncImageDetailFixture(t)
+	storage := &asyncImageDetailTestStorage{}
+	originalFactory := objectstorage.NewStorage
+	objectstorage.NewStorage = func(context.Context, objectstorage.Config) (objectstorage.Storage, error) {
+		return storage, nil
+	}
+	t.Cleanup(func() { objectstorage.NewStorage = originalFactory })
+
+	recorder := httptest.NewRecorder()
+	ginContext, _ := gin.CreateTestContext(recorder)
+	ginContext.Params = gin.Params{{Key: "task_id", Value: "img_task_detail"}}
+	ginContext.Set("id", 42)
+	ginContext.Request = httptest.NewRequest(http.MethodGet, "/api/async-image-task/self/img_task_detail", nil)
+	GetSelfAsyncImageTaskDetail(ginContext)
+	require.NotContains(t, recorder.Body.String(), "prod/user-files/test.img")
+	require.NotContains(t, recorder.Body.String(), "test-bucket")
+	require.Contains(t, recorder.Body.String(), "https://storage.example/preview")
+
+	recorder = httptest.NewRecorder()
+	ginContext, _ = gin.CreateTestContext(recorder)
+	ginContext.Params = gin.Params{{Key: "task_id", Value: "img_task_detail"}}
+	ginContext.Set("id", 43)
+	ginContext.Request = httptest.NewRequest(http.MethodGet, "/api/async-image-task/self/img_task_detail", nil)
+	GetSelfAsyncImageTaskDetail(ginContext)
+	assert.NotContains(t, recorder.Body.String(), "red apple")
+}
+
+var _ objectstorage.Storage = (*asyncImageDetailTestStorage)(nil)

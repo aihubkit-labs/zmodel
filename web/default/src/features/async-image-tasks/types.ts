@@ -37,6 +37,66 @@ export type AsyncImageTask = {
   actual_quota?: number
 }
 
+export type AsyncImageTaskObject = {
+  index: number
+  status: string
+  staging_status: string
+  mime_type: string
+  extension: string
+  size_bytes: number
+  staging_size_bytes: number
+  uploaded_at: number
+  expires_at: number
+  staged_at: number
+  deleted_at: number
+  delete_attempts: number
+  preview_url?: string
+  download_url?: string
+  url_unavailable?: boolean
+  provider?: string
+  endpoint?: string
+  region?: string
+  bucket?: string
+  object_key?: string
+  etag?: string
+  last_error?: string
+}
+
+export type AsyncImageTaskDetail = {
+  task_id: string
+  user_id: number
+  token_id?: number
+  model: string
+  status: string
+  output_availability: string
+  billing_status: string
+  billing_source: string
+  subscription_id?: number
+  reserved_quota: number
+  actual_quota: number
+  using_group: string
+  last_channel_id?: number
+  request?: unknown
+  retention_seconds: number
+  archive_timeout_seconds: number
+  archive_max_attempts: number
+  archive_attempts: number
+  archive_retry_deadline_at: number
+  next_attempt_at: number
+  source_kind: string
+  error_code?: string
+  error?: string
+  created_at: number
+  started_at: number
+  generation_completed_at: number
+  billing_finalized_at: number
+  completed_at: number
+  updated_at: number
+  output_expires_at: number
+  manually_recovered_at: number
+  objects: AsyncImageTaskObject[]
+}
+
 export type AsyncImageTaskList = {
   items: AsyncImageTask[]
   total: number
