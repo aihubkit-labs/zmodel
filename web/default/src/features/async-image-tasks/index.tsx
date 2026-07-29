@@ -108,16 +108,16 @@ type ColumnVisibility = Record<HideableColumnId, boolean>
 type ColumnVisibilityScope = 'admin' | 'user'
 
 const columnVisibilityStorageKeys: Record<ColumnVisibilityScope, string> = {
-  admin: 'async-image-tasks:admin:column-visibility:v1',
-  user: 'async-image-tasks:user:column-visibility:v1',
+  admin: 'async-image-tasks:admin:column-visibility:v2',
+  user: 'async-image-tasks:user:column-visibility:v2',
 }
 
 const defaultColumnVisibility: ColumnVisibility = {
   submit_time: true,
   end_time: true,
-  channel: false,
+  channel: true,
   user: true,
-  group: false,
+  group: true,
   platform: false,
   model: true,
   duration: true,
@@ -137,9 +137,9 @@ const hideableColumns: Array<{
 }> = [
   { id: 'submit_time', label: 'Submit Time' },
   { id: 'end_time', label: 'End Time' },
-  { id: 'channel', label: 'Channel', rootOnly: true },
   { id: 'user', label: 'User', rootOnly: true },
   { id: 'group', label: 'Group' },
+  { id: 'channel', label: 'Channel', rootOnly: true },
   { id: 'platform', label: 'Platform', rootOnly: true },
   { id: 'model', label: 'Model' },
   { id: 'duration', label: 'Duration' },
@@ -446,15 +446,15 @@ export function AsyncImageTasksPage() {
                   {columnVisibility.end_time && (
                     <TableHead>{t('End Time')}</TableHead>
                   )}
-                  {root && columnVisibility.channel && (
-                    <TableHead>{t('Channel')}</TableHead>
-                  )}
                   {root && columnVisibility.user && (
                     <TableHead>{t('User')}</TableHead>
                   )}
                   <TableHead>{t('Task ID')}</TableHead>
                   {columnVisibility.group && (
                     <TableHead>{t('Group')}</TableHead>
+                  )}
+                  {root && columnVisibility.channel && (
+                    <TableHead>{t('Channel')}</TableHead>
                   )}
                   {root && columnVisibility.platform && (
                     <TableHead>{t('Platform')}</TableHead>
@@ -530,11 +530,6 @@ export function AsyncImageTasksPage() {
                           {formatTaskTime(task.completed_at)}
                         </TableCell>
                       )}
-                      {root && columnVisibility.channel && (
-                        <TableCell className='max-w-44 truncate'>
-                          {channelLabel}
-                        </TableCell>
-                      )}
                       {root && columnVisibility.user && (
                         <TableCell className='max-w-40 truncate'>
                           {task.username || `${t('User ID')}: ${task.user_id}`}
@@ -549,6 +544,11 @@ export function AsyncImageTasksPage() {
                       {columnVisibility.group && (
                         <TableCell className='max-w-32 truncate'>
                           {task.using_group || '-'}
+                        </TableCell>
+                      )}
+                      {root && columnVisibility.channel && (
+                        <TableCell className='max-w-44 truncate'>
+                          {channelLabel}
                         </TableCell>
                       )}
                       {root && columnVisibility.platform && (

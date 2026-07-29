@@ -3871,6 +3871,7 @@
     "Request Model:": "リクエストモデル：",
     "Request overrides, routing behavior, and upstream model automation": "リクエスト上書き、ルーティング動作、上流モデル自動化",
     "Request parameters": "リクエストパラメータ",
+    "Request parameters were not retained for this historical task": "過去のタスクではリクエストパラメータが保存されていません",
     "Request retry": "リクエスト再試行",
     "Request rule pricing": "リクエストルールの課金",
     "Request success rate sampled over the last 24 hours": "過去 24 時間にサンプリングされたリクエスト成功率",

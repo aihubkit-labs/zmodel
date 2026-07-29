@@ -598,6 +598,8 @@ Object.assign(newKeys.en, {
   'Secret Access Key': 'Secret Access Key',
   'Leave blank to keep the existing secret':
     'Leave blank to keep the existing secret',
+  'Request parameters were not retained for this historical task':
+    'Request parameters were not retained for this historical task',
   'Retry selected uploads': 'Retry selected uploads',
   'Retry all failed image uploads': 'Retry all failed image uploads',
   'Retry selected': 'Retry selected',
@@ -662,6 +664,8 @@ Object.assign(newKeys.zh, {
   'Leave blank to use the standard AWS endpoint.': '留空则使用 AWS 标准端点。',
   'Secret Access Key': 'Secret 访问密钥',
   'Leave blank to keep the existing secret': '留空以保留现有 Secret',
+  'Request parameters were not retained for this historical task':
+    '历史任务未保留请求参数',
   'Retry selected uploads': '重新上传选中项',
   'Retry all failed image uploads': '重新上传全部失败的图片文件',
   'Retry selected': '重新上传选中项',
@@ -726,6 +730,8 @@ Object.assign(newKeys['zh-TW'], {
   'Leave blank to use the standard AWS endpoint.': '留空以使用 AWS 標準端點。',
   'Secret Access Key': 'Secret Access Key',
   'Leave blank to keep the existing secret': '留空以保留現有 Secret',
+  'Request parameters were not retained for this historical task':
+    '歷史任務未保留請求參數',
   'Retry selected uploads': '重新上傳所選項目',
   'Retry all failed image uploads': '重新上傳全部失敗的圖片檔案',
   'Retry selected': '重新上傳所選項目',
@@ -793,6 +799,8 @@ Object.assign(newKeys.fr, {
   'Secret Access Key': 'Clé d’accès secrète',
   'Leave blank to keep the existing secret':
     'Laissez vide pour conserver le secret actuel',
+  'Request parameters were not retained for this historical task':
+    "Les paramètres de requête n'ont pas été conservés pour cette tâche historique",
   'Retry selected uploads': 'Relancer les envois sélectionnés',
   'Retry all failed image uploads': 'Relancer tous les envois d’images échoués',
   'Retry selected': 'Relancer la sélection',
@@ -859,6 +867,8 @@ Object.assign(newKeys.ja, {
   'Secret Access Key': 'シークレットアクセスキー',
   'Leave blank to keep the existing secret':
     '既存のシークレットを維持する場合は空欄',
+  'Request parameters were not retained for this historical task':
+    '過去のタスクではリクエストパラメータが保存されていません',
   'Retry selected uploads': '選択したアップロードを再試行',
   'Retry all failed image uploads': '失敗した画像アップロードをすべて再試行',
   'Retry selected': '選択項目を再試行',
@@ -926,6 +936,8 @@ Object.assign(newKeys.ru, {
   'Secret Access Key': 'Секретный ключ доступа',
   'Leave blank to keep the existing secret':
     'Оставьте пустым, чтобы сохранить текущий секрет',
+  'Request parameters were not retained for this historical task':
+    'Параметры запроса не сохранены для этой исторической задачи',
   'Retry selected uploads': 'Повторить выбранные загрузки',
   'Retry all failed image uploads':
     'Повторить все неудачные загрузки изображений',
@@ -993,6 +1005,8 @@ Object.assign(newKeys.vi, {
     'Để trống để dùng điểm cuối AWS tiêu chuẩn.',
   'Secret Access Key': 'Secret Access Key',
   'Leave blank to keep the existing secret': 'Để trống để giữ bí mật hiện tại',
+  'Request parameters were not retained for this historical task':
+    'Các tham số yêu cầu không được lưu cho tác vụ cũ này',
   'Retry selected uploads': 'Thử lại các tệp đã chọn',
   'Retry all failed image uploads': 'Thử lại toàn bộ ảnh tải lên thất bại',
   'Retry selected': 'Thử lại mục đã chọn',

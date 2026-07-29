@@ -28,6 +28,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { cn } from '@/lib/utils'
 
 import { getAsyncImageTaskDetail } from '../api'
 import type {
@@ -227,6 +228,15 @@ function ObjectPreview(props: {
   )
 }
 
+function DetailSection(props: { title: string; children: ReactNode }) {
+  return (
+    <section className='flex flex-col gap-2'>
+      <h3 className='text-sm font-medium'>{props.title}</h3>
+      <dl className='rounded-md border px-3'>{props.children}</dl>
+    </section>
+  )
+}
+
 function LoadedTaskDetail(props: {
   detail: AsyncImageTaskDetail
   root: boolean
@@ -235,13 +245,12 @@ function LoadedTaskDetail(props: {
   const detail = props.detail
 
   return (
-    <div className='space-y-5'>
+    <div className='flex flex-col gap-5'>
       <TaskImages detail={detail} root={props.root} />
 
-      <div className='grid gap-5 lg:grid-cols-2'>
-        <section className='space-y-2'>
-          <h3 className='text-sm font-medium'>{t('Generation details')}</h3>
-          <dl className='rounded-md border px-3'>
+      <div className='grid items-start gap-5 lg:grid-cols-2'>
+        <div className='flex flex-col gap-5'>
+          <DetailSection title={t('Generation details')}>
             <DetailItem label={t('Task ID')}>
               <span className='inline-flex max-w-full items-center gap-1'>
                 <span className='truncate font-mono text-xs'>
@@ -252,11 +261,8 @@ function LoadedTaskDetail(props: {
             </DetailItem>
             {props.root ? (
               <DetailItem label={t('User')}>
-                {detail.username || detail.user_id}
+                {detail.username || '-'}
               </DetailItem>
-            ) : null}
-            {props.root ? (
-              <DetailItem label={t('User ID')}>{detail.user_id}</DetailItem>
             ) : null}
             <DetailItem label={t('Model')}>{detail.model}</DetailItem>
             <DetailItem label={t('Group')}>
@@ -268,18 +274,8 @@ function LoadedTaskDetail(props: {
               </DetailItem>
             ) : null}
             {props.root ? (
-              <DetailItem label={t('Channel ID')}>
-                {detail.last_channel_id || '-'}
-              </DetailItem>
-            ) : null}
-            {props.root ? (
               <DetailItem label={t('Platform')}>
                 {detail.platform || '-'}
-              </DetailItem>
-            ) : null}
-            {props.root ? (
-              <DetailItem label={t('Token ID')}>
-                {detail.token_id || '-'}
               </DetailItem>
             ) : null}
             {props.root ? (
@@ -312,30 +308,9 @@ function LoadedTaskDetail(props: {
                 <span className='font-mono text-xs'>{detail.error_code}</span>
               </DetailItem>
             ) : null}
-          </dl>
-        </section>
+          </DetailSection>
 
-        <section className='space-y-2'>
-          <h3 className='text-sm font-medium'>{t('Archive processing')}</h3>
-          <dl className='rounded-md border px-3'>
-            <DetailItem label={t('Object retention (seconds)')}>
-              {detail.retention_seconds}
-            </DetailItem>
-            <DetailItem label={t('Archive attempt timeout (seconds)')}>
-              {detail.archive_timeout_seconds}
-            </DetailItem>
-            <DetailItem label={t('Maximum archive attempts')}>
-              {detail.archive_max_attempts}
-            </DetailItem>
-            <DetailItem label={t('Archive attempts')}>
-              {detail.archive_attempts}
-            </DetailItem>
-          </dl>
-        </section>
-
-        <section className='space-y-2'>
-          <h3 className='text-sm font-medium'>{t('Billing')}</h3>
-          <dl className='rounded-md border px-3'>
+          <DetailSection title={t('Billing')}>
             <DetailItem label={t('Billing status')}>
               <StatusValue value={detail.billing_status} />
             </DetailItem>
@@ -348,12 +323,26 @@ function LoadedTaskDetail(props: {
             <DetailItem label={t('Actual quota')}>
               {detail.actual_quota}
             </DetailItem>
-          </dl>
-        </section>
+          </DetailSection>
+        </div>
 
-        <section className='space-y-2'>
-          <h3 className='text-sm font-medium'>{t('Lifecycle')}</h3>
-          <dl className='rounded-md border px-3'>
+        <div className='flex flex-col gap-5'>
+          <DetailSection title={t('Archive processing')}>
+            <DetailItem label={t('Object retention (seconds)')}>
+              {detail.retention_seconds}
+            </DetailItem>
+            <DetailItem label={t('Archive attempt timeout (seconds)')}>
+              {detail.archive_timeout_seconds}
+            </DetailItem>
+            <DetailItem label={t('Maximum archive attempts')}>
+              {detail.archive_max_attempts}
+            </DetailItem>
+            <DetailItem label={t('Archive attempts')}>
+              {detail.archive_attempts}
+            </DetailItem>
+          </DetailSection>
+
+          <DetailSection title={t('Lifecycle')}>
             <DetailItem label={t('Created at')}>
               {formatTime(detail.created_at)}
             </DetailItem>
@@ -384,16 +373,22 @@ function LoadedTaskDetail(props: {
             <DetailItem label={t('Manually recovered at')}>
               {formatTime(detail.manually_recovered_at)}
             </DetailItem>
-          </dl>
-        </section>
-
-        <section className='space-y-2 lg:col-span-2'>
-          <h3 className='text-sm font-medium'>{t('Request parameters')}</h3>
-          <pre className='bg-muted/30 text-muted-foreground max-h-80 overflow-auto rounded-md border p-3 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap'>
-            {detail.request ? JSON.stringify(detail.request, null, 2) : '-'}
-          </pre>
-        </section>
+          </DetailSection>
+        </div>
       </div>
+
+      <section className='flex flex-col gap-2'>
+        <h3 className='text-sm font-medium'>{t('Request parameters')}</h3>
+        {detail.request ? (
+          <pre className='bg-muted/30 text-muted-foreground max-h-80 overflow-auto rounded-md border p-3 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap'>
+            {JSON.stringify(detail.request, null, 2)}
+          </pre>
+        ) : (
+          <div className='bg-muted/30 text-muted-foreground rounded-md border p-3 text-sm'>
+            {t('Request parameters were not retained for this historical task')}
+          </div>
+        )}
+      </section>
     </div>
   )
 }
@@ -402,10 +397,15 @@ function TaskImages(props: { detail: AsyncImageTaskDetail; root: boolean }) {
   const { t } = useTranslation()
 
   return (
-    <section className='space-y-3'>
+    <section className='flex flex-col gap-3'>
       <h3 className='text-sm font-medium'>{t('Images')}</h3>
       {props.detail.objects.length > 0 ? (
-        <div className='grid gap-3 md:grid-cols-2'>
+        <div
+          className={cn(
+            'grid gap-3',
+            props.detail.objects.length > 1 && 'md:grid-cols-2'
+          )}
+        >
           {props.detail.objects.map((object) => (
             <ObjectPreview
               key={object.index}
