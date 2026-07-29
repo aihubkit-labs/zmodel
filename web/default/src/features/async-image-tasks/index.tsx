@@ -64,6 +64,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { ROLE } from '@/lib/roles'
+import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
@@ -76,16 +77,9 @@ import { AsyncImageTaskDetailsDialog } from './components/task-details-dialog'
 import type { AsyncImageTask } from './types'
 
 const pageSize = 20
-const statusOptions = ['', 'queued', 'running', 'succeeded', 'failed']
-const outputOptions = [
-  '',
-  'pending',
-  'archiving',
-  'available',
-  'expired',
-  'failed',
-]
-const billingOptions = ['', 'reserved', 'settled', 'refunded']
+const statusOptions = ['queued', 'running', 'succeeded', 'failed']
+const outputOptions = ['pending', 'archiving', 'available', 'expired', 'failed']
+const billingOptions = ['reserved', 'settled', 'refunded']
 
 type HideableColumnId =
   | 'submit_time'
@@ -691,26 +685,37 @@ type StatusSelectProps = {
 
 function StatusSelect(props: StatusSelectProps) {
   const { t } = useTranslation()
+  const items = [
+    { value: 'all', label: t('All') },
+    ...props.options.map((option) => ({
+      value: option,
+      label: t(option === 'available' ? 'Uploaded' : option),
+    })),
+  ]
+  const selectedLabel =
+    items.find((item) => item.value === props.value)?.label ?? props.placeholder
+
   return (
     <Select
+      items={items}
       value={props.value || 'all'}
       onValueChange={(value) => {
         if (value !== null) props.onChange(value === 'all' ? '' : value)
       }}
     >
       <SelectTrigger className='w-full'>
-        <SelectValue placeholder={props.placeholder} />
+        <SelectValue className={cn(!props.value && 'text-muted-foreground')}>
+          {selectedLabel}
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         <SelectGroup>
           <SelectItem value='all'>{t('All')}</SelectItem>
-          {props.options
-            .filter((option) => option !== '')
-            .map((option) => (
-              <SelectItem key={option} value={option}>
-                {t(option === 'available' ? 'Uploaded' : option)}
-              </SelectItem>
-            ))}
+          {items.slice(1).map((item) => (
+            <SelectItem key={item.value} value={item.value}>
+              {item.label}
+            </SelectItem>
+          ))}
         </SelectGroup>
       </SelectContent>
     </Select>
