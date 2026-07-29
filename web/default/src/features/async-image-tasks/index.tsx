@@ -545,9 +545,7 @@ export function AsyncImageTasksPage() {
                       )}
                       {root && columnVisibility.user && (
                         <TableCell className='max-w-40 truncate'>
-                          {task.username
-                            ? `${task.username} (#${task.user_id})`
-                            : task.user_id}
+                          {task.username || `${t('User ID')}: ${task.user_id}`}
                         </TableCell>
                       )}
                       <TableCell
