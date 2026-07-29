@@ -30,42 +30,37 @@ var onePixelPNG = []byte{
 	0x42, 0x60, 0x82,
 }
 
-func TestAsyncImageStagingUsesPersistedDirectoryBeforeEnvironmentFallback(t *testing.T) {
-	allowedRoot := t.TempDir()
-	persistedRoot := filepath.Join(allowedRoot, "persisted")
-	legacyRoot := filepath.Join(allowedRoot, "legacy")
-	t.Setenv(asyncImageStagingAllowedRootsEnv, allowedRoot)
-	t.Setenv(asyncImageStagingEnv, legacyRoot)
+func setAsyncImageStagingDirectory(t *testing.T, directory string) {
+	t.Helper()
 	common.OptionMapRWMutex.Lock()
 	originalOptions := common.OptionMap
-	common.OptionMap = map[string]string{storage_setting.OptionStagingDirectory: persistedRoot}
+	options := make(map[string]string, len(originalOptions)+1)
+	for key, value := range originalOptions {
+		options[key] = value
+	}
+	options[storage_setting.OptionStagingDirectory] = directory
+	common.OptionMap = options
 	common.OptionMapRWMutex.Unlock()
 	t.Cleanup(func() {
 		common.OptionMapRWMutex.Lock()
 		common.OptionMap = originalOptions
 		common.OptionMapRWMutex.Unlock()
 	})
+}
+
+func TestAsyncImageStagingUsesAdminConfiguredDirectory(t *testing.T) {
+	persistedRoot := filepath.Join(t.TempDir(), "persisted")
+	setAsyncImageStagingDirectory(t, persistedRoot)
 
 	require.NoError(t, CheckAsyncImageStaging())
 	assert.DirExists(t, persistedRoot)
-	assert.NoDirExists(t, legacyRoot)
 	entries, err := os.ReadDir(persistedRoot)
 	require.NoError(t, err)
 	assert.Empty(t, entries)
 }
 
-func TestCheckAsyncImageStagingDirectoryRejectsPathOutsideAllowedRoots(t *testing.T) {
-	allowedRoot := t.TempDir()
-	outsideRoot := t.TempDir()
-	t.Setenv(asyncImageStagingAllowedRootsEnv, allowedRoot)
-
-	err := CheckAsyncImageStagingDirectory(outsideRoot)
-	require.ErrorContains(t, err, asyncImageStagingAllowedRootsEnv)
-}
-
-func TestCheckAsyncImageStagingDirectoryAllowsAdminPathWithoutAllowedRoots(t *testing.T) {
+func TestCheckAsyncImageStagingDirectoryProbesAdminPath(t *testing.T) {
 	stagingRoot := filepath.Join(t.TempDir(), "admin-configured")
-	t.Setenv(asyncImageStagingAllowedRootsEnv, "")
 
 	require.NoError(t, CheckAsyncImageStagingDirectory(stagingRoot))
 	assert.DirExists(t, stagingRoot)
@@ -79,7 +74,7 @@ func TestStageAsyncImageResponseNormalizesBase64AndDataURI(t *testing.T) {
 	constant.MaxFileDownloadMB = 1
 	t.Cleanup(func() { constant.MaxFileDownloadMB = originalLimit })
 	root := t.TempDir()
-	t.Setenv(asyncImageStagingEnv, root)
+	setAsyncImageStagingDirectory(t, root)
 	encoded := base64.StdEncoding.EncodeToString(onePixelPNG)
 	response := &dto.ImageResponse{Data: []dto.ImageData{
 		{B64Json: encoded, RevisedPrompt: "first"},
@@ -114,7 +109,7 @@ func TestReadStagedImageRejectsTampering(t *testing.T) {
 	constant.MaxFileDownloadMB = 1
 	t.Cleanup(func() { constant.MaxFileDownloadMB = originalLimit })
 	root := t.TempDir()
-	t.Setenv(asyncImageStagingEnv, root)
+	setAsyncImageStagingDirectory(t, root)
 	encoded := base64.StdEncoding.EncodeToString(onePixelPNG)
 	manifest, _, err := StageAsyncImageResponse(context.Background(), 42, "task_stage_integrity", &dto.ImageResponse{
 		Data: []dto.ImageData{{B64Json: encoded}},
@@ -137,7 +132,7 @@ func TestStageAsyncImageResponseRejectsInvalidImageBytes(t *testing.T) {
 	originalLimit := constant.MaxFileDownloadMB
 	constant.MaxFileDownloadMB = 1
 	t.Cleanup(func() { constant.MaxFileDownloadMB = originalLimit })
-	t.Setenv(asyncImageStagingEnv, t.TempDir())
+	setAsyncImageStagingDirectory(t, t.TempDir())
 	encoded := base64.StdEncoding.EncodeToString([]byte("not an image payload"))
 
 	_, _, err := StageAsyncImageResponse(context.Background(), 42, "task_stage_invalid", &dto.ImageResponse{
@@ -150,7 +145,7 @@ func TestStageAsyncImageResponseRejectsInvalidImageBytes(t *testing.T) {
 func TestCleanupOrphanedAsyncImageStagingPreservesReferencedFiles(t *testing.T) {
 	truncate(t)
 	root := t.TempDir()
-	t.Setenv(asyncImageStagingEnv, root)
+	setAsyncImageStagingDirectory(t, root)
 	oldTime := time.Now().Add(-2 * time.Hour)
 
 	referencedRelative := filepath.Join("42", "2026", "07", "task_referenced", "0.img")

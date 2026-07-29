@@ -602,10 +602,8 @@ URL 使用现有 SSRF 保护下载能力，限制重定向、私网地址和下�
 持久存储。单节点部署可使用持久磁盘；多节点部署必须把同一共享持久卷以一致根目录挂载到所有
 Worker。没有共享卷时禁止启用多节点异步图片 Worker，避免任务被另一个节点领取却无法读取源文件。
 
-部署侧可选使用 `ASYNC_IMAGE_STAGING_ALLOWED_ROOTS` 声明后台可选目录的安全边界，支持系统路径列表
-分隔符或逗号分隔，例如 `/data/zmodel,/mnt/shared`。配置该变量后，后台目录必须是列表中某个根目录
-本身或其子目录；未配置时，Root 可保存任意非文件系统根目录的绝对路径。为兼容升级，数据库 Option
-为空时暂时回退到 `ASYNC_IMAGE_STAGING_DIR`；一旦 Root 在页面保存，运行时优先使用 Option。
+暂存目录统一由 Root 后台保存到 `ObjectStorageStagingDirectory` Option，不提供环境变量来源或
+回退路径。后台只接受非文件系统根目录的绝对路径，并在保存前执行本地文件探针。
 
 暂存路径只由系统生成，格式为：
 
@@ -1047,7 +1045,7 @@ S3 返回成功或对象不存在都视为删除成功，写入 `status=deleted`
 | `ObjectStorageS3Bucket` | 空 | 配置存储时必填，不允许空白字符 |
 | `ObjectStorageS3AccessKey` | 空 | 配置存储时必填 |
 | `ObjectStorageS3SecretAccessKey` | 空 | 按已确认方案以明文存入 Option 表；读取 API 永不返回 |
-| `ObjectStorageStagingDirectory` | 空 | 绝对路径，不能是文件系统根目录；部署配置允许根目录时还须位于其范围内 |
+| `ObjectStorageStagingDirectory` | 空 | 只通过 Root 后台配置；绝对路径，不能是文件系统根目录 |
 | `ObjectStorageRetentionSeconds` | `86400` | 60 到 31536000 |
 | `ObjectStoragePresignSeconds` | `600` | 60 到 604800，实际签名受对象剩余寿命限制 |
 | `ObjectStorageArchiveTimeoutSeconds` | `600` | 1 到 1200 |
@@ -1062,11 +1060,8 @@ S3 返回成功或对象不存在都视为删除成功，写入 `status=deleted`
 `fsync`、原子重命名、读取和删除探针。若存在 `queued/running` 异步任务，或仍有
 `pending/available/failed/delete_pending` 暂存对象，拒绝切换目录，避免相对路径失去原根目录。
 部署系统仍负责把后台配置的同一共享卷挂载到每个节点的相同绝对路径；数据库配置不能替代卷挂载。
-`ASYNC_IMAGE_STAGING_ALLOWED_ROOTS` 是可选的部署加固项，配置后限制 Root 可选路径，不配置则不增加
-该范围限制。服务健康检查单独暴露暂存卷不可写、容量不足或共享卷不可达状态。
-
-配置优先级为 `ObjectStorageStagingDirectory` Option > `ASYNC_IMAGE_STAGING_DIR` 兼容回退。环境变量
-只用于尚未完成后台迁移的旧部署，不覆盖已经保存的 Option。
+运行时只读取 `ObjectStorageStagingDirectory` Option。服务健康检查单独暴露暂存卷不可写、容量不足
+或共享卷不可达状态。
 
 ### 19.2 Secret 来源和持久化
 

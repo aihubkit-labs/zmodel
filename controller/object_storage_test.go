@@ -136,7 +136,6 @@ func TestObjectStorageProbeRequiresCleanupPermission(t *testing.T) {
 
 func TestUpdateObjectStorageSettingsDoesNotExposeProviderProbeError(t *testing.T) {
 	stagingDirectory := t.TempDir()
-	t.Setenv("ASYNC_IMAGE_STAGING_ALLOWED_ROOTS", stagingDirectory)
 	common.OptionMapRWMutex.Lock()
 	originalOptions := common.OptionMap
 	common.OptionMap = map[string]string{

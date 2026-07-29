@@ -23,11 +23,6 @@ import (
 	"github.com/QuantumNous/new-api/setting/storage_setting"
 )
 
-const (
-	asyncImageStagingEnv             = storage_setting.EnvStagingDirectory
-	asyncImageStagingAllowedRootsEnv = "ASYNC_IMAGE_STAGING_ALLOWED_ROOTS"
-)
-
 type AsyncImageStageErrorKind string
 
 const (
@@ -421,26 +416,7 @@ func validatedAsyncImageStagingRoot(directory string) (string, error) {
 	if filepath.Dir(root) == root {
 		return "", errors.New("async image staging directory cannot be a filesystem root")
 	}
-	allowedRoots := strings.TrimSpace(os.Getenv(asyncImageStagingAllowedRootsEnv))
-	if allowedRoots == "" {
-		return root, nil
-	}
-	allowedRoots = strings.ReplaceAll(allowedRoots, ",", string(os.PathListSeparator))
-	for _, allowedRoot := range filepath.SplitList(allowedRoots) {
-		allowedRoot = strings.TrimSpace(allowedRoot)
-		if allowedRoot == "" || !filepath.IsAbs(allowedRoot) {
-			continue
-		}
-		allowedRoot, err = filepath.Abs(allowedRoot)
-		if err != nil {
-			continue
-		}
-		relative, err := filepath.Rel(allowedRoot, root)
-		if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-			return root, nil
-		}
-	}
-	return "", fmt.Errorf("async image staging directory is outside %s", asyncImageStagingAllowedRootsEnv)
+	return root, nil
 }
 
 func safeStagingPath(root string, relativePath string) (string, error) {

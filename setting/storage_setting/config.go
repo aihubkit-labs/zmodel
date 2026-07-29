@@ -3,7 +3,6 @@ package storage_setting
 import (
 	"errors"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -30,7 +29,6 @@ const (
 	DefaultArchiveMaxAttempts             = 8
 	DefaultArchiveRetryWindow       int64 = 21600
 	DefaultCleanupInterval          int64 = 900
-	EnvStagingDirectory                   = "ASYNC_IMAGE_STAGING_DIR"
 )
 
 type Settings struct {
@@ -51,17 +49,13 @@ type Settings struct {
 func GetSettings() Settings {
 	common.OptionMapRWMutex.RLock()
 	defer common.OptionMapRWMutex.RUnlock()
-	stagingDirectory := strings.TrimSpace(common.OptionMap[OptionStagingDirectory])
-	if stagingDirectory == "" {
-		stagingDirectory = strings.TrimSpace(os.Getenv(EnvStagingDirectory))
-	}
 	return Settings{
 		Endpoint:                  strings.TrimSpace(common.OptionMap[OptionS3Endpoint]),
 		Region:                    strings.TrimSpace(common.OptionMap[OptionS3Region]),
 		Bucket:                    strings.TrimSpace(common.OptionMap[OptionS3Bucket]),
 		AccessKey:                 strings.TrimSpace(common.OptionMap[OptionS3AccessKey]),
 		SecretAccessKey:           common.OptionMap[OptionS3SecretAccessKey],
-		StagingDirectory:          stagingDirectory,
+		StagingDirectory:          strings.TrimSpace(common.OptionMap[OptionStagingDirectory]),
 		RetentionSeconds:          parseInt64(common.OptionMap[OptionRetentionSeconds], DefaultRetentionSeconds),
 		PresignSeconds:            parseInt64(common.OptionMap[OptionPresignSeconds], DefaultPresignSeconds),
 		ArchiveTimeoutSeconds:     parseInt64(common.OptionMap[OptionArchiveTimeoutSeconds], DefaultArchiveTimeout),
