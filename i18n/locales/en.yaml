@@ -29,6 +29,8 @@ object_storage.probe_connection_failed: "Object storage connection probe failed.
 object_storage.probe_write_failed: "Object storage write probe failed. Check PutObject permission for the async image prefix."
 object_storage.probe_verify_failed: "Object storage verification probe failed. Check HeadObject permission for the async image prefix."
 object_storage.probe_cleanup_failed: "Object storage cleanup probe failed. Check DeleteObject permission for the async image prefix."
+object_storage.staging_directory_in_use: "The persistent staging directory cannot be changed while async image tasks or retained staged files exist."
+object_storage.staging_directory_unavailable: "The persistent staging directory is unavailable. Check its allowed root, mount, and read/write permissions."
 
 # Auth middleware messages
 auth.not_logged_in: "Unauthorized, not logged in and no access token provided"

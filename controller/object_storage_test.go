@@ -51,6 +51,7 @@ func (s *objectStorageProbeTestStorage) PresignGetObject(context.Context, object
 
 func TestObjectStorageSettingsAPIsNeverReturnSecret(t *testing.T) {
 	const secret = "secret-that-must-never-be-returned"
+	stagingDirectory := t.TempDir()
 	common.OptionMapRWMutex.Lock()
 	original := common.OptionMap
 	common.OptionMap = map[string]string{
@@ -59,6 +60,7 @@ func TestObjectStorageSettingsAPIsNeverReturnSecret(t *testing.T) {
 		storage_setting.OptionS3Bucket:                  "test-bucket",
 		storage_setting.OptionS3AccessKey:               "test-access-key",
 		storage_setting.OptionS3SecretAccessKey:         secret,
+		storage_setting.OptionStagingDirectory:          stagingDirectory,
 		storage_setting.OptionRetentionSeconds:          "86400",
 		storage_setting.OptionPresignSeconds:            "600",
 		storage_setting.OptionArchiveTimeoutSeconds:     "600",
@@ -83,12 +85,14 @@ func TestObjectStorageSettingsAPIsNeverReturnSecret(t *testing.T) {
 		Data    struct {
 			AccessKey        string `json:"access_key"`
 			SecretConfigured bool   `json:"secret_configured"`
+			StagingDirectory string `json:"staging_directory"`
 		} `json:"data"`
 	}
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &dedicated))
 	assert.True(t, dedicated.Success)
 	assert.Equal(t, "test-access-key", dedicated.Data.AccessKey)
 	assert.True(t, dedicated.Data.SecretConfigured)
+	assert.Equal(t, stagingDirectory, dedicated.Data.StagingDirectory)
 
 	recorder = httptest.NewRecorder()
 	context, _ = gin.CreateTestContext(recorder)
@@ -131,6 +135,8 @@ func TestObjectStorageProbeRequiresCleanupPermission(t *testing.T) {
 }
 
 func TestUpdateObjectStorageSettingsDoesNotExposeProviderProbeError(t *testing.T) {
+	stagingDirectory := t.TempDir()
+	t.Setenv("ASYNC_IMAGE_STAGING_ALLOWED_ROOTS", stagingDirectory)
 	common.OptionMapRWMutex.Lock()
 	originalOptions := common.OptionMap
 	common.OptionMap = map[string]string{
@@ -139,6 +145,7 @@ func TestUpdateObjectStorageSettingsDoesNotExposeProviderProbeError(t *testing.T
 		storage_setting.OptionS3Bucket:                  "test-bucket",
 		storage_setting.OptionS3AccessKey:               "test-access-key",
 		storage_setting.OptionS3SecretAccessKey:         "test-secret",
+		storage_setting.OptionStagingDirectory:          stagingDirectory,
 		storage_setting.OptionRetentionSeconds:          "86400",
 		storage_setting.OptionPresignSeconds:            "600",
 		storage_setting.OptionArchiveTimeoutSeconds:     "600",
@@ -167,6 +174,7 @@ func TestUpdateObjectStorageSettingsDoesNotExposeProviderProbeError(t *testing.T
 		Region:                    "test-region",
 		Bucket:                    "test-bucket",
 		AccessKey:                 "test-access-key",
+		StagingDirectory:          stagingDirectory,
 		RetentionSeconds:          86400,
 		PresignSeconds:            600,
 		ArchiveTimeoutSeconds:     600,

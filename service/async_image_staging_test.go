@@ -9,9 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/storage_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,6 +28,39 @@ var onePixelPNG = []byte{
 	0x00, 0x05, 0x00, 0x01, 0xff, 0x89, 0x99, 0x3d, 0x1d,
 	0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
 	0x42, 0x60, 0x82,
+}
+
+func TestAsyncImageStagingUsesPersistedDirectoryBeforeEnvironmentFallback(t *testing.T) {
+	allowedRoot := t.TempDir()
+	persistedRoot := filepath.Join(allowedRoot, "persisted")
+	legacyRoot := filepath.Join(allowedRoot, "legacy")
+	t.Setenv(asyncImageStagingAllowedRootsEnv, allowedRoot)
+	t.Setenv(asyncImageStagingEnv, legacyRoot)
+	common.OptionMapRWMutex.Lock()
+	originalOptions := common.OptionMap
+	common.OptionMap = map[string]string{storage_setting.OptionStagingDirectory: persistedRoot}
+	common.OptionMapRWMutex.Unlock()
+	t.Cleanup(func() {
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap = originalOptions
+		common.OptionMapRWMutex.Unlock()
+	})
+
+	require.NoError(t, CheckAsyncImageStaging())
+	assert.DirExists(t, persistedRoot)
+	assert.NoDirExists(t, legacyRoot)
+	entries, err := os.ReadDir(persistedRoot)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
+func TestCheckAsyncImageStagingDirectoryRejectsPathOutsideAllowedRoots(t *testing.T) {
+	allowedRoot := t.TempDir()
+	outsideRoot := t.TempDir()
+	t.Setenv(asyncImageStagingAllowedRootsEnv, allowedRoot)
+
+	err := CheckAsyncImageStagingDirectory(outsideRoot)
+	require.ErrorContains(t, err, asyncImageStagingAllowedRootsEnv)
 }
 
 func TestStageAsyncImageResponseNormalizesBase64AndDataURI(t *testing.T) {

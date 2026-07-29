@@ -570,6 +570,26 @@ func CountActiveStorageObjects() (int64, error) {
 	return count, err
 }
 
+func CountAsyncImageStagingInUse() (int64, error) {
+	var taskCount int64
+	if err := DB.Model(&AsyncImageTask{}).
+		Where("status IN ?", []string{AsyncImageStatusQueued, AsyncImageStatusRunning}).
+		Count(&taskCount).Error; err != nil {
+		return 0, err
+	}
+	var objectCount int64
+	if err := DB.Model(&StorageObject{}).
+		Where("business_id = ? AND staging_status IN ?", StorageObjectBusinessAsyncImages, []string{
+			StorageStagingPending,
+			StorageStagingAvailable,
+			StorageStagingFailed,
+			StorageStagingDeletePending,
+		}).Count(&objectCount).Error; err != nil {
+		return 0, err
+	}
+	return taskCount + objectCount, nil
+}
+
 type AsyncImageStorageRebindCandidate struct {
 	Task    AsyncImageTask
 	Objects []StorageObject

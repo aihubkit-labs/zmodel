@@ -20,9 +20,13 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/storage_setting"
 )
 
-const asyncImageStagingEnv = "ASYNC_IMAGE_STAGING_DIR"
+const (
+	asyncImageStagingEnv             = storage_setting.EnvStagingDirectory
+	asyncImageStagingAllowedRootsEnv = "ASYNC_IMAGE_STAGING_ALLOWED_ROOTS"
+)
 
 type AsyncImageStageErrorKind string
 
@@ -60,7 +64,11 @@ type AsyncImageManifestItem struct {
 }
 
 func CheckAsyncImageStaging() error {
-	root, err := asyncImageStagingRoot()
+	return CheckAsyncImageStagingDirectory(storage_setting.GetSettings().StagingDirectory)
+}
+
+func CheckAsyncImageStagingDirectory(directory string) error {
+	root, err := validatedAsyncImageStagingRoot(directory)
 	if err != nil {
 		return err
 	}
@@ -102,6 +110,9 @@ func CheckAsyncImageStaging() error {
 	}
 	if string(data) != "ok" {
 		return errors.New("staging read verification failed")
+	}
+	if err := os.Remove(finalPath); err != nil {
+		return err
 	}
 	return syncDirectory(root)
 }
@@ -392,11 +403,47 @@ func ReadStagedImage(item AsyncImageManifestItem) (*os.File, error) {
 }
 
 func asyncImageStagingRoot() (string, error) {
-	root := strings.TrimSpace(os.Getenv(asyncImageStagingEnv))
-	if root == "" {
-		return "", fmt.Errorf("%s is not configured", asyncImageStagingEnv)
+	return validatedAsyncImageStagingRoot(storage_setting.GetSettings().StagingDirectory)
+}
+
+func validatedAsyncImageStagingRoot(directory string) (string, error) {
+	directory = strings.TrimSpace(directory)
+	if directory == "" {
+		return "", errors.New("async image staging directory is not configured")
 	}
-	return filepath.Abs(root)
+	if !filepath.IsAbs(directory) {
+		return "", errors.New("async image staging directory must be absolute")
+	}
+	root, err := filepath.Abs(directory)
+	if err != nil {
+		return "", err
+	}
+	if filepath.Dir(root) == root {
+		return "", errors.New("async image staging directory cannot be a filesystem root")
+	}
+	allowedRoots := strings.TrimSpace(os.Getenv(asyncImageStagingAllowedRootsEnv))
+	if allowedRoots == "" {
+		allowedRoots = strings.TrimSpace(os.Getenv(asyncImageStagingEnv))
+	}
+	if allowedRoots == "" {
+		return "", fmt.Errorf("%s is not configured", asyncImageStagingAllowedRootsEnv)
+	}
+	allowedRoots = strings.ReplaceAll(allowedRoots, ",", string(os.PathListSeparator))
+	for _, allowedRoot := range filepath.SplitList(allowedRoots) {
+		allowedRoot = strings.TrimSpace(allowedRoot)
+		if allowedRoot == "" || !filepath.IsAbs(allowedRoot) {
+			continue
+		}
+		allowedRoot, err = filepath.Abs(allowedRoot)
+		if err != nil {
+			continue
+		}
+		relative, err := filepath.Rel(allowedRoot, root)
+		if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return root, nil
+		}
+	}
+	return "", fmt.Errorf("async image staging directory is outside %s", asyncImageStagingAllowedRootsEnv)
 }
 
 func safeStagingPath(root string, relativePath string) (string, error) {

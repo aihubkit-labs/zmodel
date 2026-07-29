@@ -39,6 +39,14 @@ export const createObjectStorageSchema = (t: (key: string) => string) =>
         ),
       access_key: z.string().trim().min(1, t('Access Key is required')),
       secret_access_key: z.string(),
+      staging_directory: z
+        .string()
+        .trim()
+        .min(1, t('Persistent staging directory is required'))
+        .refine(
+          (value) => value.startsWith('/'),
+          t('Use an absolute server path starting with /')
+        ),
       retention_seconds: z.number().int().min(60).max(31_536_000),
       presign_seconds: z.number().int().min(60).max(604_800),
       archive_timeout_seconds: z.number().int().min(1).max(1_200),

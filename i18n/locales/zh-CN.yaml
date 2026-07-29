@@ -30,6 +30,8 @@ object_storage.probe_connection_failed: "对象存储连接探针失败，请检
 object_storage.probe_write_failed: "对象存储写入探针失败，请检查异步图片前缀的 PutObject 权限。"
 object_storage.probe_verify_failed: "对象存储校验探针失败，请检查异步图片前缀的 HeadObject 权限。"
 object_storage.probe_cleanup_failed: "对象存储清理探针失败，请检查异步图片前缀的 DeleteObject 权限。"
+object_storage.staging_directory_in_use: "存在异步图片任务或保留的暂存文件时，不能修改持久暂存目录。"
+object_storage.staging_directory_unavailable: "持久暂存目录不可用，请检查允许根目录、挂载状态和读写权限。"
 
 # Auth middleware messages
 auth.not_logged_in: "无权进行此操作，未登录且未提供 access token"

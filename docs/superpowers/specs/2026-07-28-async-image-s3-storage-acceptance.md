@@ -23,17 +23,19 @@
 - 一个私有 S3 Bucket，以及可临时调整权限的验收专用 IAM 凭据。
 - 至少一个真实图片渠道；验证 Base64 和 data URI 时还需要支持相应输出的渠道或模拟渠道。
 
-部署时配置持久暂存目录和统一停机时限：
+部署时配置后台允许选择的持久卷根目录和统一停机时限：
 
 ```bash
-export ASYNC_IMAGE_STAGING_DIR=/data/zmodel/async-image-staging
+export ASYNC_IMAGE_STAGING_ALLOWED_ROOTS=/data/zmodel,/mnt/shared
 export SHUTDOWN_TIMEOUT_SECONDS=120
-mkdir -p "$ASYNC_IMAGE_STAGING_DIR"
+mkdir -p /data/zmodel
 ```
 
-容器必须把 `ASYNC_IMAGE_STAGING_DIR` 挂载到持久卷。多节点部署必须让全部 Worker 使用同一个共享
-目录和一致的挂载路径。应用账号应能创建、写入、`fsync`、原子重命名和读取文件，其他系统账号不
-应具有不必要的访问权限。
+容器必须把允许根目录挂载到持久卷。多节点部署必须让全部 Worker 使用同一个共享卷和一致的挂载
+路径。应用账号应能在允许根目录下创建目录、写入、`fsync`、原子重命名、读取和删除文件，其他
+系统账号不应具有不必要的访问权限。旧部署可暂时保留
+`ASYNC_IMAGE_STAGING_DIR=/data/zmodel/async-image-staging`；数据库尚未保存目录时会回退使用该值，
+完成后台保存后以数据库 Option 为准。
 
 S3 Bucket 必须禁止匿名读取。应用凭据至少应具有
 `prod/user-files/zmodel@async-images/*` 下的 `PutObject`、`GetObject`（包括 `HeadObject`）和
@@ -67,7 +69,7 @@ AWS IAM 最小对象权限可参考以下策略，并把 `<bucket>` 替换为实
 
 1. 启动服务，确认启动过程没有数据库迁移错误。
 2. 确认数据库存在 `async_image_tasks` 和 `storage_objects` 表。
-3. 确认暂存目录位于持久卷，而不是容器临时文件系统。
+3. 确认 `ASYNC_IMAGE_STAGING_ALLOWED_ROOTS` 中的目录位于持久卷，而不是容器临时文件系统。
 4. 多节点环境分别进入各节点，确认相同相对路径指向同一文件。
 5. 执行自动化验证：
 
@@ -88,8 +90,9 @@ AWS IAM 最小对象权限可参考以下策略，并把 `<bucket>` 替换为实
 使用 Root 登录，进入“系统设置 → 对象存储”。确认进入页面后左侧仍是系统设置下钻菜单，并且
 “对象存储”菜单可见且处于选中状态。
 
-填写 Endpoint、Region、Bucket、Access Key 和 Secret Access Key。AWS S3 的 Endpoint 留空；
-MinIO 等兼容服务填写 HTTP(S) 地址。首次正常链路建议使用：
+填写 Endpoint、Region、Bucket、Access Key、Secret Access Key 和持久暂存目录。AWS S3 的
+Endpoint 留空；MinIO 等兼容服务填写 HTTP(S) 地址。持久暂存目录填写
+`/data/zmodel/async-image-staging`。首次正常链路建议使用：
 
 | 设置 | 验收值 |
 | --- | ---: |
@@ -100,8 +103,14 @@ MinIO 等兼容服务填写 HTTP(S) 地址。首次正常链路建议使用：
 | 最长重试窗口 | 300 秒 |
 | 清理间隔 | 60 秒 |
 
-保存时系统会执行随机探针对象的 `Put -> Head -> Delete`。预期保存成功，Bucket 中不遗留探针对象。
-刷新页面后 Secret 输入框必须为空，只显示“已配置”状态。
+保存时系统会先对持久暂存目录执行创建、写入、`fsync`、原子重命名、读取和删除探针，再执行 S3
+随机探针对象的 `Put -> Head -> Delete`。预期保存成功，暂存目录和 Bucket 中均不遗留探针文件。
+刷新页面后持久暂存目录保持原值；Secret 输入框必须为空，只显示“已配置”状态。
+
+把目录改为允许根目录之外的绝对路径并保存，预期拒绝且数据库原值不变。没有在途任务和保留文件
+时，把目录改为允许根目录内的另一个目录，预期探针通过并保存成功；确认后切回验收目录。若测试从
+旧版本升级，先清空 `ObjectStorageStagingDirectory` Option，确认页面读取
+`ASYNC_IMAGE_STAGING_DIR` 的兼容值，再保存并确认 Option 已落库。
 
 通过浏览器网络面板或已认证请求检查：
 
@@ -206,6 +215,9 @@ billing_status=settled
 - 任务不返回伪造或部分图片地址。
 - `{user_id}/{yyyy}/{mm}/{task_id}/{index}.img` 暂存文件仍存在且哈希校验通过。
 - Root 收到一条归档失败通知；普通上游生成失败不应发送该通知。
+
+此时在对象存储设置页尝试修改持久暂存目录，预期保存被拒绝，提示仍有异步任务或保留的暂存文件；
+原目录和数据库 Option 均不变。完成失败文件重传及暂存清理后，才允许切换目录。
 
 恢复 IAM 权限，勾选任务执行“重新上传选中的文件”。预期任务进入 `archiving` 并最终恢复为
 `available`。比较操作前后的渠道请求数和用户额度：不得再次调用上游，不得退款、补扣或重复扣费。

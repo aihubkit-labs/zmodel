@@ -3,6 +3,8 @@ package storage_setting
 import (
 	"errors"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -15,6 +17,7 @@ const (
 	OptionS3Bucket                        = "ObjectStorageS3Bucket"
 	OptionS3AccessKey                     = "ObjectStorageS3AccessKey"
 	OptionS3SecretAccessKey               = "ObjectStorageS3SecretAccessKey"
+	OptionStagingDirectory                = "ObjectStorageStagingDirectory"
 	OptionRetentionSeconds                = "ObjectStorageRetentionSeconds"
 	OptionPresignSeconds                  = "ObjectStoragePresignSeconds"
 	OptionArchiveTimeoutSeconds           = "ObjectStorageArchiveTimeoutSeconds"
@@ -27,6 +30,7 @@ const (
 	DefaultArchiveMaxAttempts             = 8
 	DefaultArchiveRetryWindow       int64 = 21600
 	DefaultCleanupInterval          int64 = 900
+	EnvStagingDirectory                   = "ASYNC_IMAGE_STAGING_DIR"
 )
 
 type Settings struct {
@@ -35,6 +39,7 @@ type Settings struct {
 	Bucket                    string `json:"bucket"`
 	AccessKey                 string `json:"access_key"`
 	SecretAccessKey           string `json:"-"`
+	StagingDirectory          string `json:"staging_directory"`
 	RetentionSeconds          int64  `json:"retention_seconds"`
 	PresignSeconds            int64  `json:"presign_seconds"`
 	ArchiveTimeoutSeconds     int64  `json:"archive_timeout_seconds"`
@@ -46,12 +51,17 @@ type Settings struct {
 func GetSettings() Settings {
 	common.OptionMapRWMutex.RLock()
 	defer common.OptionMapRWMutex.RUnlock()
+	stagingDirectory := strings.TrimSpace(common.OptionMap[OptionStagingDirectory])
+	if stagingDirectory == "" {
+		stagingDirectory = strings.TrimSpace(os.Getenv(EnvStagingDirectory))
+	}
 	return Settings{
 		Endpoint:                  strings.TrimSpace(common.OptionMap[OptionS3Endpoint]),
 		Region:                    strings.TrimSpace(common.OptionMap[OptionS3Region]),
 		Bucket:                    strings.TrimSpace(common.OptionMap[OptionS3Bucket]),
 		AccessKey:                 strings.TrimSpace(common.OptionMap[OptionS3AccessKey]),
 		SecretAccessKey:           common.OptionMap[OptionS3SecretAccessKey],
+		StagingDirectory:          stagingDirectory,
 		RetentionSeconds:          parseInt64(common.OptionMap[OptionRetentionSeconds], DefaultRetentionSeconds),
 		PresignSeconds:            parseInt64(common.OptionMap[OptionPresignSeconds], DefaultPresignSeconds),
 		ArchiveTimeoutSeconds:     parseInt64(common.OptionMap[OptionArchiveTimeoutSeconds], DefaultArchiveTimeout),
@@ -83,6 +93,16 @@ func (s Settings) Validate() error {
 	}
 	if strings.TrimSpace(s.SecretAccessKey) == "" {
 		return errors.New("secret access key is required")
+	}
+	if s.StagingDirectory == "" {
+		return errors.New("staging directory is required")
+	}
+	if len(s.StagingDirectory) > 1024 || !filepath.IsAbs(s.StagingDirectory) {
+		return errors.New("staging directory must be an absolute path of at most 1024 characters")
+	}
+	cleanStagingDirectory := filepath.Clean(s.StagingDirectory)
+	if filepath.Dir(cleanStagingDirectory) == cleanStagingDirectory {
+		return errors.New("staging directory cannot be a filesystem root")
 	}
 	if s.RetentionSeconds < 60 || s.RetentionSeconds > 31536000 {
 		return errors.New("retention seconds must be between 60 and 31536000")

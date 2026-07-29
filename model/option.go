@@ -162,6 +162,7 @@ func InitOptionMap() {
 	common.OptionMap["ObjectStorageS3Bucket"] = ""
 	common.OptionMap["ObjectStorageS3AccessKey"] = ""
 	common.OptionMap["ObjectStorageS3SecretAccessKey"] = ""
+	common.OptionMap["ObjectStorageStagingDirectory"] = ""
 	common.OptionMap["ObjectStorageRetentionSeconds"] = "86400"
 	common.OptionMap["ObjectStoragePresignSeconds"] = "600"
 	common.OptionMap["ObjectStorageArchiveTimeoutSeconds"] = "600"

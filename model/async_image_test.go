@@ -89,6 +89,32 @@ func TestCreateAsyncImageTaskWithReservationRollsBackAllFunding(t *testing.T) {
 	assert.ErrorIs(t, DB.Where("task_id = ?", "task_async_reservation_rollback").First(&AsyncImageTask{}).Error, gorm.ErrRecordNotFound)
 }
 
+func TestCountAsyncImageStagingInUseProtectsPathChanges(t *testing.T) {
+	truncateTables(t)
+	require.NoError(t, DB.Create(&AsyncImageTask{
+		TaskID:             "task_staging_path_in_use",
+		Status:             AsyncImageStatusQueued,
+		OutputAvailability: AsyncImageOutputPending,
+		BillingStatus:      AsyncImageBillingReserved,
+	}).Error)
+
+	count, err := CountAsyncImageStagingInUse()
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), count)
+
+	require.NoError(t, DB.Model(&AsyncImageTask{}).Where("task_id = ?", "task_staging_path_in_use").Update("status", AsyncImageStatusFailed).Error)
+	require.NoError(t, DB.Create(&StorageObject{
+		BusinessID:          StorageObjectBusinessAsyncImages,
+		ResourceID:          "task_retained_staging",
+		StagingRelativePath: "1/2026/07/task_retained_staging/0.img",
+		StagingStatus:       StorageStagingAvailable,
+	}).Error)
+
+	count, err = CountAsyncImageStagingInUse()
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), count)
+}
+
 func TestAsyncImageSubscriptionReservationRefundsExactlyOnce(t *testing.T) {
 	truncateTables(t)
 	require.NoError(t, DB.Create(&User{

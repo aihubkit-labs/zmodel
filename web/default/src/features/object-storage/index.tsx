@@ -50,6 +50,7 @@ const initialValues: ObjectStorageFormValues = {
   bucket: '',
   access_key: '',
   secret_access_key: '',
+  staging_directory: '',
   retention_seconds: 86_400,
   presign_seconds: 600,
   archive_timeout_seconds: 600,
@@ -217,6 +218,29 @@ export function ObjectStorageSettingsPage() {
                           {...field}
                         />
                       </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name='staging_directory'
+                  render={({ field }) => (
+                    <FormItem className='md:col-span-2'>
+                      <FormLabel>{t('Persistent staging directory')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder='/data/zmodel/async-image-staging'
+                          autoComplete='off'
+                          spellCheck={false}
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'The path must be on a persistent volume mounted at the same location on every worker node.'
+                        )}
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}

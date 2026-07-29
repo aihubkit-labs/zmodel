@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -24,6 +25,7 @@ type objectStorageSettingsResponse struct {
 	Bucket                    string `json:"bucket"`
 	AccessKey                 string `json:"access_key"`
 	SecretConfigured          bool   `json:"secret_configured"`
+	StagingDirectory          string `json:"staging_directory"`
 	RetentionSeconds          int64  `json:"retention_seconds"`
 	PresignSeconds            int64  `json:"presign_seconds"`
 	ArchiveTimeoutSeconds     int64  `json:"archive_timeout_seconds"`
@@ -38,6 +40,7 @@ type updateObjectStorageSettingsRequest struct {
 	Bucket                    string `json:"bucket"`
 	AccessKey                 string `json:"access_key"`
 	SecretAccessKey           string `json:"secret_access_key"`
+	StagingDirectory          string `json:"staging_directory"`
 	RetentionSeconds          int64  `json:"retention_seconds"`
 	PresignSeconds            int64  `json:"presign_seconds"`
 	ArchiveTimeoutSeconds     int64  `json:"archive_timeout_seconds"`
@@ -80,6 +83,7 @@ func GetObjectStorageSettings(c *gin.Context) {
 		Bucket:                    settings.Bucket,
 		AccessKey:                 settings.AccessKey,
 		SecretConfigured:          strings.TrimSpace(settings.SecretAccessKey) != "",
+		StagingDirectory:          settings.StagingDirectory,
 		RetentionSeconds:          settings.RetentionSeconds,
 		PresignSeconds:            settings.PresignSeconds,
 		ArchiveTimeoutSeconds:     settings.ArchiveTimeoutSeconds,
@@ -106,6 +110,7 @@ func UpdateObjectStorageSettings(c *gin.Context) {
 		Bucket:                    strings.TrimSpace(request.Bucket),
 		AccessKey:                 strings.TrimSpace(request.AccessKey),
 		SecretAccessKey:           secret,
+		StagingDirectory:          strings.TrimSpace(request.StagingDirectory),
 		RetentionSeconds:          request.RetentionSeconds,
 		PresignSeconds:            request.PresignSeconds,
 		ArchiveTimeoutSeconds:     request.ArchiveTimeoutSeconds,
@@ -115,6 +120,23 @@ func UpdateObjectStorageSettings(c *gin.Context) {
 	}
 	if err := candidate.Validate(); err != nil {
 		common.ApiError(c, err)
+		return
+	}
+	stagingDirectoryChanged := filepath.Clean(current.StagingDirectory) != filepath.Clean(candidate.StagingDirectory)
+	if stagingDirectoryChanged {
+		inUseCount, err := model.CountAsyncImageStagingInUse()
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if inUseCount > 0 {
+			common.ApiErrorI18n(c, i18n.MsgObjectStorageStagingDirectoryInUse)
+			return
+		}
+	}
+	if err := service.CheckAsyncImageStagingDirectory(candidate.StagingDirectory); err != nil {
+		logger.LogWarn(c.Request.Context(), common.LocalLogPreview("object storage staging directory probe failed: "+err.Error()))
+		common.ApiErrorI18n(c, i18n.MsgObjectStorageStagingDirectoryUnavailable)
 		return
 	}
 	physicalLocationChanged := current.Endpoint != candidate.Endpoint || current.Region != candidate.Region || current.Bucket != candidate.Bucket
@@ -146,6 +168,7 @@ func UpdateObjectStorageSettings(c *gin.Context) {
 		storage_setting.OptionS3Bucket:                  candidate.Bucket,
 		storage_setting.OptionS3AccessKey:               candidate.AccessKey,
 		storage_setting.OptionS3SecretAccessKey:         candidate.SecretAccessKey,
+		storage_setting.OptionStagingDirectory:          candidate.StagingDirectory,
 		storage_setting.OptionRetentionSeconds:          fmt.Sprintf("%d", candidate.RetentionSeconds),
 		storage_setting.OptionPresignSeconds:            fmt.Sprintf("%d", candidate.PresignSeconds),
 		storage_setting.OptionArchiveTimeoutSeconds:     fmt.Sprintf("%d", candidate.ArchiveTimeoutSeconds),

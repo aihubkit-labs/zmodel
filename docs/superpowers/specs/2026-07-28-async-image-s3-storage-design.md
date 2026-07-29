@@ -256,7 +256,7 @@ JSON 类型成为迁移前提。
 | `deleted_at` | `int64` | S3 删除确认时间 |
 | `delete_attempts` | `int` | 删除尝试次数 |
 | `last_error` | `text` | 脱敏后的上传/删除错误摘要 |
-| `staging_relative_path` | `varchar(768)` | 相对 `ASYNC_IMAGE_STAGING_DIR` 的系统生成路径，不对 API 返回 |
+| `staging_relative_path` | `varchar(768)` | 相对后台配置持久暂存目录的系统生成路径，不对 API 返回 |
 | `staging_status` | `varchar(32)` 索引 | `pending/available/failed/delete_pending/deleted` |
 | `staging_size_bytes` | `int64` | 暂存文件大小，必须与 `size_bytes` 一致 |
 | `staging_sha256` | `varchar(64)` | 暂存内容 SHA-256，用于重启和人工重传前校验 |
@@ -365,7 +365,7 @@ Content-Type: application/json
 4. 执行 Token 模型权限、分组解析和渠道可用性检查。异步路径按同步路径
    `/v1/images/generations` 判断 Advanced Custom 渠道能力。
 5. 执行现有敏感词检查、Token 估算、模型定价和计费表达式冻结。
-6. 检查对象存储配置是否完整，并检查 `ASYNC_IMAGE_STAGING_DIR` 所在共享持久存储可创建、写入、
+6. 检查对象存储配置是否完整，并检查后台配置的持久暂存目录所在共享存储可创建、写入、
    `fsync`、原子重命名和读取测试文件；失败时在预扣费前返回 HTTP 503，错误码
    `object_storage_not_configured` 或 `archive_staging_unavailable`。
 7. 冻结归档配置并在同一数据库事务中创建任务、预扣资金来源和 Token 配额。
@@ -598,9 +598,15 @@ URL 使用现有 SSRF 保护下载能力，限制重定向、私网地址和下�
 
 ### 11.4 持久暂存协议
 
-异步图片必须配置 `ASYNC_IMAGE_STAGING_DIR`，目录位于应用进程之外的持久存储。单节点部署可使用
-持久磁盘；多节点部署必须把同一共享持久卷以一致根目录挂载到所有 Worker。没有共享卷时禁止启用
-多节点异步图片 Worker，避免任务被另一个节点领取却无法读取源文件。
+异步图片必须在 Root 后台“系统设置 → 对象存储”中配置持久暂存目录，目录位于应用进程之外的
+持久存储。单节点部署可使用持久磁盘；多节点部署必须把同一共享持久卷以一致根目录挂载到所有
+Worker。没有共享卷时禁止启用多节点异步图片 Worker，避免任务被另一个节点领取却无法读取源文件。
+
+部署侧使用 `ASYNC_IMAGE_STAGING_ALLOWED_ROOTS` 声明后台可选目录的安全边界，支持系统路径列表分隔符
+或逗号分隔，例如 `/data/zmodel,/mnt/shared`。后台目录必须是该列表中某个根目录本身或其子目录，
+不得配置文件系统根目录。为兼容升级，数据库 Option 为空时暂时回退到
+`ASYNC_IMAGE_STAGING_DIR`；一旦 Root 在页面保存，运行时优先使用 Option。旧变量也可在未显式配置
+allowed roots 时充当唯一允许根目录，但新部署应明确配置 `ASYNC_IMAGE_STAGING_ALLOWED_ROOTS`。
 
 暂存路径只由系统生成，格式为：
 
@@ -1042,6 +1048,7 @@ S3 返回成功或对象不存在都视为删除成功，写入 `status=deleted`
 | `ObjectStorageS3Bucket` | 空 | 配置存储时必填，不允许空白字符 |
 | `ObjectStorageS3AccessKey` | 空 | 配置存储时必填 |
 | `ObjectStorageS3SecretAccessKey` | 空 | 按已确认方案以明文存入 Option 表；读取 API 永不返回 |
+| `ObjectStorageStagingDirectory` | 空 | 绝对路径，不能是文件系统根目录，且必须位于部署允许根目录内 |
 | `ObjectStorageRetentionSeconds` | `86400` | 60 到 31536000 |
 | `ObjectStoragePresignSeconds` | `600` | 60 到 604800，实际签名受对象剩余寿命限制 |
 | `ObjectStorageArchiveTimeoutSeconds` | `600` | 1 到 1200 |
@@ -1052,9 +1059,15 @@ S3 返回成功或对象不存在都视为删除成功，写入 `status=deleted`
 不新增 enable 字段。异步提交的可用条件是 Region、Bucket、Access Key 和 Secret 完整；Endpoint
 可以为空。配置不完整只让异步 POST 返回 503，不影响同步图片生成和其他接口。
 
-`ASYNC_IMAGE_STAGING_DIR` 是部署级路径而不是 Option，不在后台页面编辑，避免不同节点通过数据库
-配置得到一个实际挂载不一致的本地路径。启动时必须存在且可用；多节点由部署系统保证同一共享卷
-挂载。服务健康检查单独暴露暂存卷不可写、容量不足或共享卷不可达状态。
+`ObjectStorageStagingDirectory` 由 Root 后台编辑并持久化到 Option 表；保存前执行创建、写入、
+`fsync`、原子重命名、读取和删除探针。若存在 `queued/running` 异步任务，或仍有
+`pending/available/failed/delete_pending` 暂存对象，拒绝切换目录，避免相对路径失去原根目录。
+部署系统仍负责把 `ASYNC_IMAGE_STAGING_ALLOWED_ROOTS` 中允许的同一共享卷挂载到每个节点的相同
+绝对路径；数据库配置不能替代卷挂载。服务健康检查单独暴露暂存卷不可写、容量不足或共享卷不可达
+状态。
+
+配置优先级为 `ObjectStorageStagingDirectory` Option > `ASYNC_IMAGE_STAGING_DIR` 兼容回退。环境变量
+只用于尚未完成后台迁移的旧部署，不覆盖已经保存的 Option。
 
 ### 19.2 Secret 来源和持久化
 

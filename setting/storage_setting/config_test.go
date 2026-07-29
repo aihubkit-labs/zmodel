@@ -1,6 +1,7 @@
 package storage_setting
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,6 +15,7 @@ func validObjectStorageSettings() Settings {
 		Bucket:                    "test-bucket",
 		AccessKey:                 "test-access-key",
 		SecretAccessKey:           "test-secret",
+		StagingDirectory:          "/data/zmodel/async-image-staging",
 		RetentionSeconds:          DefaultRetentionSeconds,
 		PresignSeconds:            DefaultPresignSeconds,
 		ArchiveTimeoutSeconds:     DefaultArchiveTimeout,
@@ -45,4 +47,13 @@ func TestSettingsRequiresSecretAndValidEndpoint(t *testing.T) {
 	settings = validObjectStorageSettings()
 	settings.Endpoint = "file:///tmp/object-storage"
 	require.ErrorContains(t, settings.Validate(), "HTTP(S)")
+}
+
+func TestSettingsRequiresSafeAbsoluteStagingDirectory(t *testing.T) {
+	settings := validObjectStorageSettings()
+	settings.StagingDirectory = "relative/staging"
+	require.ErrorContains(t, settings.Validate(), "absolute path")
+
+	settings.StagingDirectory = string(filepath.Separator)
+	require.ErrorContains(t, settings.Validate(), "filesystem root")
 }

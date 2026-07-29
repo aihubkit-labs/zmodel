@@ -30,11 +30,13 @@ const (
 
 // Object storage settings messages
 const (
-	MsgObjectStorageProbeFailed           = "object_storage.probe_failed"
-	MsgObjectStorageProbeConnectionFailed = "object_storage.probe_connection_failed"
-	MsgObjectStorageProbeWriteFailed      = "object_storage.probe_write_failed"
-	MsgObjectStorageProbeVerifyFailed     = "object_storage.probe_verify_failed"
-	MsgObjectStorageProbeCleanupFailed    = "object_storage.probe_cleanup_failed"
+	MsgObjectStorageProbeFailed                 = "object_storage.probe_failed"
+	MsgObjectStorageProbeConnectionFailed       = "object_storage.probe_connection_failed"
+	MsgObjectStorageProbeWriteFailed            = "object_storage.probe_write_failed"
+	MsgObjectStorageProbeVerifyFailed           = "object_storage.probe_verify_failed"
+	MsgObjectStorageProbeCleanupFailed          = "object_storage.probe_cleanup_failed"
+	MsgObjectStorageStagingDirectoryInUse       = "object_storage.staging_directory_in_use"
+	MsgObjectStorageStagingDirectoryUnavailable = "object_storage.staging_directory_unavailable"
 )
 
 // Auth middleware messages
