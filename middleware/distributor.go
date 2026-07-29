@@ -163,7 +163,7 @@ func Distribute() func(c *gin.Context) {
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
 		SetupContextForSelectedChannel(c, channel, modelRequest.Model)
 		c.Next()
-		if channel != nil && c.Writer != nil && c.Writer.Status() < http.StatusBadRequest && c.Request.URL.Path != "/v1/image-generation-tasks" {
+		if channel != nil && c.Writer != nil && c.Writer.Status() < http.StatusBadRequest && c.Request.URL.Path != "/v1/images/generations/tasks" {
 			service.RecordChannelAffinity(c, channel.Id)
 		}
 	}
@@ -179,7 +179,7 @@ func channelSupportsRequestPath(channel *model.Channel, requestPath string, requ
 	if channel.Type != constant.ChannelTypeAdvancedCustom {
 		return true
 	}
-	if requestPath == "/v1/image-generation-tasks" {
+	if requestPath == "/v1/images/generations/tasks" {
 		requestPath = "/v1/images/generations"
 	}
 	config := channel.GetOtherSettings().AdvancedCustom

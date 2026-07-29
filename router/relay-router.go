@@ -66,7 +66,7 @@ func SetRelayRouter(router *gin.Engine) {
 	{
 		playgroundRouter.POST("/chat/completions", controller.Playground)
 	}
-	asyncImageTaskRouter := router.Group("/v1/image-generation-tasks")
+	asyncImageTaskRouter := router.Group("/v1/images/generations/tasks")
 	asyncImageTaskRouter.Use(middleware.RouteTag("relay"))
 	asyncImageTaskRouter.Use(middleware.SystemPerformanceCheck())
 	asyncImageTaskRouter.Use(middleware.TokenAuth())
