@@ -286,8 +286,14 @@ function LoadedTaskDetail(props: {
           <DetailItem label={t('Generation status')}>
             <StatusValue value={detail.status} />
           </DetailItem>
-          <DetailItem label={t('Output availability')}>
-            <StatusValue value={detail.output_availability} />
+          <DetailItem label={t('Upload status')}>
+            <StatusValue
+              value={
+                detail.output_availability === 'available'
+                  ? 'Uploaded'
+                  : detail.output_availability
+              }
+            />
           </DetailItem>
           <DetailItem label={t('Source kind')}>
             {t(detail.source_kind || 'none')}

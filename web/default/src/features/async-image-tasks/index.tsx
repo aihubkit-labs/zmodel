@@ -143,7 +143,7 @@ const hideableColumns: Array<{
   { id: 'model', label: 'Model' },
   { id: 'duration', label: 'Duration' },
   { id: 'generation_status', label: 'Generation status' },
-  { id: 'output_availability', label: 'Output availability' },
+  { id: 'output_availability', label: 'Upload status' },
   { id: 'billing_status', label: 'Billing status' },
   { id: 'objects', label: 'Objects' },
   { id: 'attempts', label: 'Attempts' },
@@ -410,7 +410,7 @@ export function AsyncImageTasksPage() {
             <StatusSelect
               value={outputAvailability}
               options={outputOptions}
-              placeholder={t('Output availability')}
+              placeholder={t('Upload status')}
               onChange={(value) => {
                 setOutputAvailability(value)
                 setPage(1)
@@ -471,7 +471,7 @@ export function AsyncImageTasksPage() {
                     <TableHead>{t('Generation status')}</TableHead>
                   )}
                   {columnVisibility.output_availability && (
-                    <TableHead>{t('Output availability')}</TableHead>
+                    <TableHead>{t('Upload status')}</TableHead>
                   )}
                   {columnVisibility.billing_status && (
                     <TableHead>{t('Billing status')}</TableHead>
@@ -550,7 +550,10 @@ export function AsyncImageTasksPage() {
                             : task.user_id}
                         </TableCell>
                       )}
-                      <TableCell className='max-w-52 truncate font-mono text-xs'>
+                      <TableCell
+                        className='font-mono text-xs whitespace-nowrap'
+                        title={task.task_id}
+                      >
                         {task.task_id}
                       </TableCell>
                       {columnVisibility.group && (
@@ -591,7 +594,11 @@ export function AsyncImageTasksPage() {
                           <Badge
                             variant={statusVariant(task.output_availability)}
                           >
-                            {t(task.output_availability)}
+                            {t(
+                              task.output_availability === 'available'
+                                ? 'Uploaded'
+                                : task.output_availability
+                            )}
                           </Badge>
                         </TableCell>
                       )}
@@ -696,13 +703,13 @@ export function AsyncImageTasksPage() {
             </div>
           </div>
         </div>
+        <AsyncImageTaskDetailsDialog
+          task={detailsTask}
+          root={root}
+          view={detailsView}
+          onClose={() => setDetailsTask(null)}
+        />
       </SectionPageLayout.Content>
-      <AsyncImageTaskDetailsDialog
-        task={detailsTask}
-        root={root}
-        view={detailsView}
-        onClose={() => setDetailsTask(null)}
-      />
     </SectionPageLayout>
   )
 }
@@ -732,7 +739,7 @@ function StatusSelect(props: StatusSelectProps) {
           .filter((option) => option !== '')
           .map((option) => (
             <SelectItem key={option} value={option}>
-              {t(option)}
+              {t(option === 'available' ? 'Uploaded' : option)}
             </SelectItem>
           ))}
       </SelectContent>

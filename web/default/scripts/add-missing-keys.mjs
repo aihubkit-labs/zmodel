@@ -9,6 +9,8 @@ function stableStringify(obj) {
 
 const newKeys = {
   en: {
+    'Upload status': 'Upload status',
+    Uploaded: 'Uploaded',
     'Human verification is loading': 'Human verification is loading',
     'Human verification is taking longer than expected':
       'Human verification is taking longer than expected',
@@ -87,6 +89,8 @@ const newKeys = {
     'Video resolution tier': 'Video resolution tier',
   },
   zh: {
+    'Upload status': '上传状态',
+    Uploaded: '已上传',
     'Human verification is loading': '人机验证加载中',
     'Human verification is taking longer than expected': '人机验证加载时间较长',
     'If it does not appear for a long time, refresh the page and try again.':
@@ -162,6 +166,8 @@ const newKeys = {
     'Video resolution tier': '视频分辨率档位',
   },
   'zh-TW': {
+    'Upload status': '上傳狀態',
+    Uploaded: '已上傳',
     'Human verification is loading': '人機驗證載入中',
     'Human verification is taking longer than expected': '人機驗證載入時間較長',
     'If it does not appear for a long time, refresh the page and try again.':
@@ -237,6 +243,8 @@ const newKeys = {
     'Video resolution tier': '影片解析度級別',
   },
   fr: {
+    'Upload status': 'État du téléversement',
+    Uploaded: 'Téléversé',
     'Human verification is loading':
       'La vérification humaine est en cours de chargement',
     'Human verification is taking longer than expected':
@@ -316,6 +324,8 @@ const newKeys = {
     'Video resolution tier': 'Palier de résolution vidéo',
   },
   ja: {
+    'Upload status': 'アップロード状態',
+    Uploaded: 'アップロード済み',
     'Human verification is loading': '人間による確認を読み込み中です',
     'Human verification is taking longer than expected':
       '人間による確認の読み込みに時間がかかっています',
@@ -393,6 +403,8 @@ const newKeys = {
     'Video resolution tier': '動画解像度階層',
   },
   ru: {
+    'Upload status': 'Статус загрузки',
+    Uploaded: 'Загружено',
     'Human verification is loading': 'Проверка на человека загружается',
     'Human verification is taking longer than expected':
       'Проверка на человека загружается дольше, чем ожидалось',
@@ -472,6 +484,8 @@ const newKeys = {
     'Video resolution tier': 'Уровень разрешения видео',
   },
   vi: {
+    'Upload status': 'Trạng thái tải lên',
+    Uploaded: 'Đã tải lên',
     'Human verification is loading': 'Đang tải bước xác minh người dùng',
     'Human verification is taking longer than expected':
       'Quá trình xác minh người dùng đang mất nhiều thời gian hơn dự kiến',
