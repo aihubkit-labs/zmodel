@@ -25,8 +25,8 @@
 
 1. 保留 `POST /v1/images/generations`。
 2. 新增：
-   - `POST /v1/images/generations/tasks`
-   - `GET /v1/images/generations/tasks/{task_id}`
+   - `POST /v1/image-generation-tasks`
+   - `GET /v1/image-generation-tasks/{task_id}`
 3. 异步接口支持当前所有图片模型，并兼容 URL、纯 Base64 和 data URI 输出。
 4. 异步接口不支持 `stream=true`。
 5. 图片归档到私有 S3；不保存预签名 URL；查询时动态签名。
@@ -72,7 +72,7 @@
 
 - 不把同步图片接口改造成异步接口。
 - 不支持异步图片编辑、variation 或 multipart 图片上传；本期只覆盖
-  `POST /v1/images/generations/tasks`。
+  `POST /v1/image-generation-tasks`。
 - 不增加公开对象、公共 Bucket 或长期不失效 URL。
 - 不增加 S3 Key Prefix 设置，也不允许调用方自定义 Object Key。
 - 不提供取消已经生成成功任务的能力。
@@ -131,7 +131,7 @@ Kafka、RabbitMQ 或云队列可以提供更强的消费能力，但会新增部
 ## 6. 总体架构
 
 ```text
-POST /v1/images/generations/tasks
+POST /v1/image-generation-tasks
   -> TokenAuth / 限流
   -> 解析、校验、敏感词检查、模型权限和渠道可用性检查
   -> S3 配置完整性检查
@@ -153,7 +153,7 @@ async-image-processing
   -> 全部对象成功后标记 output available
   -> 清除原始请求正文；确认任务完整可用后清理暂存文件
 
-GET /v1/images/generations/tasks/{task_id}
+GET /v1/image-generation-tasks/{task_id}
   -> TokenAuth
   -> 只查询当前用户的任务
   -> 根据任务和 StorageObject 判断可用性
@@ -349,7 +349,7 @@ reserved -> settled
 ### 9.1 提交任务
 
 ```http
-POST /v1/images/generations/tasks
+POST /v1/image-generation-tasks
 Authorization: Bearer sk-...
 Content-Type: application/json
 ```
@@ -392,7 +392,7 @@ Content-Type: application/json
 ### 9.2 查询任务
 
 ```http
-GET /v1/images/generations/tasks/{task_id}
+GET /v1/image-generation-tasks/{task_id}
 Authorization: Bearer sk-...
 ```
 
