@@ -38,6 +38,14 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -78,6 +86,86 @@ const outputOptions = [
 ]
 const billingOptions = ['', 'reserved', 'settled', 'refunded']
 
+type HideableColumnId =
+  | 'submit_time'
+  | 'end_time'
+  | 'channel'
+  | 'user'
+  | 'group'
+  | 'platform'
+  | 'model'
+  | 'duration'
+  | 'generation_status'
+  | 'output_availability'
+  | 'billing_status'
+  | 'objects'
+  | 'attempts'
+  | 'staging_integrity'
+  | 'error'
+
+type ColumnVisibility = Record<HideableColumnId, boolean>
+type ColumnVisibilityScope = 'admin' | 'user'
+
+const columnVisibilityStorageKeys: Record<ColumnVisibilityScope, string> = {
+  admin: 'async-image-tasks:admin:column-visibility:v1',
+  user: 'async-image-tasks:user:column-visibility:v1',
+}
+
+const defaultColumnVisibility: ColumnVisibility = {
+  submit_time: true,
+  end_time: true,
+  channel: false,
+  user: true,
+  group: false,
+  platform: false,
+  model: true,
+  duration: true,
+  generation_status: true,
+  output_availability: true,
+  billing_status: false,
+  objects: false,
+  attempts: false,
+  staging_integrity: false,
+  error: false,
+}
+
+const hideableColumns: Array<{
+  id: HideableColumnId
+  label: string
+  rootOnly?: boolean
+}> = [
+  { id: 'submit_time', label: 'Submit Time' },
+  { id: 'end_time', label: 'End Time' },
+  { id: 'channel', label: 'Channel', rootOnly: true },
+  { id: 'user', label: 'User', rootOnly: true },
+  { id: 'group', label: 'Group' },
+  { id: 'platform', label: 'Platform', rootOnly: true },
+  { id: 'model', label: 'Model' },
+  { id: 'duration', label: 'Duration' },
+  { id: 'generation_status', label: 'Generation status' },
+  { id: 'output_availability', label: 'Output availability' },
+  { id: 'billing_status', label: 'Billing status' },
+  { id: 'objects', label: 'Objects' },
+  { id: 'attempts', label: 'Attempts' },
+  { id: 'staging_integrity', label: 'Staging integrity' },
+  { id: 'error', label: 'Error' },
+]
+
+function readColumnVisibility(scope: ColumnVisibilityScope): ColumnVisibility {
+  if (typeof window === 'undefined') return defaultColumnVisibility
+
+  try {
+    const stored = window.localStorage.getItem(
+      columnVisibilityStorageKeys[scope]
+    )
+    if (!stored) return defaultColumnVisibility
+    const parsed = JSON.parse(stored) as Partial<ColumnVisibility>
+    return { ...defaultColumnVisibility, ...parsed }
+  } catch {
+    return defaultColumnVisibility
+  }
+}
+
 function statusVariant(value: string) {
   if (value === 'failed' || value === 'refunded') {
     return 'destructive' as const
@@ -108,6 +196,42 @@ export function AsyncImageTasksPage() {
   const [detailsView, setDetailsView] = useState<'preview' | 'details'>(
     'details'
   )
+  const [columnVisibilityByScope, setColumnVisibilityByScope] = useState<
+    Record<ColumnVisibilityScope, ColumnVisibility>
+  >(() => ({
+    admin: readColumnVisibility('admin'),
+    user: readColumnVisibility('user'),
+  }))
+
+  const visibilityScope: ColumnVisibilityScope = root ? 'admin' : 'user'
+  const columnVisibility = columnVisibilityByScope[visibilityScope]
+  const availableHideableColumns = hideableColumns.filter(
+    (column) => root || !column.rootOnly
+  )
+  const visibleColumnCount =
+    (root ? 1 : 0) +
+    3 +
+    availableHideableColumns.filter((column) => columnVisibility[column.id])
+      .length
+
+  const setColumnVisible = (columnId: HideableColumnId, visible: boolean) => {
+    const nextVisibility = {
+      ...columnVisibility,
+      [columnId]: visible,
+    }
+    setColumnVisibilityByScope((current) => ({
+      ...current,
+      [visibilityScope]: nextVisibility,
+    }))
+    try {
+      window.localStorage.setItem(
+        columnVisibilityStorageKeys[visibilityScope],
+        JSON.stringify(nextVisibility)
+      )
+    } catch {
+      // Column selection still works for this session when storage is blocked.
+    }
+  }
 
   const filters: AsyncImageTaskFilters = {
     page,
@@ -182,46 +306,79 @@ export function AsyncImageTasksPage() {
       <SectionPageLayout.Title>
         {t('Async Image Tasks')}
       </SectionPageLayout.Title>
-      {root && (
-        <SectionPageLayout.Actions>
-          <div className='flex flex-wrap gap-2'>
-            <Button
-              variant='outline'
-              disabled={selected.size === 0 || retryMutation.isPending}
-              onClick={() => retryMutation.mutate([...selected])}
+      <SectionPageLayout.Actions>
+        <div className='flex flex-wrap gap-2'>
+          {root && (
+            <>
+              <Button
+                variant='outline'
+                disabled={selected.size === 0 || retryMutation.isPending}
+                onClick={() => retryMutation.mutate([...selected])}
+              >
+                {t('Retry selected uploads')}
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger
+                  render={
+                    <Button disabled={retryAllMutation.isPending}>
+                      {t('Retry all failed image uploads')}
+                    </Button>
+                  }
+                />
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      {t('Retry all failed uploads?')}
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {t(
+                        'Only persistent staged files are uploaded again. Image generation and billing are not repeated.'
+                      )}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => retryAllMutation.mutate()}
+                    >
+                      {t('Start retry')}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </>
+          )}
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant='outline'
+                  className='shrink-0'
+                  aria-label={t('View')}
+                />
+              }
             >
-              {t('Retry selected uploads')}
-            </Button>
-            <AlertDialog>
-              <AlertDialogTrigger
-                render={
-                  <Button disabled={retryAllMutation.isPending}>
-                    {t('Retry all failed image uploads')}
-                  </Button>
-                }
-              />
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>
-                    {t('Retry all failed uploads?')}
-                  </AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {t(
-                      'Only persistent staged files are uploaded again. Image generation and billing are not repeated.'
-                    )}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => retryAllMutation.mutate()}>
-                    {t('Start retry')}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
-        </SectionPageLayout.Actions>
-      )}
+              {t('View')}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align='end' className='w-[180px]'>
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>{t('Toggle columns')}</DropdownMenuLabel>
+                {availableHideableColumns.map((column) => (
+                  <DropdownMenuCheckboxItem
+                    key={column.id}
+                    checked={columnVisibility[column.id]}
+                    onCheckedChange={(checked) =>
+                      setColumnVisible(column.id, checked)
+                    }
+                  >
+                    {t(column.label)}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='flex h-full min-h-0 flex-col gap-4'>
           <div className='grid gap-2 md:grid-cols-5'>
@@ -285,22 +442,52 @@ export function AsyncImageTasksPage() {
                       />
                     </TableHead>
                   )}
-                  <TableHead>{t('Submit Time')}</TableHead>
-                  <TableHead>{t('End Time')}</TableHead>
-                  {root && <TableHead>{t('Channel')}</TableHead>}
-                  {root && <TableHead>{t('User')}</TableHead>}
+                  {columnVisibility.submit_time && (
+                    <TableHead>{t('Submit Time')}</TableHead>
+                  )}
+                  {columnVisibility.end_time && (
+                    <TableHead>{t('End Time')}</TableHead>
+                  )}
+                  {root && columnVisibility.channel && (
+                    <TableHead>{t('Channel')}</TableHead>
+                  )}
+                  {root && columnVisibility.user && (
+                    <TableHead>{t('User')}</TableHead>
+                  )}
                   <TableHead>{t('Task ID')}</TableHead>
-                  <TableHead>{t('Group')}</TableHead>
-                  {root && <TableHead>{t('Platform')}</TableHead>}
-                  <TableHead>{t('Model')}</TableHead>
-                  <TableHead>{t('Duration')}</TableHead>
-                  <TableHead>{t('Generation status')}</TableHead>
-                  <TableHead>{t('Output availability')}</TableHead>
-                  <TableHead>{t('Billing status')}</TableHead>
-                  <TableHead>{t('Objects')}</TableHead>
-                  <TableHead>{t('Attempts')}</TableHead>
-                  <TableHead>{t('Staging integrity')}</TableHead>
-                  <TableHead>{t('Error')}</TableHead>
+                  {columnVisibility.group && (
+                    <TableHead>{t('Group')}</TableHead>
+                  )}
+                  {root && columnVisibility.platform && (
+                    <TableHead>{t('Platform')}</TableHead>
+                  )}
+                  {columnVisibility.model && (
+                    <TableHead>{t('Model')}</TableHead>
+                  )}
+                  {columnVisibility.duration && (
+                    <TableHead>{t('Duration')}</TableHead>
+                  )}
+                  {columnVisibility.generation_status && (
+                    <TableHead>{t('Generation status')}</TableHead>
+                  )}
+                  {columnVisibility.output_availability && (
+                    <TableHead>{t('Output availability')}</TableHead>
+                  )}
+                  {columnVisibility.billing_status && (
+                    <TableHead>{t('Billing status')}</TableHead>
+                  )}
+                  {columnVisibility.objects && (
+                    <TableHead>{t('Objects')}</TableHead>
+                  )}
+                  {columnVisibility.attempts && (
+                    <TableHead>{t('Attempts')}</TableHead>
+                  )}
+                  {columnVisibility.staging_integrity && (
+                    <TableHead>{t('Staging integrity')}</TableHead>
+                  )}
+                  {columnVisibility.error && (
+                    <TableHead>{t('Error')}</TableHead>
+                  )}
                   <TableHead>{t('Preview')}</TableHead>
                   <TableHead>{t('Details')}</TableHead>
                 </TableRow>
@@ -341,18 +528,22 @@ export function AsyncImageTasksPage() {
                           />
                         </TableCell>
                       )}
-                      <TableCell className='font-mono text-xs whitespace-nowrap tabular-nums'>
-                        {formatTaskTime(task.created_at)}
-                      </TableCell>
-                      <TableCell className='font-mono text-xs whitespace-nowrap tabular-nums'>
-                        {formatTaskTime(task.completed_at)}
-                      </TableCell>
-                      {root && (
+                      {columnVisibility.submit_time && (
+                        <TableCell className='font-mono text-xs whitespace-nowrap tabular-nums'>
+                          {formatTaskTime(task.created_at)}
+                        </TableCell>
+                      )}
+                      {columnVisibility.end_time && (
+                        <TableCell className='font-mono text-xs whitespace-nowrap tabular-nums'>
+                          {formatTaskTime(task.completed_at)}
+                        </TableCell>
+                      )}
+                      {root && columnVisibility.channel && (
                         <TableCell className='max-w-44 truncate'>
                           {channelLabel}
                         </TableCell>
                       )}
-                      {root && (
+                      {root && columnVisibility.user && (
                         <TableCell className='max-w-40 truncate'>
                           {task.username
                             ? `${task.username} (#${task.user_id})`
@@ -362,10 +553,12 @@ export function AsyncImageTasksPage() {
                       <TableCell className='max-w-52 truncate font-mono text-xs'>
                         {task.task_id}
                       </TableCell>
-                      <TableCell className='max-w-32 truncate'>
-                        {task.using_group || '-'}
-                      </TableCell>
-                      {root && (
+                      {columnVisibility.group && (
+                        <TableCell className='max-w-32 truncate'>
+                          {task.using_group || '-'}
+                        </TableCell>
+                      )}
+                      {root && columnVisibility.platform && (
                         <TableCell>
                           {task.platform ? (
                             <Badge variant='outline'>{task.platform}</Badge>
@@ -374,39 +567,58 @@ export function AsyncImageTasksPage() {
                           )}
                         </TableCell>
                       )}
-                      <TableCell className='max-w-52 truncate'>
-                        {task.model}
-                      </TableCell>
-                      <TableCell className='font-mono text-xs whitespace-nowrap tabular-nums'>
-                        {durationSeconds === null
-                          ? '-'
-                          : `${durationSeconds.toFixed(1)}s`}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={statusVariant(task.status)}>
-                          {t(task.status)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={statusVariant(task.output_availability)}
-                        >
-                          {t(task.output_availability)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={statusVariant(task.billing_status)}>
-                          {t(task.billing_status)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {task.object_available_count}/{task.object_total_count}
-                      </TableCell>
-                      <TableCell>{task.archive_attempts}</TableCell>
-                      <TableCell>{t(task.staging_integrity)}</TableCell>
-                      <TableCell className='max-w-64 truncate'>
-                        {task.error || '-'}
-                      </TableCell>
+                      {columnVisibility.model && (
+                        <TableCell className='max-w-52 truncate'>
+                          {task.model}
+                        </TableCell>
+                      )}
+                      {columnVisibility.duration && (
+                        <TableCell className='font-mono text-xs whitespace-nowrap tabular-nums'>
+                          {durationSeconds === null
+                            ? '-'
+                            : `${durationSeconds.toFixed(1)}s`}
+                        </TableCell>
+                      )}
+                      {columnVisibility.generation_status && (
+                        <TableCell>
+                          <Badge variant={statusVariant(task.status)}>
+                            {t(task.status)}
+                          </Badge>
+                        </TableCell>
+                      )}
+                      {columnVisibility.output_availability && (
+                        <TableCell>
+                          <Badge
+                            variant={statusVariant(task.output_availability)}
+                          >
+                            {t(task.output_availability)}
+                          </Badge>
+                        </TableCell>
+                      )}
+                      {columnVisibility.billing_status && (
+                        <TableCell>
+                          <Badge variant={statusVariant(task.billing_status)}>
+                            {t(task.billing_status)}
+                          </Badge>
+                        </TableCell>
+                      )}
+                      {columnVisibility.objects && (
+                        <TableCell>
+                          {task.object_available_count}/
+                          {task.object_total_count}
+                        </TableCell>
+                      )}
+                      {columnVisibility.attempts && (
+                        <TableCell>{task.archive_attempts}</TableCell>
+                      )}
+                      {columnVisibility.staging_integrity && (
+                        <TableCell>{t(task.staging_integrity)}</TableCell>
+                      )}
+                      {columnVisibility.error && (
+                        <TableCell className='max-w-64 truncate'>
+                          {task.error || '-'}
+                        </TableCell>
+                      )}
                       <TableCell>
                         <Button
                           type='button'
@@ -446,7 +658,7 @@ export function AsyncImageTasksPage() {
                   (tasksQuery.data?.items.length ?? 0) === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={root ? 19 : 15}
+                        colSpan={visibleColumnCount}
                         className='text-muted-foreground h-32 text-center'
                       >
                         {t('No async image tasks found')}
