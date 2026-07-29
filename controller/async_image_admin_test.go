@@ -10,8 +10,10 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/objectstorage"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/storage_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -90,7 +92,8 @@ func createAsyncImageDetailFixture(t *testing.T) {
 		BillingStatus: model.AsyncImageBillingSettled, BillingSource: "wallet",
 		ReservedQuota: 100, ActualQuota: 90, OriginModelName: "gpt-image-test",
 		UsingGroup: "default", LastChannelID: 9, LastChannelType: constant.ChannelTypeOpenAI,
-		RequestPayload:   `{"prompt":"red apple","n":1}`,
+		RequestPayload:   `{"prompt":"red apple","images":["data:image/png;base64,private"]}`,
+		RequestSnapshot:  `{"prompt":"red apple","n":1}`,
 		RetentionSeconds: 86400, ArchiveTimeoutSeconds: 600, ArchiveMaxAttempts: 8,
 		OutputExpiresAt: now + 3600, StartedAt: now - 20, GenerationCompletedAt: now - 10,
 		BillingFinalizedAt: now - 10, CompletedAt: now - 5,
@@ -101,9 +104,27 @@ func createAsyncImageDetailFixture(t *testing.T) {
 		Endpoint: "https://s3.example.com", Region: "test-region", Bucket: "test-bucket",
 		ObjectKey: "prod/user-files/test.img", MimeType: "image/png", Extension: "png",
 		SizeBytes: 128, ETag: "test-etag", UploadedAt: now - 5, ExpiresAt: now + 3600,
-		StagingRelativePath: "42/2026/07/img_task_detail/0.img",
+		StagingRelativePath: "42/2026/07/29/img_task_detail/0.img",
 		StagingStatus:       model.StorageStagingAvailable, StagingSizeBytes: 128, StagedAt: now - 10,
 	}).Error)
+}
+
+func TestAsyncImageObjectKeyIncludesDayPartition(t *testing.T) {
+	key := asyncImageObjectKey(42, "task_day_partition", service.AsyncImageManifestItem{
+		Index:               1,
+		Extension:           "png",
+		StagingRelativePath: "42/2026/07/29/task_day_partition/1.img",
+	})
+	assert.Equal(t, "prod/user-files/zmodel@async-images/42/2026/07/29/task_day_partition/1.png", key)
+}
+
+func TestAsyncImageRequestSnapshotExcludesImageInputs(t *testing.T) {
+	var request dto.ImageRequest
+	require.NoError(t, common.UnmarshalJsonStr(`{"model":"gpt-image","prompt":"red apple","n":2,"images":["data:image/png;base64,private"],"mask":"private-mask","custom":"private-value"}`, &request))
+
+	snapshot, err := asyncImageRequestSnapshot(&request)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"model":"gpt-image","prompt":"red apple","n":2}`, snapshot)
 }
 
 func TestAsyncImageTaskDetailReturnsPreviewAndDownloadURLs(t *testing.T) {
@@ -141,7 +162,7 @@ func TestAsyncImageTaskDetailReturnsPreviewAndDownloadURLs(t *testing.T) {
 	assert.Contains(t, storage.presignInputs[0].ResponseDisposition, "inline;")
 	assert.Contains(t, storage.presignInputs[1].ResponseDisposition, "attachment;")
 	assert.NotContains(t, recorder.Body.String(), "secret-that-must-not-leak")
-	assert.NotContains(t, recorder.Body.String(), "42/2026/07/img_task_detail/0.img")
+	assert.NotContains(t, recorder.Body.String(), "42/2026/07/29/img_task_detail/0.img")
 }
 
 func TestSelfAsyncImageTaskDetailEnforcesOwnershipAndHidesStorageLocation(t *testing.T) {

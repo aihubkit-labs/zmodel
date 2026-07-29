@@ -352,11 +352,11 @@ func newAsyncImageRelayContext(task *model.AsyncImageTask, imageRequest *dto.Ima
 
 func asyncImageObjectKey(userID int, taskID string, item service.AsyncImageManifestItem) string {
 	parts := strings.Split(filepathSlash(item.StagingRelativePath), "/")
-	year, month := time.Now().UTC().Format("2006"), time.Now().UTC().Format("01")
-	if len(parts) >= 4 {
-		year, month = parts[1], parts[2]
+	year, month, day := time.Now().UTC().Format("2006"), time.Now().UTC().Format("01"), time.Now().UTC().Format("02")
+	if len(parts) >= 5 {
+		year, month, day = parts[1], parts[2], parts[3]
 	}
-	return fmt.Sprintf("%s/%d/%s/%s/%s/%d.%s", asyncImageObjectPrefix, userID, year, month, taskID, item.Index, item.Extension)
+	return fmt.Sprintf("%s/%d/%s/%s/%s/%s/%d.%s", asyncImageObjectPrefix, userID, year, month, day, taskID, item.Index, item.Extension)
 }
 
 func filepathSlash(value string) string { return strings.ReplaceAll(value, "\\", "/") }

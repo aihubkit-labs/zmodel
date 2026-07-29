@@ -33,7 +33,7 @@
 6. Object Key 固定为：
 
    ```text
-   prod/user-files/zmodel@async-images/{user_id}/{yyyy}/{mm}/{task_id}/{index}.{extension}
+   prod/user-files/zmodel@async-images/{user_id}/{yyyy}/{mm}/{dd}/{task_id}/{index}.{extension}
    ```
 
 7. 使用通用 `storage_objects` 表；本业务的 `business_id` 固定为
@@ -196,6 +196,7 @@ JSON 类型成为迁移前提。
 | `using_group` | `varchar(64)` | 提交时解析后的实际分组；`auto` 必须解析为具体分组 |
 | `last_channel_id` | `int` 索引 | 最后实际执行的渠道，仅用于日志和运行时重建，不保存 Key |
 | `request_payload` | `text` | 原始 JSON 请求；完整归档清单持久化或生成失败后清空 |
+| `request_snapshot` | `text` | 安全请求快照；保留模型、Prompt、数量和已知图片控制参数，排除图片、蒙版、用户标识和任意扩展字段 |
 | `billing_context` | `text` | 冻结的价格、表达式、分组倍率和请求输入快照 |
 | `archive_manifest` | `text` | 输出索引、来源类型、暂存文件相对路径、大小、MIME、SHA-256 和 revised prompt；不含图片字节或来源 URL |
 | `retention_seconds` | `int64` | 提交时冻结的对象有效期 |
@@ -541,7 +542,7 @@ generation_completed_at = now
   {
     "index": 0,
     "source_type": "url",
-    "staging_relative_path": "42/2026/07/task_xxx/0.img",
+    "staging_relative_path": "42/2026/07/29/task_xxx/0.img",
     "size_bytes": 123,
     "mime_type": "image/png",
     "sha256": "...",
@@ -550,7 +551,7 @@ generation_completed_at = now
   {
     "index": 1,
     "source_type": "base64",
-    "staging_relative_path": "42/2026/07/task_xxx/1.img",
+    "staging_relative_path": "42/2026/07/29/task_xxx/1.img",
     "size_bytes": 456,
     "mime_type": "image/webp",
     "sha256": "...",
@@ -608,14 +609,13 @@ Worker。没有共享卷时禁止启用多节点异步图片 Worker，避免任�
 暂存路径只由系统生成，格式为：
 
 ```text
-{user_id}/{yyyy}/{mm}/{task_id}/{index}.img
+{user_id}/{yyyy}/{mm}/{dd}/{task_id}/{index}.img
 ```
 
-年月使用生成结果完成暂存时的 UTC 时间。数据库只保存相对路径；路径拼接必须清理并验证最终路径
-仍位于配置根目录内，不能使用任何用户提供的文件名或路径片段。这里不再增加 `{dd}`：`task_id`
-已经保证任务目录唯一，对象到期和暂存清理由数据库状态及时间字段驱动，不依赖按日期扫描目录；按
-UTC 年/月分区已足以控制单层目录规模，并与 S3 Object Key 的固定年月分区保持一致。每个索引按
-以下协议写入：
+年月日使用生成结果完成暂存时的 UTC 时间。数据库只保存相对路径；路径拼接必须清理并验证最终路径
+仍位于配置根目录内，不能使用任何用户提供的文件名或路径片段。日分区与 S3 Object Key 规则一致，
+便于按生成日期排查，同时对象到期和暂存清理仍只由数据库状态及时间字段驱动。每个索引按以下协议
+写入：
 
 1. 在目标目录创建权限为仅应用账号可读写的随机临时文件。
 2. 流式写入规范图片字节，同时计算大小和 SHA-256，并再次执行单对象大小上限。
@@ -674,14 +674,14 @@ URL 来源获取终止使用相同的 `succeeded/settled/failed` 计费原则，
 
 ### 11.6 Object Key
 
-首次准备上传某个索引时捕获 UTC 时间，并在发起 Put 前把由该年月生成的 Object Key 持久化到对象
+首次准备上传某个索引时捕获 UTC 时间，并在发起 Put 前把由该年月日生成的 Object Key 持久化到对象
 行；后续自动重试、人工重传、跨月恢复和 `HeadObject` 都必须复用该已保存 Key，不能按重试时间
 重新计算。只有明确执行第 19.3 节的整任务位置重新绑定时才更新 Endpoint、Region 和 Bucket，Key
 本身仍保持不变。Put 成功后才写入该次成功的 `uploaded_at`。对象有效期从 Put 成功返回时开始
 计算，避免网络耗时缩短实际保留期。索引从 0 开始：
 
 ```text
-prod/user-files/zmodel@async-images/42/2026/07/task_xxx/0.png
+prod/user-files/zmodel@async-images/42/2026/07/29/task_xxx/0.png
 ```
 
 `user_id`、`task_id`、`index` 和扩展名都来自系统生成或固定映射，不接受调用方路径片段。
@@ -1225,19 +1225,21 @@ POST /api/async-image-task/retry-failed
 - 列表参考现有任务日志，展示提交时间、结束时间、渠道、用户、任务 ID、分组、平台、模型、耗时、
   生成状态、输出状态、计费状态、对象成功数/总数、尝试次数、暂存完整性和脱敏错误；渠道、用户和
   平台仅对 Root 展示。平台在实际选中渠道时保存渠道类型快照，避免渠道删除或改类型后历史记录漂移；
-  旧任务无快照时才按当前渠道类型回退。每行分别提供“预览”和“详情”操作。页面提供与任务日志
-  一致的“查看”列选择菜单；任务 ID、预览、详情以及 Root 的批量选择列固定显示，其余有权访问的
+  旧任务无快照时才按当前渠道类型回退。页面提供与任务日志一致的“查看”列选择菜单；任务 ID、详情
+  以及 Root 的批量选择列固定显示，其余有权访问的
   列均可切换。默认显示提交时间、结束时间、用户、模型、耗时、生成状态和输出状态，其他运维列
   默认隐藏；普通用户不会在菜单中看到 Root 专属列。列选择按 Root/普通用户分别持久化到浏览器，
   刷新页面后保持不变。任务 ID 在列表中完整展示；`output_availability` 在页面中命名为“上传状态”，
   其中 `available` 显示为“已上传”。用户列只显示用户名，缺少用户名的历史数据才显示带明确标签的
-  用户 ID；详情弹窗继续同时提供用户名和用户 ID 供 Root 排查。
-- 详情弹窗优先展示图片画廊，每张图片提供原图预览和下载；随后展示任务状态、计费结果、归档重试
-  参数、生命周期、尚未按隐私规则清理的请求参数，以及逐对象的上传/暂存/删除状态、文件类型、
+  用户 ID；详情弹窗将用户名和用户 ID 分栏展示，渠道名和渠道 ID 也分栏展示，供 Root 排查。
+- “详情”是图片预览、下载和任务信息的唯一入口，详情弹窗优先展示图片画廊，每张图片提供原图预览
+  和下载；宽屏下生成详情、归档处理、计费和生命周期使用双栏信息布局，请求参数跨整行展示。请求参数
+  使用提交时生成的安全快照，保留模型、Prompt、数量和图片生成控制参数，排除图片、蒙版、用户标识、
+  任意扩展字段及其可能包含的 Base64/data URI。随后展示逐对象的上传/暂存/删除状态、文件类型、
   文件大小和时间。Root 额外显示 Token、订阅、渠道、Provider、Endpoint、Region、Bucket、Object
   Key、ETag 和内部错误，但任何角色都不显示 S3 凭据或持久暂存相对路径。
-- 表格勾选后的“Retry selected uploads”操作，可选中全部普通归档失败任务。
-- Root 顶部“Retry all failed image uploads”按钮，中文为“重新上传全部失败的图片文件”；二次确认后
+- 表格勾选后的“Retry selected”操作，可选中全部普通归档失败任务。
+- Root 顶部“Retry all failed”按钮，中文为“重新上传全部失败项”；二次确认后
   调用批量接口，并展示已接受、已跳过和暂存完整性异常数量。本期范围是异步图片，因此不使用
   “失败的视频文件”文案。
 - 暂存完整性异常显示明确事故状态和文件恢复要求；普通 S3 上传失败不得显示为不可重试。
@@ -1256,7 +1258,9 @@ POST /api/async-image-task/retry-failed
   字节写入权限受限的共享持久暂存目录。
 - 暂存文件名和相对路径完全由系统生成，不接受用户路径；数据库只保存相对路径，API 不返回路径。
 - 多节点必须使用共享持久卷；暂存卷和备份应使用基础设施层静态加密、最小权限和容量监控。
-- 终态任务清空 `request_payload`；永久记录只保留模型、计费快照、输出元数据和脱敏错误。
+- 终态任务清空仅供 Worker 重放的 `request_payload`；另存安全的 `request_snapshot`，仅保留模型、
+  Prompt、数量和已知图片生成控制参数，排除图片、蒙版、用户标识和任意扩展字段。任务所有者和 Root
+  均可查看该快照；永久记录还保留计费快照、输出元数据和脱敏错误。
 - 上游 `source_url` 不进入已提交 manifest；下载并可靠暂存后立即释放。
 - URL 下载使用 SSRF 保护和重定向校验。
 - 上传和下载都执行 `MAX_FILE_DOWNLOAD_MB` 单对象大小限制。

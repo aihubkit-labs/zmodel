@@ -88,6 +88,11 @@ func SubmitAsyncImageTask(c *gin.Context) {
 		respondAsyncImageError(c, http.StatusBadRequest, string(types.ErrorCodeReadRequestBodyFailed), err.Error())
 		return
 	}
+	requestSnapshot, err := asyncImageRequestSnapshot(request)
+	if err != nil {
+		respondAsyncImageError(c, http.StatusInternalServerError, string(types.ErrorCodeUpdateDataError), err.Error())
+		return
+	}
 	taskID, err := model.GenerateAsyncImageTaskID()
 	if err != nil {
 		respondAsyncImageError(c, http.StatusInternalServerError, string(types.ErrorCodeUpdateDataError), err.Error())
@@ -129,6 +134,7 @@ func SubmitAsyncImageTask(c *gin.Context) {
 		UsingGroup:             relayInfo.UsingGroup,
 		LastChannelID:          0,
 		RequestPayload:         string(rawBody),
+		RequestSnapshot:        requestSnapshot,
 		BillingContext:         string(billingContextData),
 		RetentionSeconds:       storageSettings.RetentionSeconds,
 		ArchiveTimeoutSeconds:  storageSettings.ArchiveTimeoutSeconds,
@@ -150,6 +156,39 @@ func SubmitAsyncImageTask(c *gin.Context) {
 		logger.LogWarn(c, fmt.Sprintf("failed to wake async image processor: task=%s err=%v", taskID, err))
 	}
 	c.JSON(http.StatusAccepted, asyncImageTaskResponse(task, nil, nil))
+}
+
+// asyncImageRequestSnapshot persists the useful generation parameters while
+// excluding image input fields and arbitrary extensions that may contain large
+// data URLs or sensitive values.
+func asyncImageRequestSnapshot(request *dto.ImageRequest) (string, error) {
+	snapshot := map[string]any{
+		"model":  request.Model,
+		"prompt": request.Prompt,
+	}
+	if request.N != nil {
+		snapshot["n"] = *request.N
+	}
+	if request.Size != "" {
+		snapshot["size"] = request.Size
+	}
+	if request.Quality != "" {
+		snapshot["quality"] = request.Quality
+	}
+	if request.ResponseFormat != "" {
+		snapshot["response_format"] = request.ResponseFormat
+	}
+	if request.Stream != nil {
+		snapshot["stream"] = *request.Stream
+	}
+	if request.Watermark != nil {
+		snapshot["watermark"] = *request.Watermark
+	}
+	serialized, err := common.Marshal(snapshot)
+	if err != nil {
+		return "", err
+	}
+	return string(serialized), nil
 }
 
 func GetAsyncImageTask(c *gin.Context) {

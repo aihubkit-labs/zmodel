@@ -106,7 +106,7 @@ func TestCountAsyncImageStagingInUseProtectsPathChanges(t *testing.T) {
 	require.NoError(t, DB.Create(&StorageObject{
 		BusinessID:          StorageObjectBusinessAsyncImages,
 		ResourceID:          "task_retained_staging",
-		StagingRelativePath: "1/2026/07/task_retained_staging/0.img",
+		StagingRelativePath: "1/2026/07/29/task_retained_staging/0.img",
 		StagingStatus:       StorageStagingAvailable,
 	}).Error)
 
@@ -180,17 +180,17 @@ func TestCompleteAsyncImageGenerationSettlesExactlyOnce(t *testing.T) {
 	const owner = "runner-1"
 	seedAsyncImageWalletTask(t, taskID, AsyncImageStatusRunning, owner, 200, 200)
 
-	manifest := `[{"index":0,"source_type":"base64","staging_relative_path":"9101/2026/07/task_async_settle_once/0.img","size_bytes":16,"mime_type":"image/png","extension":"png","sha256":"0123456789abcdef"}]`
+	manifest := `[{"index":0,"source_type":"base64","staging_relative_path":"9101/2026/07/29/task_async_settle_once/0.img","size_bytes":16,"mime_type":"image/png","extension":"png","sha256":"0123456789abcdef"}]`
 	objects := []StorageObject{{
 		ObjectIndex:         0,
 		Endpoint:            "https://s3.example.com",
 		Region:              "test-region",
 		Bucket:              "test-bucket",
-		ObjectKey:           "prod/user-files/zmodel@async-images/9101/2026/07/task_async_settle_once/0.png",
+		ObjectKey:           "prod/user-files/zmodel@async-images/9101/2026/07/29/task_async_settle_once/0.png",
 		MimeType:            "image/png",
 		Extension:           "png",
 		SizeBytes:           16,
-		StagingRelativePath: "9101/2026/07/task_async_settle_once/0.img",
+		StagingRelativePath: "9101/2026/07/29/task_async_settle_once/0.img",
 		StagingSizeBytes:    16,
 		StagingSHA256:       "0123456789abcdef",
 	}}
@@ -267,7 +267,7 @@ func TestUpdateObjectStorageOptionsRebindsFailedTaskAsOneTransaction(t *testing.
 	truncateTables(t)
 	const taskID = "task_async_storage_rebind"
 	seedAsyncImageWalletTask(t, taskID, AsyncImageStatusRunning, "runner-1", 100, 100)
-	manifest := `[{"index":0,"source_type":"base64","staging_relative_path":"9101/2026/07/task_async_storage_rebind/0.img","size_bytes":16,"mime_type":"image/png","extension":"png","sha256":"0123456789abcdef"}]`
+	manifest := `[{"index":0,"source_type":"base64","staging_relative_path":"9101/2026/07/29/task_async_storage_rebind/0.img","size_bytes":16,"mime_type":"image/png","extension":"png","sha256":"0123456789abcdef"}]`
 	require.NoError(t, CompleteAsyncImageGeneration(taskID, "runner-1", 100, manifest, "base64", []StorageObject{{
 		ObjectIndex:         0,
 		Endpoint:            "https://old.example.com",
@@ -277,7 +277,7 @@ func TestUpdateObjectStorageOptionsRebindsFailedTaskAsOneTransaction(t *testing.
 		MimeType:            "image/png",
 		Extension:           "png",
 		SizeBytes:           16,
-		StagingRelativePath: "9101/2026/07/task_async_storage_rebind/0.img",
+		StagingRelativePath: "9101/2026/07/29/task_async_storage_rebind/0.img",
 		StagingSizeBytes:    16,
 		StagingSHA256:       "0123456789abcdef",
 	}}))

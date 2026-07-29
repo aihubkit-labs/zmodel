@@ -151,8 +151,8 @@ func writeAsyncImageTaskDetail(c *gin.Context, task *model.AsyncImageTask, root 
 		return
 	}
 	request := any(nil)
-	if task.RequestPayload != "" {
-		if err := common.UnmarshalJsonStr(task.RequestPayload, &request); err != nil {
+	if task.RequestSnapshot != "" {
+		if err := common.UnmarshalJsonStr(task.RequestSnapshot, &request); err != nil {
 			request = nil
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -101,6 +102,7 @@ func TestStageAsyncImageResponseNormalizesBase64AndDataURI(t *testing.T) {
 		require.NoError(t, file.Close())
 		assert.Equal(t, onePixelPNG, contents)
 		assert.False(t, filepath.IsAbs(item.StagingRelativePath))
+		assert.Equal(t, 6, len(strings.Split(filepath.ToSlash(item.StagingRelativePath), "/")))
 	}
 }
 
@@ -148,7 +150,7 @@ func TestCleanupOrphanedAsyncImageStagingPreservesReferencedFiles(t *testing.T) 
 	setAsyncImageStagingDirectory(t, root)
 	oldTime := time.Now().Add(-2 * time.Hour)
 
-	referencedRelative := filepath.Join("42", "2026", "07", "task_referenced", "0.img")
+	referencedRelative := filepath.Join("42", "2026", "07", "29", "task_referenced", "0.img")
 	referencedPath := filepath.Join(root, referencedRelative)
 	require.NoError(t, os.MkdirAll(filepath.Dir(referencedPath), 0o700))
 	require.NoError(t, os.WriteFile(referencedPath, onePixelPNG, 0o600))
@@ -161,7 +163,7 @@ func TestCleanupOrphanedAsyncImageStagingPreservesReferencedFiles(t *testing.T) 
 		StagingStatus:       model.StorageStagingAvailable,
 	}).Error)
 
-	orphanPath := filepath.Join(root, "42", "2026", "07", "task_orphan", "0.img")
+	orphanPath := filepath.Join(root, "42", "2026", "07", "29", "task_orphan", "0.img")
 	require.NoError(t, os.MkdirAll(filepath.Dir(orphanPath), 0o700))
 	require.NoError(t, os.WriteFile(orphanPath, onePixelPNG, 0o600))
 	require.NoError(t, os.Chtimes(orphanPath, oldTime, oldTime))

@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
-import { Eye, FileText } from 'lucide-react'
+import { FileText } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -50,6 +50,7 @@ import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -193,9 +194,6 @@ export function AsyncImageTasksPage() {
   const [billingStatus, setBillingStatus] = useState('')
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [detailsTask, setDetailsTask] = useState<AsyncImageTask | null>(null)
-  const [detailsView, setDetailsView] = useState<'preview' | 'details'>(
-    'details'
-  )
   const [columnVisibilityByScope, setColumnVisibilityByScope] = useState<
     Record<ColumnVisibilityScope, ColumnVisibility>
   >(() => ({
@@ -210,7 +208,7 @@ export function AsyncImageTasksPage() {
   )
   const visibleColumnCount =
     (root ? 1 : 0) +
-    3 +
+    2 +
     availableHideableColumns.filter((column) => columnVisibility[column.id])
       .length
 
@@ -315,13 +313,13 @@ export function AsyncImageTasksPage() {
                 disabled={selected.size === 0 || retryMutation.isPending}
                 onClick={() => retryMutation.mutate([...selected])}
               >
-                {t('Retry selected uploads')}
+                {t('Retry selected')}
               </Button>
               <AlertDialog>
                 <AlertDialogTrigger
                   render={
                     <Button disabled={retryAllMutation.isPending}>
-                      {t('Retry all failed image uploads')}
+                      {t('Retry all failed')}
                     </Button>
                   }
                 />
@@ -381,7 +379,7 @@ export function AsyncImageTasksPage() {
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='flex h-full min-h-0 flex-col gap-4'>
-          <div className='grid gap-2 md:grid-cols-5'>
+          <div className='grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5'>
             <Input
               value={taskId}
               onChange={(event) => {
@@ -488,7 +486,6 @@ export function AsyncImageTasksPage() {
                   {columnVisibility.error && (
                     <TableHead>{t('Error')}</TableHead>
                   )}
-                  <TableHead>{t('Preview')}</TableHead>
                   <TableHead>{t('Details')}</TableHead>
                 </TableRow>
               </TableHeader>
@@ -501,12 +498,7 @@ export function AsyncImageTasksPage() {
                     task.completed_at > task.created_at
                       ? task.completed_at - task.created_at
                       : null
-                  let channelLabel = '-'
-                  if (task.channel_name) {
-                    channelLabel = `${task.channel_name} (#${task.channel_id})`
-                  } else if (task.channel_id) {
-                    channelLabel = `#${task.channel_id}`
-                  }
+                  const channelLabel = task.channel_name || '-'
                   return (
                     <TableRow key={task.task_id}>
                       {root && (
@@ -627,30 +619,9 @@ export function AsyncImageTasksPage() {
                       <TableCell>
                         <Button
                           type='button'
-                          variant='outline'
-                          size='xs'
-                          disabled={
-                            task.output_availability !== 'available' ||
-                            task.object_available_count === 0
-                          }
-                          onClick={() => {
-                            setDetailsView('preview')
-                            setDetailsTask(task)
-                          }}
-                        >
-                          <Eye />
-                          {t('Preview')}
-                        </Button>
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          type='button'
                           variant='ghost'
                           size='xs'
-                          onClick={() => {
-                            setDetailsView('details')
-                            setDetailsTask(task)
-                          }}
+                          onClick={() => setDetailsTask(task)}
                         >
                           <FileText />
                           {t('Details')}
@@ -704,7 +675,6 @@ export function AsyncImageTasksPage() {
         <AsyncImageTaskDetailsDialog
           task={detailsTask}
           root={root}
-          view={detailsView}
           onClose={() => setDetailsTask(null)}
         />
       </SectionPageLayout.Content>
@@ -728,18 +698,20 @@ function StatusSelect(props: StatusSelectProps) {
         if (value !== null) props.onChange(value === 'all' ? '' : value)
       }}
     >
-      <SelectTrigger>
+      <SelectTrigger className='w-full'>
         <SelectValue placeholder={props.placeholder} />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value='all'>{t('All')}</SelectItem>
-        {props.options
-          .filter((option) => option !== '')
-          .map((option) => (
-            <SelectItem key={option} value={option}>
-              {t(option === 'available' ? 'Uploaded' : option)}
-            </SelectItem>
-          ))}
+        <SelectGroup>
+          <SelectItem value='all'>{t('All')}</SelectItem>
+          {props.options
+            .filter((option) => option !== '')
+            .map((option) => (
+              <SelectItem key={option} value={option}>
+                {t(option === 'available' ? 'Uploaded' : option)}
+              </SelectItem>
+            ))}
+        </SelectGroup>
       </SelectContent>
     </Select>
   )

@@ -63,6 +63,7 @@ type AsyncImageTask struct {
 	LastChannelID              int    `json:"last_channel_id" gorm:"index"`
 	LastChannelType            int    `json:"last_channel_type"`
 	RequestPayload             string `json:"-" gorm:"type:text"`
+	RequestSnapshot            string `json:"-" gorm:"type:text"`
 	BillingContext             string `json:"-" gorm:"type:text"`
 	ArchiveManifest            string `json:"-" gorm:"type:text"`
 	RetentionSeconds           int64  `json:"retention_seconds"`

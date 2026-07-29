@@ -179,7 +179,7 @@ func stageAsyncImageData(ctx context.Context, userID int, taskID string, index i
 		return AsyncImageManifestItem{}, &AsyncImageStageError{Kind: AsyncImageStageInvalid, Err: errors.New("image response item has no URL or base64 data")}
 	}
 	defer reader.Close()
-	relativePath := filepath.Join(fmt.Sprintf("%d", userID), time.Now().UTC().Format("2006/01"), taskID, fmt.Sprintf("%d.img", index))
+	relativePath := filepath.Join(fmt.Sprintf("%d", userID), time.Now().UTC().Format("2006/01/02"), taskID, fmt.Sprintf("%d.img", index))
 	size, mimeType, extension, checksum, err := writeStagedImage(relativePath, reader)
 	if err != nil {
 		kind := AsyncImageStageErrorKindOf(err)

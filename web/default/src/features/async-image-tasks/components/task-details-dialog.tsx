@@ -39,7 +39,6 @@ import type {
 type AsyncImageTaskDetailsDialogProps = {
   task: AsyncImageTask | null
   root: boolean
-  view: 'preview' | 'details'
   onClose: () => void
 }
 
@@ -239,156 +238,162 @@ function LoadedTaskDetail(props: {
     <div className='space-y-5'>
       <TaskImages detail={detail} root={props.root} />
 
-      <section className='space-y-2'>
-        <h3 className='text-sm font-medium'>{t('Generation details')}</h3>
-        <dl className='rounded-md border px-3'>
-          <DetailItem label={t('Task ID')}>
-            <span className='inline-flex max-w-full items-center gap-1'>
-              <span className='truncate font-mono text-xs'>
-                {detail.task_id}
+      <div className='grid gap-5 lg:grid-cols-2'>
+        <section className='space-y-2'>
+          <h3 className='text-sm font-medium'>{t('Generation details')}</h3>
+          <dl className='rounded-md border px-3'>
+            <DetailItem label={t('Task ID')}>
+              <span className='inline-flex max-w-full items-center gap-1'>
+                <span className='truncate font-mono text-xs'>
+                  {detail.task_id}
+                </span>
+                <CopyButton value={detail.task_id} className='size-7' />
               </span>
-              <CopyButton value={detail.task_id} className='size-7' />
-            </span>
-          </DetailItem>
-          {props.root ? (
-            <DetailItem label={t('User')}>
-              {detail.username
-                ? `${detail.username} (#${detail.user_id})`
-                : detail.user_id}
             </DetailItem>
-          ) : null}
-          <DetailItem label={t('Model')}>{detail.model}</DetailItem>
-          <DetailItem label={t('Group')}>
-            {detail.using_group || '-'}
-          </DetailItem>
-          {props.root ? (
-            <DetailItem label={t('Channel')}>
-              {detail.channel_name
-                ? `${detail.channel_name} (#${detail.last_channel_id})`
-                : detail.last_channel_id || '-'}
+            {props.root ? (
+              <DetailItem label={t('User')}>
+                {detail.username || detail.user_id}
+              </DetailItem>
+            ) : null}
+            {props.root ? (
+              <DetailItem label={t('User ID')}>{detail.user_id}</DetailItem>
+            ) : null}
+            <DetailItem label={t('Model')}>{detail.model}</DetailItem>
+            <DetailItem label={t('Group')}>
+              {detail.using_group || '-'}
             </DetailItem>
-          ) : null}
-          {props.root ? (
-            <DetailItem label={t('Platform')}>
-              {detail.platform || '-'}
+            {props.root ? (
+              <DetailItem label={t('Channel')}>
+                {detail.channel_name || '-'}
+              </DetailItem>
+            ) : null}
+            {props.root ? (
+              <DetailItem label={t('Channel ID')}>
+                {detail.last_channel_id || '-'}
+              </DetailItem>
+            ) : null}
+            {props.root ? (
+              <DetailItem label={t('Platform')}>
+                {detail.platform || '-'}
+              </DetailItem>
+            ) : null}
+            {props.root ? (
+              <DetailItem label={t('Token ID')}>
+                {detail.token_id || '-'}
+              </DetailItem>
+            ) : null}
+            {props.root ? (
+              <DetailItem label={t('Subscription ID')}>
+                {detail.subscription_id || '-'}
+              </DetailItem>
+            ) : null}
+            <DetailItem label={t('Generation status')}>
+              <StatusValue value={detail.status} />
             </DetailItem>
-          ) : null}
-          {props.root ? (
-            <DetailItem label={t('Token ID')}>
-              {detail.token_id || '-'}
+            <DetailItem label={t('Upload status')}>
+              <StatusValue
+                value={
+                  detail.output_availability === 'available'
+                    ? 'Uploaded'
+                    : detail.output_availability
+                }
+              />
             </DetailItem>
-          ) : null}
-          {props.root ? (
-            <DetailItem label={t('Subscription ID')}>
-              {detail.subscription_id || '-'}
+            <DetailItem label={t('Source kind')}>
+              {t(detail.source_kind || 'none')}
             </DetailItem>
-          ) : null}
-          <DetailItem label={t('Generation status')}>
-            <StatusValue value={detail.status} />
-          </DetailItem>
-          <DetailItem label={t('Upload status')}>
-            <StatusValue
-              value={
-                detail.output_availability === 'available'
-                  ? 'Uploaded'
-                  : detail.output_availability
-              }
-            />
-          </DetailItem>
-          <DetailItem label={t('Source kind')}>
-            {t(detail.source_kind || 'none')}
-          </DetailItem>
-          {detail.error ? (
-            <DetailItem label={t('Error')}>
-              <span className='text-destructive'>{detail.error}</span>
-            </DetailItem>
-          ) : null}
-          {detail.error_code ? (
-            <DetailItem label={t('Error code')}>
-              <span className='font-mono text-xs'>{detail.error_code}</span>
-            </DetailItem>
-          ) : null}
-        </dl>
-      </section>
+            {detail.error ? (
+              <DetailItem label={t('Error')}>
+                <span className='text-destructive'>{detail.error}</span>
+              </DetailItem>
+            ) : null}
+            {detail.error_code ? (
+              <DetailItem label={t('Error code')}>
+                <span className='font-mono text-xs'>{detail.error_code}</span>
+              </DetailItem>
+            ) : null}
+          </dl>
+        </section>
 
-      <section className='space-y-2'>
-        <h3 className='text-sm font-medium'>{t('Archive processing')}</h3>
-        <dl className='rounded-md border px-3'>
-          <DetailItem label={t('Object retention (seconds)')}>
-            {detail.retention_seconds}
-          </DetailItem>
-          <DetailItem label={t('Archive attempt timeout (seconds)')}>
-            {detail.archive_timeout_seconds}
-          </DetailItem>
-          <DetailItem label={t('Maximum archive attempts')}>
-            {detail.archive_max_attempts}
-          </DetailItem>
-          <DetailItem label={t('Archive attempts')}>
-            {detail.archive_attempts}
-          </DetailItem>
-        </dl>
-      </section>
+        <section className='space-y-2'>
+          <h3 className='text-sm font-medium'>{t('Archive processing')}</h3>
+          <dl className='rounded-md border px-3'>
+            <DetailItem label={t('Object retention (seconds)')}>
+              {detail.retention_seconds}
+            </DetailItem>
+            <DetailItem label={t('Archive attempt timeout (seconds)')}>
+              {detail.archive_timeout_seconds}
+            </DetailItem>
+            <DetailItem label={t('Maximum archive attempts')}>
+              {detail.archive_max_attempts}
+            </DetailItem>
+            <DetailItem label={t('Archive attempts')}>
+              {detail.archive_attempts}
+            </DetailItem>
+          </dl>
+        </section>
 
-      <section className='space-y-2'>
-        <h3 className='text-sm font-medium'>{t('Billing')}</h3>
-        <dl className='rounded-md border px-3'>
-          <DetailItem label={t('Billing status')}>
-            <StatusValue value={detail.billing_status} />
-          </DetailItem>
-          <DetailItem label={t('Billing source')}>
-            {t(detail.billing_source || 'none')}
-          </DetailItem>
-          <DetailItem label={t('Reserved quota')}>
-            {detail.reserved_quota}
-          </DetailItem>
-          <DetailItem label={t('Actual quota')}>
-            {detail.actual_quota}
-          </DetailItem>
-        </dl>
-      </section>
+        <section className='space-y-2'>
+          <h3 className='text-sm font-medium'>{t('Billing')}</h3>
+          <dl className='rounded-md border px-3'>
+            <DetailItem label={t('Billing status')}>
+              <StatusValue value={detail.billing_status} />
+            </DetailItem>
+            <DetailItem label={t('Billing source')}>
+              {t(detail.billing_source || 'none')}
+            </DetailItem>
+            <DetailItem label={t('Reserved quota')}>
+              {detail.reserved_quota}
+            </DetailItem>
+            <DetailItem label={t('Actual quota')}>
+              {detail.actual_quota}
+            </DetailItem>
+          </dl>
+        </section>
 
-      <section className='space-y-2'>
-        <h3 className='text-sm font-medium'>{t('Lifecycle')}</h3>
-        <dl className='rounded-md border px-3'>
-          <DetailItem label={t('Created at')}>
-            {formatTime(detail.created_at)}
-          </DetailItem>
-          <DetailItem label={t('Started at')}>
-            {formatTime(detail.started_at)}
-          </DetailItem>
-          <DetailItem label={t('Generation completed at')}>
-            {formatTime(detail.generation_completed_at)}
-          </DetailItem>
-          <DetailItem label={t('Billing finalized at')}>
-            {formatTime(detail.billing_finalized_at)}
-          </DetailItem>
-          <DetailItem label={t('Completed at')}>
-            {formatTime(detail.completed_at)}
-          </DetailItem>
-          <DetailItem label={t('Updated at')}>
-            {formatTime(detail.updated_at)}
-          </DetailItem>
-          <DetailItem label={t('Archive retry deadline')}>
-            {formatTime(detail.archive_retry_deadline_at)}
-          </DetailItem>
-          <DetailItem label={t('Next retry')}>
-            {formatTime(detail.next_attempt_at)}
-          </DetailItem>
-          <DetailItem label={t('Output expires at')}>
-            {formatTime(detail.output_expires_at)}
-          </DetailItem>
-          <DetailItem label={t('Manually recovered at')}>
-            {formatTime(detail.manually_recovered_at)}
-          </DetailItem>
-        </dl>
-      </section>
+        <section className='space-y-2'>
+          <h3 className='text-sm font-medium'>{t('Lifecycle')}</h3>
+          <dl className='rounded-md border px-3'>
+            <DetailItem label={t('Created at')}>
+              {formatTime(detail.created_at)}
+            </DetailItem>
+            <DetailItem label={t('Started at')}>
+              {formatTime(detail.started_at)}
+            </DetailItem>
+            <DetailItem label={t('Generation completed at')}>
+              {formatTime(detail.generation_completed_at)}
+            </DetailItem>
+            <DetailItem label={t('Billing finalized at')}>
+              {formatTime(detail.billing_finalized_at)}
+            </DetailItem>
+            <DetailItem label={t('Completed at')}>
+              {formatTime(detail.completed_at)}
+            </DetailItem>
+            <DetailItem label={t('Updated at')}>
+              {formatTime(detail.updated_at)}
+            </DetailItem>
+            <DetailItem label={t('Archive retry deadline')}>
+              {formatTime(detail.archive_retry_deadline_at)}
+            </DetailItem>
+            <DetailItem label={t('Next retry')}>
+              {formatTime(detail.next_attempt_at)}
+            </DetailItem>
+            <DetailItem label={t('Output expires at')}>
+              {formatTime(detail.output_expires_at)}
+            </DetailItem>
+            <DetailItem label={t('Manually recovered at')}>
+              {formatTime(detail.manually_recovered_at)}
+            </DetailItem>
+          </dl>
+        </section>
 
-      <section className='space-y-2'>
-        <h3 className='text-sm font-medium'>{t('Request parameters')}</h3>
-        <pre className='bg-muted/30 text-muted-foreground max-h-80 overflow-auto rounded-md border p-3 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap'>
-          {detail.request ? JSON.stringify(detail.request, null, 2) : '-'}
-        </pre>
-      </section>
+        <section className='space-y-2 lg:col-span-2'>
+          <h3 className='text-sm font-medium'>{t('Request parameters')}</h3>
+          <pre className='bg-muted/30 text-muted-foreground max-h-80 overflow-auto rounded-md border p-3 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap'>
+            {detail.request ? JSON.stringify(detail.request, null, 2) : '-'}
+          </pre>
+        </section>
+      </div>
     </div>
   )
 }
@@ -446,12 +451,7 @@ export function AsyncImageTaskDetailsDialog(
       </div>
     )
   } else {
-    content =
-      props.view === 'preview' ? (
-        <TaskImages detail={detail} root={props.root} />
-      ) : (
-        <LoadedTaskDetail detail={detail} root={props.root} />
-      )
+    content = <LoadedTaskDetail detail={detail} root={props.root} />
   }
 
   return (
@@ -465,7 +465,7 @@ export function AsyncImageTaskDetailsDialog(
           <IconBadge tone='primary' size='sm'>
             <ImageIcon />
           </IconBadge>
-          {props.view === 'preview' ? t('Preview') : t('Task details')}
+          {t('Task details')}
         </>
       }
       description={taskId ? `${t('Task ID:')} ${taskId}` : undefined}

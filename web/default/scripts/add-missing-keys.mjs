@@ -600,6 +600,8 @@ Object.assign(newKeys.en, {
     'Leave blank to keep the existing secret',
   'Retry selected uploads': 'Retry selected uploads',
   'Retry all failed image uploads': 'Retry all failed image uploads',
+  'Retry selected': 'Retry selected',
+  'Retry all failed': 'Retry all failed',
   'Retry all failed uploads?': 'Retry all failed uploads?',
   'Only persistent staged files are uploaded again. Image generation and billing are not repeated.':
     'Only persistent staged files are uploaded again. Image generation and billing are not repeated.',
@@ -662,6 +664,8 @@ Object.assign(newKeys.zh, {
   'Leave blank to keep the existing secret': '留空以保留现有 Secret',
   'Retry selected uploads': '重新上传选中项',
   'Retry all failed image uploads': '重新上传全部失败的图片文件',
+  'Retry selected': '重新上传选中项',
+  'Retry all failed': '重新上传全部失败项',
   'Retry all failed uploads?': '重新上传全部失败文件？',
   'Only persistent staged files are uploaded again. Image generation and billing are not repeated.':
     '只会重新上传持久暂存文件，不会重新生成图片或重复扣费。',
@@ -724,6 +728,8 @@ Object.assign(newKeys['zh-TW'], {
   'Leave blank to keep the existing secret': '留空以保留現有 Secret',
   'Retry selected uploads': '重新上傳所選項目',
   'Retry all failed image uploads': '重新上傳全部失敗的圖片檔案',
+  'Retry selected': '重新上傳所選項目',
+  'Retry all failed': '重新上傳全部失敗項目',
   'Retry all failed uploads?': '重新上傳全部失敗檔案？',
   'Only persistent staged files are uploaded again. Image generation and billing are not repeated.':
     '只會重新上傳持久暫存檔案，不會重新生成圖片或重複計費。',
@@ -789,6 +795,8 @@ Object.assign(newKeys.fr, {
     'Laissez vide pour conserver le secret actuel',
   'Retry selected uploads': 'Relancer les envois sélectionnés',
   'Retry all failed image uploads': 'Relancer tous les envois d’images échoués',
+  'Retry selected': 'Relancer la sélection',
+  'Retry all failed': 'Relancer tous les échecs',
   'Retry all failed uploads?': 'Relancer tous les envois échoués ?',
   'Only persistent staged files are uploaded again. Image generation and billing are not repeated.':
     'Seuls les fichiers persistants sont renvoyés. La génération et la facturation ne sont pas répétées.',
@@ -853,6 +861,8 @@ Object.assign(newKeys.ja, {
     '既存のシークレットを維持する場合は空欄',
   'Retry selected uploads': '選択したアップロードを再試行',
   'Retry all failed image uploads': '失敗した画像アップロードをすべて再試行',
+  'Retry selected': '選択項目を再試行',
+  'Retry all failed': '失敗分をすべて再試行',
   'Retry all failed uploads?': '失敗したアップロードをすべて再試行しますか？',
   'Only persistent staged files are uploaded again. Image generation and billing are not repeated.':
     '永続ステージファイルのみ再アップロードします。画像生成と課金は繰り返しません。',
@@ -919,6 +929,8 @@ Object.assign(newKeys.ru, {
   'Retry selected uploads': 'Повторить выбранные загрузки',
   'Retry all failed image uploads':
     'Повторить все неудачные загрузки изображений',
+  'Retry selected': 'Повторить выбранное',
+  'Retry all failed': 'Повторить все ошибки',
   'Retry all failed uploads?': 'Повторить все неудачные загрузки?',
   'Only persistent staged files are uploaded again. Image generation and billing are not repeated.':
     'Повторно загружаются только сохранённые временные файлы. Генерация и списание не повторяются.',
@@ -983,6 +995,8 @@ Object.assign(newKeys.vi, {
   'Leave blank to keep the existing secret': 'Để trống để giữ bí mật hiện tại',
   'Retry selected uploads': 'Thử lại các tệp đã chọn',
   'Retry all failed image uploads': 'Thử lại toàn bộ ảnh tải lên thất bại',
+  'Retry selected': 'Thử lại mục đã chọn',
+  'Retry all failed': 'Thử lại toàn bộ lỗi',
   'Retry all failed uploads?': 'Thử lại mọi tệp tải lên thất bại?',
   'Only persistent staged files are uploaded again. Image generation and billing are not repeated.':
     'Chỉ tải lại tệp tạm bền vững; không tạo lại ảnh hoặc tính phí lại.',
