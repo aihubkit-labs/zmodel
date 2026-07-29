@@ -188,6 +188,8 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			optionRoute.GET("/", controller.GetOptions)
 			optionRoute.PUT("/", controller.UpdateOption)
+			optionRoute.GET("/object-storage", controller.GetObjectStorageSettings)
+			optionRoute.PUT("/object-storage", controller.UpdateObjectStorageSettings)
 			optionRoute.POST("/payment_compliance", controller.ConfirmPaymentCompliance)
 			optionRoute.GET("/channel_affinity_cache", controller.GetChannelAffinityCacheStats)
 			optionRoute.DELETE("/channel_affinity_cache", controller.ClearChannelAffinityCache)
@@ -328,6 +330,14 @@ func SetApiRouter(router *gin.Engine) {
 			taskRoute.GET("/self", middleware.UserAuth(), controller.GetUserTask)
 			taskRoute.GET("/filter-options", middleware.AdminAuth(), controller.GetAllTaskFilterOptions)
 			taskRoute.GET("/", middleware.AdminAuth(), controller.GetAllTask)
+		}
+
+		asyncImageTaskRoute := apiRouter.Group("/async-image-task")
+		{
+			asyncImageTaskRoute.GET("/self", middleware.UserAuth(), controller.GetSelfAsyncImageTasks)
+			asyncImageTaskRoute.GET("", middleware.RootAuth(), controller.GetAllAsyncImageTasks)
+			asyncImageTaskRoute.POST("/retry", middleware.RootAuth(), controller.RetryAsyncImageTasks)
+			asyncImageTaskRoute.POST("/retry-failed", middleware.RootAuth(), controller.RetryAllFailedAsyncImageTasks)
 		}
 
 		vendorRoute := apiRouter.Group("/vendors")

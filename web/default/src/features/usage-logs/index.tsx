@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next'
 import { SectionPageLayout } from '@/components/layout'
 import type { NavGroup } from '@/components/layout/types'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { AsyncImageTasksPage } from '@/features/async-image-tasks'
 import { CacheStatsDialog } from '@/features/system-settings/general/channel-affinity/cache-stats-dialog'
 import { useSidebarConfig } from '@/hooks/use-sidebar-config'
 
@@ -52,6 +53,9 @@ const SECTION_META: Record<UsageLogsSectionId, { titleKey: string }> = {
   },
   task: {
     titleKey: 'Task Logs',
+  },
+  'async-images': {
+    titleKey: 'Async Image Tasks',
   },
 }
 
@@ -116,6 +120,8 @@ function UsageLogsContent() {
     },
     [setViewScope]
   )
+
+  if (activeCategory === 'async-images') return null
 
   const pageMeta =
     activeCategory === 'common' ? SECTION_META.common : SECTION_META.task
@@ -186,6 +192,10 @@ function UsageLogsContent() {
 }
 
 export function UsageLogs() {
+  const params = route.useParams()
+  if (params.section === 'async-images') {
+    return <AsyncImageTasksPage />
+  }
   return (
     <UsageLogsProvider>
       <UsageLogsContent />

@@ -22,6 +22,7 @@ import {
   CreditCard,
   FileText,
   FlaskConical,
+  Images,
   Key,
   LayoutDashboard,
   ListTodo,
@@ -36,7 +37,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { type SidebarData } from '@/components/layout/types'
+import type { SidebarData } from '@/components/layout/types'
 import { ROLE } from '@/lib/roles'
 
 /**
@@ -97,6 +98,11 @@ export function useSidebarData(): SidebarData {
             configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
             icon: ListTodo,
           },
+          {
+            title: t('Async Image Tasks'),
+            url: '/usage-logs/async-images',
+            icon: Images,
+          },
         ],
       },
       {
@@ -155,6 +161,12 @@ export function useSidebarData(): SidebarData {
             url: '/system-settings/site',
             activeUrls: ['/system-settings'],
             icon: Settings,
+          },
+          {
+            title: t('Object Storage'),
+            url: '/system-settings/object-storage',
+            icon: ServerCog,
+            requiredRole: ROLE.SUPER_ADMIN,
           },
         ],
       },
