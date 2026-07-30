@@ -16,13 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Download, Play } from 'lucide-react'
+import { Check, Copy, Download, Play } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 import { IconBadge } from '@/components/ui/icon-badge'
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import { cn } from '@/lib/utils'
 
 interface VideoPreviewDialogProps {
   taskId: string
@@ -33,8 +35,14 @@ interface VideoPreviewDialogProps {
 export function VideoPreviewDialog(props: VideoPreviewDialogProps) {
   const { t } = useTranslation()
   const [hasError, setHasError] = useState(false)
-  const videoUrl = `/v1/videos/${encodeURIComponent(props.taskId)}/content`
+  const { copiedText, copyToClipboard } = useCopyToClipboard()
+  const videoPath = `/v1/videos/${encodeURIComponent(props.taskId)}/content`
+  const videoUrl =
+    typeof window === 'undefined'
+      ? videoPath
+      : new URL(videoPath, window.location.origin).href
   const downloadUrl = `${videoUrl}?download_name=${encodeURIComponent(props.taskId)}`
+  const isCopied = copiedText === videoUrl
 
   return (
     <Dialog
@@ -59,14 +67,35 @@ export function VideoPreviewDialog(props: VideoPreviewDialogProps) {
         <p className='text-muted-foreground min-w-0 text-sm break-all'>
           {t('Task ID:')} {props.taskId}
         </p>
-        <Button
-          size='lg'
-          className='h-10 min-w-40 px-5 max-sm:w-full'
-          render={<a href={downloadUrl} download={`${props.taskId}.mp4`} />}
-        >
-          <Download />
-          {t('Download video')}
-        </Button>
+        <div className='flex flex-col gap-2 sm:flex-row'>
+          <Button
+            type='button'
+            variant='outline'
+            size='lg'
+            className={cn(
+              'h-10 min-w-40 px-5 max-sm:w-full',
+              isCopied
+                ? 'border-success/30 bg-success/10 text-success hover:bg-success/20 hover:text-success'
+                : 'border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary'
+            )}
+            onClick={() => void copyToClipboard(videoUrl)}
+          >
+            {isCopied ? (
+              <Check data-icon='inline-start' />
+            ) : (
+              <Copy data-icon='inline-start' />
+            )}
+            {t('Copy Link')}
+          </Button>
+          <Button
+            size='lg'
+            className='h-10 min-w-40 px-5 max-sm:w-full'
+            render={<a href={downloadUrl} download={`${props.taskId}.mp4`} />}
+          >
+            <Download data-icon='inline-start' />
+            {t('Download video')}
+          </Button>
+        </div>
       </div>
       <div className='bg-muted/30 flex min-h-64 items-center justify-center overflow-hidden rounded-md border'>
         {hasError ? (
