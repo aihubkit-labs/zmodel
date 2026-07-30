@@ -1,10 +1,11 @@
 package dto
 
 type AsyncImageTaskResponse struct {
-	ID     string               `json:"id"`
-	Status string               `json:"status"`
-	Output AsyncImageTaskOutput `json:"output"`
-	Error  *AsyncImageTaskError `json:"error,omitempty"`
+	ID        string               `json:"id"`
+	CreatedAt int64                `json:"created_at"`
+	Status    string               `json:"status"`
+	Output    AsyncImageTaskOutput `json:"output"`
+	Error     *AsyncImageTaskError `json:"error,omitempty"`
 }
 
 type AsyncImageTaskOutput struct {
@@ -15,8 +16,10 @@ type AsyncImageTaskOutput struct {
 }
 
 type AsyncImageOutputData struct {
-	Index int    `json:"index"`
-	URL   string `json:"url"`
+	Index     int    `json:"index"`
+	URL       string `json:"url"`
+	MimeType  string `json:"mime_type"`
+	SizeBytes int64  `json:"size_bytes"`
 }
 
 type AsyncImageTaskError struct {

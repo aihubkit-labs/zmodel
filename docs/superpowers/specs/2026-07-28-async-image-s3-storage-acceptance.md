@@ -164,7 +164,8 @@ queued/pending -> running/pending -> succeeded/archiving -> succeeded/available
 
 中间状态可能因执行速度较快而跳过。最终检查：
 
-- `output.data` 数量等于请求 `n`，每项只包含 `index` 和 `url`。
+- 响应包含任务 `created_at`；`output.data` 数量等于请求 `n`，每项包含 `index`、`url`、
+  `mime_type` 和 `size_bytes`，但不包含 `revised_prompt`。
 - 使用预签名 URL 能下载并识别为有效图片；Bucket 的普通公开地址不能匿名访问。
 - S3 Object Key 为
   `prod/user-files/zmodel@async-images/{yyyy}/{mm}/{dd}/{task_id}/{index}.{extension}`。

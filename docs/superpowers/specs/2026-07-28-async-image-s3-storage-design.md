@@ -377,6 +377,7 @@ Content-Type: application/json
 ```json
 {
   "id": "task_xxx",
+  "created_at": 0,
   "status": "queued",
   "output": {
     "availability": "pending",
@@ -404,6 +405,7 @@ HTTP 404，错误码 `image_generation_task_not_found`。
 ```json
 {
   "id": "task_xxx",
+  "created_at": 0,
   "status": "succeeded",
   "output": {
     "availability": "available",
@@ -411,7 +413,9 @@ HTTP 404，错误码 `image_generation_task_not_found`。
     "data": [
       {
         "index": 0,
-        "url": "https://presigned.example/..."
+        "url": "https://presigned.example/...",
+        "mime_type": "image/png",
+        "size_bytes": 123
       }
     ]
   }

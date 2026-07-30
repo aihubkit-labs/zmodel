@@ -267,8 +267,10 @@ func GetAsyncImageTask(c *gin.Context) {
 			return
 		}
 		data = append(data, dto.AsyncImageOutputData{
-			Index: object.ObjectIndex,
-			URL:   url,
+			Index:     object.ObjectIndex,
+			URL:       url,
+			MimeType:  object.MimeType,
+			SizeBytes: object.SizeBytes,
 		})
 	}
 	c.JSON(http.StatusOK, asyncImageTaskResponse(task, data, nil))
@@ -295,8 +297,9 @@ func asyncImageTaskResponse(task *model.AsyncImageTask, data []dto.AsyncImageOut
 		data = []dto.AsyncImageOutputData{}
 	}
 	response := dto.AsyncImageTaskResponse{
-		ID:     task.TaskID,
-		Status: task.Status,
+		ID:        task.TaskID,
+		CreatedAt: task.CreatedAt,
+		Status:    task.Status,
 		Output: dto.AsyncImageTaskOutput{
 			Availability: task.OutputAvailability,
 			ExpiresAt:    task.OutputExpiresAt,

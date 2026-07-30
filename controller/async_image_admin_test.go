@@ -118,29 +118,35 @@ func TestAsyncImageObjectKeyIncludesDayPartition(t *testing.T) {
 	assert.Equal(t, "prod/user-files/zmodel@async-images/2026/07/29/task_day_partition/1.png", key)
 }
 
-func TestAsyncImageTaskResponseUsesMinimalPublicContract(t *testing.T) {
+func TestAsyncImageTaskResponseUsesPublicContract(t *testing.T) {
 	response := asyncImageTaskResponse(&model.AsyncImageTask{
 		TaskID:             "task_public_contract",
 		CreatedAt:          123,
 		Status:             model.AsyncImageStatusSucceeded,
 		OutputAvailability: model.AsyncImageOutputAvailable,
 		OutputExpiresAt:    456,
-	}, []dto.AsyncImageOutputData{{Index: 0, URL: "https://storage.example/image"}}, nil)
+	}, []dto.AsyncImageOutputData{{
+		Index: 0, URL: "https://storage.example/image", MimeType: "image/png", SizeBytes: 789,
+	}}, nil)
 
 	encoded, err := common.Marshal(response)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{
 		"id":"task_public_contract",
+		"created_at":123,
 		"status":"succeeded",
 		"output":{
 			"availability":"available",
 			"expires_at":456,
-			"data":[{"index":0,"url":"https://storage.example/image"}]
+			"data":[{
+				"index":0,
+				"url":"https://storage.example/image",
+				"mime_type":"image/png",
+				"size_bytes":789
+			}]
 		}
 	}`, string(encoded))
-	assert.NotContains(t, string(encoded), "created_at")
-	assert.NotContains(t, string(encoded), "mime_type")
-	assert.NotContains(t, string(encoded), "size_bytes")
+	assert.NotContains(t, string(encoded), `"object"`)
 	assert.NotContains(t, string(encoded), "revised_prompt")
 }
 
