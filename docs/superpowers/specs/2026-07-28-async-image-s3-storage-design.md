@@ -972,6 +972,8 @@ archive_attempts >= archive_max_attempts
 不影响额度的运维/管理员日志，便于按 `task_id` 追踪上传错误和管理员重试。主额度事务不依赖日志
 数据库成功。若日志数据库独立且写入失败，记录带 `task_id` 的系统告警，不回滚已经完成的资金
 事务，也不通过再次资金调整来补日志。
+异步图片的消费和错误日志必须展示用户入口路径 `/v1/images/generations/tasks`；Worker
+内部继续用 `/v1/images/generations` 匹配生图渠道和复用适配器，不得将内部匹配路径误写为用户请求路径。
 
 ## 17. 最终失败和通知
 

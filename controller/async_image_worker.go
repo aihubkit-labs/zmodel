@@ -318,6 +318,7 @@ func newAsyncImageRelayContext(task *model.AsyncImageTask, imageRequest *dto.Ima
 	c.Request = request
 	c.Set(common.RequestIdKey, task.TaskID)
 	common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
+	common.SetContextKey(c, constant.ContextKeyLogRequestPath, "/v1/images/generations/tasks")
 	common.SetContextKey(c, constant.ContextKeyOriginalModel, task.OriginModelName)
 	common.SetContextKey(c, constant.ContextKeyUsingGroup, task.UsingGroup)
 	c.Set("id", task.UserID)

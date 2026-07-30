@@ -53,11 +53,9 @@ func appendRequestPath(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other
 	if other == nil {
 		return
 	}
-	if ctx != nil && ctx.Request != nil && ctx.Request.URL != nil {
-		if path := ctx.Request.URL.Path; path != "" {
-			other["request_path"] = path
-			return
-		}
+	if path := RequestPathForLog(ctx); path != "" {
+		other["request_path"] = path
+		return
 	}
 	if relayInfo != nil && relayInfo.RequestURLPath != "" {
 		path := relayInfo.RequestURLPath
@@ -66,6 +64,21 @@ func appendRequestPath(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other
 		}
 		other["request_path"] = path
 	}
+}
+
+// RequestPathForLog returns an explicit external request path when one is set,
+// otherwise it falls back to the current Gin request path.
+func RequestPathForLog(ctx *gin.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if path := common.GetContextKeyString(ctx, constant.ContextKeyLogRequestPath); path != "" {
+		return path
+	}
+	if ctx.Request != nil && ctx.Request.URL != nil {
+		return ctx.Request.URL.Path
+	}
+	return ""
 }
 
 func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelRatio, groupRatio, completionRatio float64,
