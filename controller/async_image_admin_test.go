@@ -110,12 +110,38 @@ func createAsyncImageDetailFixture(t *testing.T) {
 }
 
 func TestAsyncImageObjectKeyIncludesDayPartition(t *testing.T) {
-	key := asyncImageObjectKey(42, "task_day_partition", service.AsyncImageManifestItem{
+	key := asyncImageObjectKey("task_day_partition", service.AsyncImageManifestItem{
 		Index:               1,
 		Extension:           "png",
 		StagingRelativePath: "42/2026/07/29/task_day_partition/1.img",
 	})
-	assert.Equal(t, "prod/user-files/zmodel@async-images/42/2026/07/29/task_day_partition/1.png", key)
+	assert.Equal(t, "prod/user-files/zmodel@async-images/2026/07/29/task_day_partition/1.png", key)
+}
+
+func TestAsyncImageTaskResponseUsesMinimalPublicContract(t *testing.T) {
+	response := asyncImageTaskResponse(&model.AsyncImageTask{
+		TaskID:             "task_public_contract",
+		CreatedAt:          123,
+		Status:             model.AsyncImageStatusSucceeded,
+		OutputAvailability: model.AsyncImageOutputAvailable,
+		OutputExpiresAt:    456,
+	}, []dto.AsyncImageOutputData{{Index: 0, URL: "https://storage.example/image"}}, nil)
+
+	encoded, err := common.Marshal(response)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+		"id":"task_public_contract",
+		"status":"succeeded",
+		"output":{
+			"availability":"available",
+			"expires_at":456,
+			"data":[{"index":0,"url":"https://storage.example/image"}]
+		}
+	}`, string(encoded))
+	assert.NotContains(t, string(encoded), "created_at")
+	assert.NotContains(t, string(encoded), "mime_type")
+	assert.NotContains(t, string(encoded), "size_bytes")
+	assert.NotContains(t, string(encoded), "revised_prompt")
 }
 
 func TestAsyncImageRequestSnapshotExcludesImageInputs(t *testing.T) {

@@ -250,7 +250,7 @@ func generateAsyncImageTask(ctx context.Context, task *model.AsyncImageTask, own
 	for _, item := range manifest {
 		objects = append(objects, model.StorageObject{
 			ObjectIndex: item.Index, Endpoint: settings.Endpoint, Region: settings.Region, Bucket: settings.Bucket,
-			ObjectKey: asyncImageObjectKey(task.UserID, task.TaskID, item), MimeType: item.MimeType,
+			ObjectKey: asyncImageObjectKey(task.TaskID, item), MimeType: item.MimeType,
 			Extension: item.Extension, SizeBytes: item.SizeBytes, StagingRelativePath: item.StagingRelativePath,
 			StagingSizeBytes: item.SizeBytes, StagingSHA256: item.SHA256, StagedAt: common.GetTimestamp(),
 		})
@@ -350,13 +350,13 @@ func newAsyncImageRelayContext(task *model.AsyncImageTask, imageRequest *dto.Ima
 	return c, recorder, writer, cleanup, nil
 }
 
-func asyncImageObjectKey(userID int, taskID string, item service.AsyncImageManifestItem) string {
+func asyncImageObjectKey(taskID string, item service.AsyncImageManifestItem) string {
 	parts := strings.Split(filepathSlash(item.StagingRelativePath), "/")
 	year, month, day := time.Now().UTC().Format("2006"), time.Now().UTC().Format("01"), time.Now().UTC().Format("02")
 	if len(parts) >= 5 {
 		year, month, day = parts[1], parts[2], parts[3]
 	}
-	return fmt.Sprintf("%s/%d/%s/%s/%s/%s/%d.%s", asyncImageObjectPrefix, userID, year, month, day, taskID, item.Index, item.Extension)
+	return fmt.Sprintf("%s/%s/%s/%s/%s/%d.%s", asyncImageObjectPrefix, year, month, day, taskID, item.Index, item.Extension)
 }
 
 func filepathSlash(value string) string { return strings.ReplaceAll(value, "\\", "/") }

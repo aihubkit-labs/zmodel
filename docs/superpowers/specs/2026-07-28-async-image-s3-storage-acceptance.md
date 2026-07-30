@@ -164,10 +164,10 @@ queued/pending -> running/pending -> succeeded/archiving -> succeeded/available
 
 中间状态可能因执行速度较快而跳过。最终检查：
 
-- `output.data` 数量等于请求 `n`，每项包含 `index`、`url`、`mime_type` 和 `size_bytes`。
+- `output.data` 数量等于请求 `n`，每项只包含 `index` 和 `url`。
 - 使用预签名 URL 能下载并识别为有效图片；Bucket 的普通公开地址不能匿名访问。
 - S3 Object Key 为
-  `prod/user-files/zmodel@async-images/{user_id}/{yyyy}/{mm}/{dd}/{task_id}/{index}.{extension}`。
+  `prod/user-files/zmodel@async-images/{yyyy}/{mm}/{dd}/{task_id}/{index}.{extension}`。
 - UTC 年月日与首次完成暂存的时间一致，扩展名由实际图片内容决定。
 - 用户只结算一次，任务 Root 视图显示 `billing_status=settled`。
 - 全部对象可用前，查询接口不得返回任何部分图片地址。

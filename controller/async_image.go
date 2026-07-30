@@ -227,7 +227,7 @@ func GetAsyncImageTask(c *gin.Context) {
 	}
 	data := make([]dto.AsyncImageOutputData, 0, len(objects))
 	settings := storage_setting.GetSettings()
-	for index, object := range objects {
+	for _, object := range objects {
 		if object.ExpiresAt <= now {
 			if err := model.MarkExpiredAsyncImageTask(task.TaskID, now); err != nil {
 				respondAsyncImageError(c, http.StatusInternalServerError, string(types.ErrorCodeUpdateDataError), err.Error())
@@ -267,11 +267,8 @@ func GetAsyncImageTask(c *gin.Context) {
 			return
 		}
 		data = append(data, dto.AsyncImageOutputData{
-			Index:         object.ObjectIndex,
-			URL:           url,
-			MimeType:      object.MimeType,
-			SizeBytes:     object.SizeBytes,
-			RevisedPrompt: manifest[index].RevisedPrompt,
+			Index: object.ObjectIndex,
+			URL:   url,
 		})
 	}
 	c.JSON(http.StatusOK, asyncImageTaskResponse(task, data, nil))
@@ -298,10 +295,8 @@ func asyncImageTaskResponse(task *model.AsyncImageTask, data []dto.AsyncImageOut
 		data = []dto.AsyncImageOutputData{}
 	}
 	response := dto.AsyncImageTaskResponse{
-		ID:        task.TaskID,
-		Object:    "image_generation.task",
-		CreatedAt: task.CreatedAt,
-		Status:    task.Status,
+		ID:     task.TaskID,
+		Status: task.Status,
 		Output: dto.AsyncImageTaskOutput{
 			Availability: task.OutputAvailability,
 			ExpiresAt:    task.OutputExpiresAt,

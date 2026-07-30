@@ -33,7 +33,7 @@
 6. Object Key 固定为：
 
    ```text
-   prod/user-files/zmodel@async-images/{user_id}/{yyyy}/{mm}/{dd}/{task_id}/{index}.{extension}
+   prod/user-files/zmodel@async-images/{yyyy}/{mm}/{dd}/{task_id}/{index}.{extension}
    ```
 
 7. 使用通用 `storage_objects` 表；本业务的 `business_id` 固定为
@@ -377,8 +377,6 @@ Content-Type: application/json
 ```json
 {
   "id": "task_xxx",
-  "object": "image_generation.task",
-  "created_at": 0,
   "status": "queued",
   "output": {
     "availability": "pending",
@@ -406,8 +404,6 @@ HTTP 404，错误码 `image_generation_task_not_found`。
 ```json
 {
   "id": "task_xxx",
-  "object": "image_generation.task",
-  "created_at": 0,
   "status": "succeeded",
   "output": {
     "availability": "available",
@@ -415,10 +411,7 @@ HTTP 404，错误码 `image_generation_task_not_found`。
     "data": [
       {
         "index": 0,
-        "url": "https://presigned.example/...",
-        "mime_type": "image/png",
-        "size_bytes": 123,
-        "revised_prompt": ""
+        "url": "https://presigned.example/..."
       }
     ]
   }
@@ -681,10 +674,10 @@ URL 来源获取终止使用相同的 `succeeded/settled/failed` 计费原则，
 计算，避免网络耗时缩短实际保留期。索引从 0 开始：
 
 ```text
-prod/user-files/zmodel@async-images/42/2026/07/29/task_xxx/0.png
+prod/user-files/zmodel@async-images/2026/07/29/task_xxx/0.png
 ```
 
-`user_id`、`task_id`、`index` 和扩展名都来自系统生成或固定映射，不接受调用方路径片段。
+`task_id`、`index` 和扩展名都来自系统生成或固定映射，不接受调用方路径片段。
 
 ### 11.7 上传协议
 
