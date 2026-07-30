@@ -50,6 +50,7 @@ import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authentica
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
 import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authenticated/channels/index'
 import { Route as AuthenticatedUsageLogsSectionRouteImport } from './routes/_authenticated/usage-logs/$section'
+import { Route as AuthenticatedSystemSettingsObjectStorageRouteImport } from './routes/_authenticated/system-settings/object-storage'
 import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authenticated/models/$section'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
 import { Route as AuthenticatedDashboardSectionRouteImport } from './routes/_authenticated/dashboard/$section'
@@ -286,6 +287,12 @@ const AuthenticatedUsageLogsSectionRoute =
     path: '/usage-logs/$section',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedSystemSettingsObjectStorageRoute =
+  AuthenticatedSystemSettingsObjectStorageRouteImport.update({
+    id: '/object-storage',
+    path: '/object-storage',
+    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
+  } as any)
 const AuthenticatedModelsSectionRoute =
   AuthenticatedModelsSectionRouteImport.update({
     id: '/models/$section',
@@ -429,6 +436,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/system-settings/object-storage': typeof AuthenticatedSystemSettingsObjectStorageRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
@@ -488,6 +496,7 @@ export interface FileRoutesByTo {
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/system-settings/object-storage': typeof AuthenticatedSystemSettingsObjectStorageRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
@@ -551,6 +560,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/_authenticated/system-settings/object-storage': typeof AuthenticatedSystemSettingsObjectStorageRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
@@ -613,6 +623,7 @@ export interface FileRouteTypes {
     | '/dashboard/$section'
     | '/errors/$error'
     | '/models/$section'
+    | '/system-settings/object-storage'
     | '/usage-logs/$section'
     | '/channels/'
     | '/dashboard/'
@@ -672,6 +683,7 @@ export interface FileRouteTypes {
     | '/dashboard/$section'
     | '/errors/$error'
     | '/models/$section'
+    | '/system-settings/object-storage'
     | '/usage-logs/$section'
     | '/channels'
     | '/dashboard'
@@ -734,6 +746,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard/$section'
     | '/_authenticated/errors/$error'
     | '/_authenticated/models/$section'
+    | '/_authenticated/system-settings/object-storage'
     | '/_authenticated/usage-logs/$section'
     | '/_authenticated/channels/'
     | '/_authenticated/dashboard/'
@@ -1075,6 +1088,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedUsageLogsSectionRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/system-settings/object-storage': {
+      id: '/_authenticated/system-settings/object-storage'
+      path: '/object-storage'
+      fullPath: '/system-settings/object-storage'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsObjectStorageRouteImport
+      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
+    }
     '/_authenticated/models/$section': {
       id: '/_authenticated/models/$section'
       path: '/models/$section'
@@ -1238,6 +1258,7 @@ const authRouteRouteWithChildren = authRouteRoute._addFileChildren(
 )
 
 interface AuthenticatedSystemSettingsRouteRouteChildren {
+  AuthenticatedSystemSettingsObjectStorageRoute: typeof AuthenticatedSystemSettingsObjectStorageRoute
   AuthenticatedSystemSettingsIndexRoute: typeof AuthenticatedSystemSettingsIndexRoute
   AuthenticatedSystemSettingsAuthSectionRoute: typeof AuthenticatedSystemSettingsAuthSectionRoute
   AuthenticatedSystemSettingsBillingSectionRoute: typeof AuthenticatedSystemSettingsBillingSectionRoute
@@ -1257,6 +1278,8 @@ interface AuthenticatedSystemSettingsRouteRouteChildren {
 
 const AuthenticatedSystemSettingsRouteRouteChildren: AuthenticatedSystemSettingsRouteRouteChildren =
   {
+    AuthenticatedSystemSettingsObjectStorageRoute:
+      AuthenticatedSystemSettingsObjectStorageRoute,
     AuthenticatedSystemSettingsIndexRoute:
       AuthenticatedSystemSettingsIndexRoute,
     AuthenticatedSystemSettingsAuthSectionRoute:

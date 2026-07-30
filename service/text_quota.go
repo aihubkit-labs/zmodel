@@ -345,6 +345,13 @@ func usageSemanticFromUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) 
 }
 
 func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent []string) {
+	_ = PostTextConsumeQuotaWithError(ctx, relayInfo, usage, extraContent)
+}
+
+// PostTextConsumeQuotaWithError preserves the existing logging/statistics
+// behavior while allowing durable background jobs to observe settlement
+// failures instead of only finding them in logs.
+func PostTextConsumeQuotaWithError(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent []string) error {
 	originUsage := usage
 	billingUsage := effectiveBillingUsage(usage)
 	if usage == nil {
@@ -400,8 +407,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
 	}
 
-	if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
-		logger.LogError(ctx, "error settling billing: "+err.Error())
+	settleErr := SettleBilling(ctx, relayInfo, summary.Quota)
+	if settleErr != nil {
+		logger.LogError(ctx, "error settling billing: "+settleErr.Error())
 	}
 
 	logModel := summary.ModelName
@@ -509,4 +517,5 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	gopool.Go(func() {
 		perfmetrics.RecordRelaySample(relayInfo, true, int64(summary.CompletionTokens))
 	})
+	return settleErr
 }

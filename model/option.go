@@ -157,6 +157,18 @@ func InitOptionMap() {
 	//common.OptionMap["ChatLink2"] = common.ChatLink2
 	common.OptionMap["QuotaPerUnit"] = strconv.FormatFloat(common.QuotaPerUnit, 'f', -1, 64)
 	common.OptionMap["RetryTimes"] = strconv.Itoa(common.RetryTimes)
+	common.OptionMap["ObjectStorageS3Endpoint"] = ""
+	common.OptionMap["ObjectStorageS3Region"] = ""
+	common.OptionMap["ObjectStorageS3Bucket"] = ""
+	common.OptionMap["ObjectStorageS3AccessKey"] = ""
+	common.OptionMap["ObjectStorageS3SecretAccessKey"] = ""
+	common.OptionMap["ObjectStorageStagingDirectory"] = ""
+	common.OptionMap["ObjectStorageRetentionSeconds"] = "86400"
+	common.OptionMap["ObjectStoragePresignSeconds"] = "600"
+	common.OptionMap["ObjectStorageArchiveTimeoutSeconds"] = "600"
+	common.OptionMap["ObjectStorageArchiveMaxAttempts"] = "8"
+	common.OptionMap["ObjectStorageArchiveRetryWindowSeconds"] = "21600"
+	common.OptionMap["ObjectStorageCleanupIntervalSeconds"] = "900"
 	common.OptionMap["DataExportInterval"] = strconv.Itoa(common.DataExportInterval)
 	common.OptionMap["DataExportDefaultTime"] = common.DataExportDefaultTime
 	common.OptionMap["DefaultCollapseSidebar"] = strconv.FormatBool(common.DefaultCollapseSidebar)
@@ -274,17 +286,7 @@ func UpdateOptionsBulk(values map[string]string) error {
 		return nil
 	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		for k, v := range values {
-			option := Option{Key: k}
-			if err := tx.FirstOrCreate(&option, Option{Key: k}).Error; err != nil {
-				return err
-			}
-			option.Value = v
-			if err := tx.Save(&option).Error; err != nil {
-				return err
-			}
-		}
-		return nil
+		return updateOptionsBulkTx(tx, values)
 	})
 	if err != nil {
 		return err
@@ -297,9 +299,26 @@ func UpdateOptionsBulk(values map[string]string) error {
 	return nil
 }
 
+func updateOptionsBulkTx(tx *gorm.DB, values map[string]string) error {
+	for key, value := range values {
+		option := Option{Key: key}
+		if err := tx.FirstOrCreate(&option, Option{Key: key}).Error; err != nil {
+			return err
+		}
+		option.Value = value
+		if err := tx.Save(&option).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func updateOptionMap(key string, value string) (err error) {
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
+	if common.OptionMap == nil {
+		common.OptionMap = make(map[string]string)
+	}
 	common.OptionMap[key] = value
 
 	// 检查是否是模型配置 - 使用更规范的方式处理

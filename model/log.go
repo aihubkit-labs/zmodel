@@ -404,16 +404,18 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 }
 
 type RecordTaskBillingLogParams struct {
-	UserId    int
-	LogType   int
-	Content   string
-	ChannelId int
-	ModelName string
-	Quota     int
-	TokenId   int
-	Group     string
-	Other     map[string]interface{}
-	NodeName  string // 任务发起节点；为空时回退当前节点
+	UserId         int
+	LogType        int
+	Content        string
+	ChannelId      int
+	ModelName      string
+	Quota          int
+	TokenId        int
+	Group          string
+	RequestId      string
+	UseTimeSeconds int
+	Other          map[string]interface{}
+	NodeName       string // 任务发起节点；为空时回退当前节点
 }
 
 func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
@@ -440,6 +442,8 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 		ChannelId: params.ChannelId,
 		TokenId:   params.TokenId,
 		Group:     params.Group,
+		RequestId: params.RequestId,
+		UseTime:   params.UseTimeSeconds,
 		Other:     common.MapToJsonStr(params.Other),
 	}
 	err := createLog(log)

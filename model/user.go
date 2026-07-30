@@ -402,6 +402,24 @@ func GetUserById(id int, selectAll bool) (*User, error) {
 	return &user, err
 }
 
+func GetUsernamesByIds(ids []int) (map[int]string, error) {
+	usernames := make(map[int]string, len(ids))
+	if len(ids) == 0 {
+		return usernames, nil
+	}
+	var users []struct {
+		Id       int
+		Username string
+	}
+	if err := DB.Model(&User{}).Select("id", "username").Where("id IN ?", ids).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	for _, user := range users {
+		usernames[user.Id] = user.Username
+	}
+	return usernames, nil
+}
+
 func GetUserIdByAffCode(affCode string) (int, error) {
 	if affCode == "" {
 		return 0, errors.New("affCode 为空！")

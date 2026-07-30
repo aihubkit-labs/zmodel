@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -105,6 +106,11 @@ type LogCleanupResult struct {
 
 var (
 	systemTaskRunnerOnce sync.Once
+	systemTaskStopOnce   sync.Once
+	systemTaskStop       = make(chan struct{})
+	systemTaskDone       = make(chan struct{})
+	systemTaskActive     sync.WaitGroup
+	systemTaskStarted    atomic.Bool
 	// systemTaskWakeup signals the runner to check for runnable tasks
 	// immediately instead of waiting for the idle poll. Buffered so a signal
 	// raised while the runner is busy is not lost and is handled on the next loop.
@@ -125,9 +131,11 @@ func StartSystemTaskRunner() {
 		if !common.IsMasterNode {
 			return
 		}
+		systemTaskStarted.Store(true)
 
 		runnerID := fmt.Sprintf("%s-%s", common.NodeName, common.GetRandomString(8))
 		gopool.Go(func() {
+			defer close(systemTaskDone)
 			logger.LogInfo(context.Background(), fmt.Sprintf("system task runner started: runner=%s idle_interval=%s", runnerID, systemTaskRunnerIdleInterval))
 
 			ticker := time.NewTicker(systemTaskRunnerIdleInterval)
@@ -156,13 +164,52 @@ func StartSystemTaskRunner() {
 			runPass()
 			for {
 				select {
+				case <-systemTaskStop:
+					return
 				case <-ticker.C:
 				case <-systemTaskWakeup:
+				}
+				select {
+				case <-systemTaskStop:
+					return
+				default:
 				}
 				runPass()
 			}
 		})
 	})
+}
+
+// BeginSystemTaskShutdown stops scheduling and claiming new work. Already
+// dispatched handlers keep running so callers can drain them within the
+// process shutdown deadline.
+func BeginSystemTaskShutdown() {
+	if !systemTaskStarted.Load() {
+		return
+	}
+	systemTaskStopOnce.Do(func() { close(systemTaskStop) })
+}
+
+func WaitSystemTaskShutdown(ctx context.Context) error {
+	if !systemTaskStarted.Load() {
+		return nil
+	}
+	select {
+	case <-systemTaskDone:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	done := make(chan struct{})
+	go func() {
+		systemTaskActive.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func StartLogCleanupTask(targetTimestamp int64) (*model.SystemTask, error) {
@@ -223,9 +270,19 @@ func EnqueueSystemTask(taskType string, payload any) (*model.SystemTask, bool, e
 // and dispatches each claimed task in its own goroutine so a long-running
 // handler (e.g. channel test) never blocks another type (e.g. log cleanup).
 func runSystemTaskClaimPass(runnerID string) {
+	select {
+	case <-systemTaskStop:
+		return
+	default:
+	}
 	handlers := registeredSystemTaskHandlers()
 	taskTypes := make([]string, 0, len(handlers))
 	for _, handler := range handlers {
+		select {
+		case <-systemTaskStop:
+			return
+		default:
+		}
 		taskTypes = append(taskTypes, handler.Type())
 	}
 	pendingTasks, err := model.FindEarliestPendingSystemTasks(taskTypes)
@@ -248,7 +305,9 @@ func runSystemTaskClaimPass(runnerID string) {
 		}
 		dispatchHandler := handler
 		dispatchTask := claimedTask
+		systemTaskActive.Add(1)
 		gopool.Go(func() {
+			defer systemTaskActive.Done()
 			runWithLeaseHeartbeat(dispatchTask, runnerID, func(ctx context.Context) {
 				dispatchHandler.Run(ctx, dispatchTask, runnerID)
 			})
