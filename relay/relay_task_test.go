@@ -13,6 +13,23 @@ import (
 )
 
 func TestTaskModel2DtoUsesPublicContentURLForVideoTask(t *testing.T) {
+	common.OptionMapRWMutex.Lock()
+	if common.OptionMap == nil {
+		common.OptionMap = make(map[string]string)
+	}
+	originalAPIServerAddress, hadAPIServerAddress := common.OptionMap["ApiServerAddress"]
+	common.OptionMap["ApiServerAddress"] = "https://api.example.com"
+	common.OptionMapRWMutex.Unlock()
+	t.Cleanup(func() {
+		common.OptionMapRWMutex.Lock()
+		defer common.OptionMapRWMutex.Unlock()
+		if hadAPIServerAddress {
+			common.OptionMap["ApiServerAddress"] = originalAPIServerAddress
+		} else {
+			delete(common.OptionMap, "ApiServerAddress")
+		}
+	})
+
 	task := &model.Task{
 		TaskID: "task_public_id",
 		Action: constant.TaskActionTextGenerate,
@@ -23,7 +40,7 @@ func TestTaskModel2DtoUsesPublicContentURLForVideoTask(t *testing.T) {
 
 	dtoTask := TaskModel2Dto(task)
 
-	assert.Equal(t, taskcommon.BuildProxyURL(task.TaskID), dtoTask.ResultURL)
+	assert.Equal(t, "https://api.example.com/v1/videos/task_public_id/content", dtoTask.ResultURL)
 }
 
 func TestTaskModel2DtoProvidesReadablePlatformName(t *testing.T) {

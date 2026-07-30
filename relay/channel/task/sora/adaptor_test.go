@@ -12,9 +12,23 @@ import (
 
 func TestConvertToOpenAIVideoRewritesTaskIdentityAndURLs(t *testing.T) {
 	originalServerAddress := system_setting.ServerAddress
-	system_setting.ServerAddress = "https://apimodel.aihubkit.com"
+	system_setting.ServerAddress = "https://frontend.example.com"
+	common.OptionMapRWMutex.Lock()
+	if common.OptionMap == nil {
+		common.OptionMap = make(map[string]string)
+	}
+	originalAPIServerAddress, hadAPIServerAddress := common.OptionMap["ApiServerAddress"]
+	common.OptionMap["ApiServerAddress"] = "https://api.example.com"
+	common.OptionMapRWMutex.Unlock()
 	t.Cleanup(func() {
 		system_setting.ServerAddress = originalServerAddress
+		common.OptionMapRWMutex.Lock()
+		defer common.OptionMapRWMutex.Unlock()
+		if hadAPIServerAddress {
+			common.OptionMap["ApiServerAddress"] = originalAPIServerAddress
+		} else {
+			delete(common.OptionMap, "ApiServerAddress")
+		}
 	})
 
 	upstreamTaskID := "task_frimodel_upstream"
@@ -61,7 +75,7 @@ func TestConvertToOpenAIVideoRewritesTaskIdentityAndURLs(t *testing.T) {
 	}
 	require.NoError(t, common.Unmarshal(result, &payload))
 
-	expectedURL := "https://apimodel.aihubkit.com/v1/videos/task_zmodel_public/content"
+	expectedURL := "https://api.example.com/v1/videos/task_zmodel_public/content"
 	assert.Equal(t, task.TaskID, payload.ID)
 	assert.Equal(t, task.TaskID, payload.TaskID)
 	assert.Equal(t, expectedURL, payload.URL)
