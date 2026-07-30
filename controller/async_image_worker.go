@@ -122,21 +122,21 @@ func generateAsyncImageTask(ctx context.Context, task *model.AsyncImageTask, own
 
 	request := &dto.ImageRequest{}
 	if err := common.UnmarshalJsonStr(task.RequestPayload, request); err != nil {
-		return model.RefundAsyncImageBilling(task.TaskID, "invalid_request_error", "stored image request is invalid")
+		return model.RefundAsyncImageBilling(task.TaskID, "invalid_request_error", "stored image request is invalid", "stored image request is invalid")
 	}
 	c, recorder, writer, cleanup, err := newAsyncImageRelayContext(task, request)
 	if err != nil {
-		return model.RefundAsyncImageBilling(task.TaskID, "image_generation_failed", "image generation could not be started")
+		return model.RefundAsyncImageBilling(task.TaskID, "image_generation_failed", "image generation could not be started", "image generation could not be started")
 	}
 	defer cleanup()
 
 	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatOpenAIImage, request, nil)
 	if err != nil {
-		return model.RefundAsyncImageBilling(task.TaskID, "image_generation_failed", "image generation could not be started")
+		return model.RefundAsyncImageBilling(task.TaskID, "image_generation_failed", "image generation could not be started", "image generation could not be started")
 	}
 	var billingContext asyncImageBillingContext
 	if err := common.UnmarshalJsonStr(task.BillingContext, &billingContext); err != nil {
-		return model.RefundAsyncImageBilling(task.TaskID, "image_generation_failed", "stored billing context is invalid")
+		return model.RefundAsyncImageBilling(task.TaskID, "image_generation_failed", "stored billing context is invalid", "stored billing context is invalid")
 	}
 	relayInfo.PriceData = billingContext.PriceData
 	relayInfo.TieredBillingSnapshot = billingContext.TieredBillingSnapshot
@@ -201,22 +201,26 @@ func generateAsyncImageTask(ctx context.Context, task *model.AsyncImageTask, own
 	}
 	if finalError != nil || execution == nil {
 		code := "image_generation_failed"
+		failureReason := "image generation failed"
 		if finalError != nil && finalError.GetErrorCode() != "" {
 			code = string(finalError.GetErrorCode())
 		}
-		return model.RefundAsyncImageBilling(task.TaskID, code, "image generation failed")
+		if finalError != nil {
+			failureReason = finalError.MaskSensitiveErrorWithStatusCode()
+		}
+		return model.RefundAsyncImageBilling(task.TaskID, code, "image generation failed", failureReason)
 	}
 
 	response := &dto.ImageResponse{}
 	if err := common.Unmarshal(recorder.Body.Bytes(), response); err != nil || len(response.Data) == 0 || len(response.Data) > dto.MaxImageN {
-		return model.RefundAsyncImageBilling(task.TaskID, "invalid_upstream_response", "image provider returned an invalid response")
+		return model.RefundAsyncImageBilling(task.TaskID, "invalid_upstream_response", "image provider returned an invalid response", "image provider returned an invalid response")
 	}
 	requested := 1
 	if request.N != nil && *request.N > 0 {
 		requested = int(*request.N)
 	}
 	if len(response.Data) > requested {
-		return model.RefundAsyncImageBilling(task.TaskID, "invalid_upstream_response", "image provider returned too many images")
+		return model.RefundAsyncImageBilling(task.TaskID, "invalid_upstream_response", "image provider returned too many images", "image provider returned too many images")
 	}
 
 	stageCtx, cancel := context.WithTimeout(context.Background(), time.Duration(task.ArchiveTimeoutSeconds)*time.Second)
@@ -225,7 +229,7 @@ func generateAsyncImageTask(ctx context.Context, task *model.AsyncImageTask, own
 	if stageErr != nil {
 		kind := service.AsyncImageStageErrorKindOf(stageErr)
 		if kind == service.AsyncImageStageInvalid {
-			return model.RefundAsyncImageBilling(task.TaskID, "invalid_upstream_response", "image provider returned invalid image data")
+			return model.RefundAsyncImageBilling(task.TaskID, "invalid_upstream_response", "image provider returned invalid image data", "image provider returned invalid image data")
 		}
 		code := "archive_staging_failed"
 		if kind == service.AsyncImageStageSourceFetch {

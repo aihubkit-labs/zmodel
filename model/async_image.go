@@ -1201,11 +1201,18 @@ func SettleAsyncImageBilling(taskID string, actualQuota int) error {
 	return err
 }
 
-func RefundAsyncImageBilling(taskID string, errorCode string, errorMessage string) error {
+func RefundAsyncImageBilling(taskID string, errorCode string, errorMessage string, failureLogMessage string) error {
 	var walletDelta int
 	var tokenDelta int
 	var userID int
 	var tokenKey string
+	var refundedTask AsyncImageTask
+	var refundedAt int64
+	refunded := false
+	failureReason := errorMessage
+	if failureLogMessage != "" {
+		failureReason = common.LocalLogPreview(failureLogMessage)
+	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var task AsyncImageTask
 		if err := lockForUpdate(tx).Where("task_id = ?", taskID).First(&task).Error; err != nil {
@@ -1237,7 +1244,7 @@ func RefundAsyncImageBilling(taskID string, errorCode string, errorMessage strin
 		}
 		now := common.GetTimestamp()
 		userID = task.UserID
-		return tx.Model(&AsyncImageTask{}).Where("id = ? AND billing_status = ?", task.ID, AsyncImageBillingReserved).
+		result := tx.Model(&AsyncImageTask{}).Where("id = ? AND billing_status = ?", task.ID, AsyncImageBillingReserved).
 			Updates(map[string]any{
 				"status":                   AsyncImageStatusFailed,
 				"output_availability":      AsyncImageOutputFailed,
@@ -1246,16 +1253,55 @@ func RefundAsyncImageBilling(taskID string, errorCode string, errorMessage strin
 				"completed_at":             now,
 				"public_error_code":        errorCode,
 				"public_error_message":     errorMessage,
-				"last_error":               errorMessage,
+				"last_error":               failureReason,
 				"request_payload":          "",
 				"admin_notification_state": "none",
 				"lease_owner":              "",
 				"lease_expires_at":         0,
 				"updated_at":               now,
-			}).Error
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return errors.New("async image billing state changed during refund")
+		}
+		refundedTask = task
+		refundedAt = now
+		refunded = true
+		return nil
 	})
 	if err == nil {
 		syncAsyncImageBillingCaches(userID, tokenKey, walletDelta, tokenDelta)
+		if refunded {
+			startedAt := refundedTask.StartedAt
+			if startedAt <= 0 {
+				startedAt = refundedTask.CreatedAt
+			}
+			useTimeSeconds := 0
+			if startedAt > 0 && refundedAt > startedAt {
+				useTimeSeconds = int(refundedAt - startedAt)
+			}
+			RecordTaskBillingLog(RecordTaskBillingLogParams{
+				UserId:         refundedTask.UserID,
+				LogType:        LogTypeRefund,
+				Content:        failureReason,
+				ChannelId:      refundedTask.LastChannelID,
+				ModelName:      refundedTask.OriginModelName,
+				Quota:          refundedTask.ReservedQuota,
+				TokenId:        refundedTask.TokenID,
+				Group:          refundedTask.UsingGroup,
+				RequestId:      refundedTask.TaskID,
+				UseTimeSeconds: useTimeSeconds,
+				Other: map[string]interface{}{
+					"task_id":          refundedTask.TaskID,
+					"request_path":     "/v1/images/generations/tasks",
+					"error_code":       errorCode,
+					"reason":           failureReason,
+					"async_image_task": true,
+				},
+			})
+		}
 	}
 	return err
 }

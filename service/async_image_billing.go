@@ -30,7 +30,7 @@ func (settler *AsyncImageBillingSettler) Settle(actualQuota int) error {
 
 func (settler *AsyncImageBillingSettler) Refund(_ *gin.Context) {
 	gopool.Go(func() {
-		_ = model.RefundAsyncImageBilling(settler.TaskID, "image_generation_failed", "image generation failed")
+		_ = model.RefundAsyncImageBilling(settler.TaskID, "image_generation_failed", "image generation failed", "image generation failed")
 	})
 }
 

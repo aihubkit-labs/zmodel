@@ -163,8 +163,8 @@ func TestAsyncImageSubscriptionReservationRefundsExactlyOnce(t *testing.T) {
 	assert.Equal(t, "consumed", record.Status)
 	assert.Equal(t, int64(200), record.PreConsumed)
 
-	require.NoError(t, RefundAsyncImageBilling(taskID, "upstream_failed", "image generation failed"))
-	require.NoError(t, RefundAsyncImageBilling(taskID, "upstream_failed", "image generation failed"))
+	require.NoError(t, RefundAsyncImageBilling(taskID, "upstream_failed", "image generation failed", "image generation failed"))
+	require.NoError(t, RefundAsyncImageBilling(taskID, "upstream_failed", "image generation failed", "image generation failed"))
 	require.NoError(t, DB.First(&subscription, 9401).Error)
 	assert.Equal(t, int64(0), subscription.AmountUsed)
 	require.NoError(t, DB.Where("request_id = ?", taskID).First(&record).Error)
@@ -217,16 +217,22 @@ func TestCompleteAsyncImageGenerationSettlesExactlyOnce(t *testing.T) {
 	assert.Equal(t, 850, quota)
 	assert.Equal(t, 850, tokenRemain)
 	assert.Equal(t, 150, tokenUsed)
-	require.Error(t, RefundAsyncImageBilling(taskID, "should_not_refund", "should not refund"))
+	require.Error(t, RefundAsyncImageBilling(taskID, "should_not_refund", "should not refund", "should not refund"))
 }
 
 func TestRefundAsyncImageBillingRefundsExactlyOnceAndCannotSettle(t *testing.T) {
 	truncateTables(t)
 	const taskID = "task_async_refund_once"
 	seedAsyncImageWalletTask(t, taskID, AsyncImageStatusRunning, "runner-1", 200, 200)
+	startedAt := common.GetTimestamp() - 3
+	require.NoError(t, DB.Model(&AsyncImageTask{}).Where("task_id = ?", taskID).Updates(map[string]any{
+		"last_channel_id": 9301,
+		"started_at":      startedAt,
+	}).Error)
 
-	require.NoError(t, RefundAsyncImageBilling(taskID, "upstream_failed", "image generation failed"))
-	require.NoError(t, RefundAsyncImageBilling(taskID, "upstream_failed", "image generation failed"))
+	const failureReason = "status_code=500, upstream image generation failed"
+	require.NoError(t, RefundAsyncImageBilling(taskID, "upstream_failed", "image generation failed", failureReason))
+	require.NoError(t, RefundAsyncImageBilling(taskID, "upstream_failed", "image generation failed", failureReason))
 	quota, tokenRemain, tokenUsed := asyncImageWalletAndTokenQuota(t)
 	assert.Equal(t, 1000, quota)
 	assert.Equal(t, 1000, tokenRemain)
@@ -236,6 +242,30 @@ func TestRefundAsyncImageBillingRefundsExactlyOnceAndCannotSettle(t *testing.T) 
 	require.NoError(t, err)
 	assert.Equal(t, AsyncImageStatusFailed, task.Status)
 	assert.Equal(t, AsyncImageBillingRefunded, task.BillingStatus)
+	assert.Equal(t, "image generation failed", task.PublicErrorMessage)
+	assert.Equal(t, failureReason, task.LastError)
+
+	var logs []Log
+	require.NoError(t, LOG_DB.Where("request_id = ? AND type = ?", taskID, LogTypeRefund).Find(&logs).Error)
+	require.Len(t, logs, 1)
+	refundLog := logs[0]
+	assert.Equal(t, 9101, refundLog.UserId)
+	assert.Equal(t, "async-image-user", refundLog.Username)
+	assert.Equal(t, 9201, refundLog.TokenId)
+	assert.Equal(t, "async image token", refundLog.TokenName)
+	assert.Equal(t, 9301, refundLog.ChannelId)
+	assert.Equal(t, "test-image-model", refundLog.ModelName)
+	assert.Equal(t, "default", refundLog.Group)
+	assert.Equal(t, 200, refundLog.Quota)
+	assert.GreaterOrEqual(t, refundLog.UseTime, 3)
+	assert.Equal(t, failureReason, refundLog.Content)
+	var other map[string]interface{}
+	require.NoError(t, common.UnmarshalJsonStr(refundLog.Other, &other))
+	assert.Equal(t, taskID, other["task_id"])
+	assert.Equal(t, "/v1/images/generations/tasks", other["request_path"])
+	assert.Equal(t, "upstream_failed", other["error_code"])
+	assert.Equal(t, failureReason, other["reason"])
+	assert.Equal(t, true, other["async_image_task"])
 	require.Error(t, CompleteAsyncImageGeneration(
 		taskID,
 		"",
