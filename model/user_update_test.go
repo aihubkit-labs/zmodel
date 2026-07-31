@@ -180,11 +180,39 @@ func TestInsertRecordsInvitationWhenRewardsAreDisabled(t *testing.T) {
 	}
 	require.NoError(t, invitee.Insert(inviter.Id))
 
+	var storedInvitee User
+	require.NoError(t, DB.First(&storedInvitee, invitee.Id).Error)
+	assert.Equal(t, inviter.Id, storedInvitee.InviterId)
+
 	var storedInviter User
 	require.NoError(t, DB.First(&storedInviter, inviter.Id).Error)
 	assert.Equal(t, 1, storedInviter.AffCount)
 	assert.Zero(t, storedInviter.AffQuota)
 	assert.Zero(t, storedInviter.AffHistoryQuota)
+}
+
+func TestInsertWithTxPersistsInviterRelationship(t *testing.T) {
+	setupUserUpdateTestState(t)
+
+	inviter := User{
+		Username: "oauth-inviter",
+		Password: "password",
+		AffCode:  "oauth-inviter-aff-code",
+		Status:   common.UserStatusEnabled,
+	}
+	require.NoError(t, DB.Create(&inviter).Error)
+
+	invitee := User{
+		Username: "oauth-invitee",
+		Status:   common.UserStatusEnabled,
+	}
+	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error {
+		return invitee.InsertWithTx(tx, inviter.Id)
+	}))
+
+	var storedInvitee User
+	require.NoError(t, DB.First(&storedInvitee, invitee.Id).Error)
+	assert.Equal(t, inviter.Id, storedInvitee.InviterId)
 }
 
 func TestValidateAndFillRejectsPasswordlessUser(t *testing.T) {
