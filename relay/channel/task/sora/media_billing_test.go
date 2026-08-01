@@ -430,16 +430,15 @@ func TestAgnesProviderDurationDefaultsAndBounds(t *testing.T) {
 	}
 }
 
-func TestAgnesProviderPreservesFrameRateAndRejectsUnsupported1080pDuration(t *testing.T) {
+func TestAgnesProviderCaps1080pDurationAndPreservesFrameRate(t *testing.T) {
 	for _, test := range []struct {
-		name       string
-		duration   int
-		wantCode   string
-		wantFrames float64
+		name         string
+		duration     int
+		wantDuration int
 	}{
-		{name: "maximum 1080p duration", duration: 10, wantFrames: 241},
-		{name: "duration exceeding 1080p frame limit", duration: 11, wantCode: "invalid_seconds"},
-		{name: "global maximum duration", duration: 18, wantCode: "invalid_seconds"},
+		{name: "maximum 1080p duration", duration: 10, wantDuration: 10},
+		{name: "duration one second over limit", duration: 11, wantDuration: 10},
+		{name: "global maximum duration", duration: 18, wantDuration: 10},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, info := newSeedanceTestContext(t, fmt.Sprintf(`{
@@ -452,15 +451,14 @@ func TestAgnesProviderPreservesFrameRateAndRejectsUnsupported1080pDuration(t *te
 			info.ChannelSetting.VideoProtocol = dto.VideoProtocolAgnesVideoV2
 			info.UpstreamModelName = "agnes-video-v2.0"
 			adaptor := &TaskAdaptor{}
-			taskErr := adaptor.ValidateRequestAndSetAction(ctx, info)
-			if test.wantCode != "" {
-				require.NotNil(t, taskErr)
-				assert.Equal(t, test.wantCode, taskErr.Code)
-				assert.Contains(t, taskErr.Message, "10 seconds")
-				assert.Contains(t, taskErr.Message, "24 fps")
-				return
-			}
-			require.Nil(t, taskErr)
+			require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+
+			request, err := relaycommon.GetTaskRequest(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, test.wantDuration, request.Duration)
+			dimensions, err := adaptor.EstimateBillingDimensions(ctx, info)
+			require.NoError(t, err)
+			assert.Equal(t, float64(test.wantDuration), dimensions.Seconds)
 
 			body, err := adaptor.BuildRequestBody(ctx, info)
 			require.NoError(t, err)
@@ -469,7 +467,7 @@ func TestAgnesProviderPreservesFrameRateAndRejectsUnsupported1080pDuration(t *te
 			var upstream map[string]any
 			require.NoError(t, common.Unmarshal(data, &upstream))
 
-			assert.Equal(t, test.wantFrames, upstream["num_frames"])
+			assert.Equal(t, float64(241), upstream["num_frames"])
 			assert.Equal(t, float64(agnesPreferredFrameRate), upstream["frame_rate"])
 			assert.Equal(t, float64(1920), upstream["width"])
 			assert.Equal(t, float64(1080), upstream["height"])

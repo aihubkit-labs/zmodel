@@ -260,14 +260,7 @@ func normalizeVideoProtocolRequest(c *gin.Context, info *relaycommon.RelayInfo) 
 		return videoRequestError("Agnes ratio must be one of 16:9, 9:16, 1:1, 4:3, or 3:4", "invalid_ratio")
 	}
 	if resolution == "1080p" && req.Duration > agnes1080pMaxDurationSeconds {
-		return videoRequestError(
-			fmt.Sprintf(
-				"Agnes 1080p duration must be between 1 and %d seconds to preserve %d fps",
-				agnes1080pMaxDurationSeconds,
-				agnesPreferredFrameRate,
-			),
-			"invalid_seconds",
-		)
+		req.Duration = agnes1080pMaxDurationSeconds
 	}
 	req.Resolution = resolution
 	req.Ratio = ratio

@@ -132,7 +132,7 @@ Agnes 渠道通过 `video_protocol=agnes_video_v2` 启用轻量转换，不按 A
 出现时必须一致，否则返回 HTTP 400 和 `duration_conflict`。响应解析兼容数字或字符串
 `duration`，并在其缺失或无效时回退到数值字符串 `seconds`，包括 `"10.0"`。未传时长时 Agnes
 渠道归一为约 5 秒。为保证视频流畅度，所有分辨率固定使用 24 fps：`480p`、`720p` 支持
-1–18 秒，`1080p` 支持 1–10 秒；超过对应范围返回 HTTP 400，不通过降低帧率延长视频。
+1–18 秒；`1080p` 接受 1–18 秒，其中 11–18 秒自动按10秒处理，不通过降低帧率延长视频。
 
 客户端可按下表选择时长：
 
@@ -140,11 +140,11 @@ Agnes 渠道通过 `video_protocol=agnes_video_v2` 启用轻量转换，不按 A
 | --- | --- | --- | --- |
 | `480p` | 1–18 的整数 | 24 fps | 433 |
 | `720p` | 1–18 的整数 | 24 fps | 433 |
-| `1080p` | 1–10 的整数 | 24 fps | 241 |
+| `1080p` | 1–18 的整数；11–18 归一为10 | 24 fps | 241 |
 
 该范围是平台API合同，并统一适用于 Agnes 当前支持的全部宽高比。若客户端不传 `resolution`，使用
-默认 `720p`；不传 `duration`，使用默认5秒。超出范围时平台在调用上游前返回
-`invalid_seconds`，避免用户收到嵌套的上游 `fail_to_fetch_task` 错误。
+默认 `720p`；不传 `duration`，使用默认5秒。1080p 的 11–18 秒请求会在调用上游前归一为10秒，
+实际生成和计费均使用10秒；小于1秒或大于18秒返回 `invalid_seconds`。
 
 Agnes 官方创建任务参数不包含 `seconds`；实际时长由 `num_frames` 和 `frame_rate` 控制，且
 `num_frames` 遵循 `8n + 1`。官方文档给出的全局上限是 441 帧，但上游还会按分辨率和宽高比
@@ -562,7 +562,7 @@ Task.Data
 | 供应商选项覆盖公共、计费或安全字段 | 返回 `provider_option_conflict`，不调用上游 |
 | Agnes 请求使用公共 `duration: 10` | 上游收到 `num_frames: 241`、`frame_rate: 24`，计费使用 10 秒 |
 | Agnes 请求使用 `1080p + duration: 10` | 上游收到 241 帧和 24 fps，保持流畅度 |
-| Agnes 请求使用 `1080p + duration: 11–18` | 平台返回 `invalid_seconds`，不降低帧率、不调用上游 |
+| Agnes 请求使用 `1080p + duration: 11–18` | 归一为10秒，上游收到241帧和24 fps，按10秒计费 |
 | Agnes 请求使用 `720p + 16:9` | 上游收到 `width: 1280`、`height: 720` |
 | Agnes 请求使用单个公共 `referenceImages` URL | 上游收到顶层 `image`，不残留公共字段 |
 | Agnes 请求使用多图、原生参考图字段或 multipart 文件 | 返回 `invalid_reference_images`，不调用上游 |
