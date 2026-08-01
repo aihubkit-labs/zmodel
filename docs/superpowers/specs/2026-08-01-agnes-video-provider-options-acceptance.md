@@ -36,14 +36,14 @@ Agnes 视频统一使用24fps。调用接口前按下面的范围填写整数 `d
 | --- | --- | --- | --- | --- |
 | `480p` | 1–18 | — | 18秒 | 433 |
 | `720p` | 1–18 | `resolution` 未传时默认使用 | 18秒 | 433 |
-| `1080p` | 1–10 | — | 10秒 | 241 |
+| `1080p` | 1–18 | — | 10秒（11–18秒自动收敛） | 241 |
 
 其他基础约定：
 
 - `duration` 必须是整数；完全不传时默认5秒。
 - `ratio` 支持 `16:9`、`9:16`、`1:1`、`4:3`、`3:4`，未传时默认 `16:9`。
-- 上述时长范围适用于所有受支持的 `ratio`。
-- 超出范围会在平台侧返回 HTTP 400 和 `invalid_seconds`，不会创建上游任务或产生上游生成费用。
+- 上述时长范围适用于所有受支持的 `ratio`；1080p 请求中的 11–18 秒会自动按 10 秒处理。
+- 小于1秒或大于18秒会在平台侧返回 HTTP 400 和 `invalid_seconds`，不会创建上游任务或产生上游生成费用。
 - 平台固定使用24fps，不会为了延长视频而降低帧率。
 
 ## 2. 创建 10 秒视频
@@ -83,7 +83,7 @@ curl --request POST \
 `num_frames: 241`、`frame_rate: 24`、`width: 1280`、`height: 720`，不发送公共 `duration`、
 `seconds`、`resolution` 或 `ratio`。
 
-### 2.1 验证 1080p 流畅度和时长上限
+### 2.1 验证 1080p 流畅度和时长自动收敛
 
 1080p 保持 24 fps，最长支持 10 秒：
 
@@ -104,14 +104,13 @@ curl --request POST \
 预期：成功创建任务；平台向 Agnes 发送 `num_frames: 241`、`frame_rate: 24`、`width: 1920`、
 `height: 1080`。
 
-下面的 18 秒请求应在平台侧直接拒绝，不再降低帧率调用 Agnes：
+下面的 18 秒请求应由平台自动收敛为 10 秒，不降低帧率，并继续调用 Agnes：
 
 ```bash
 curl --request POST \
   --url 'http://127.0.0.1:3000/v1/videos' \
   --header 'Authorization: Bearer <TOKEN>' \
   --header 'Content-Type: application/json' \
-  --write-out '\nHTTP_STATUS=%{http_code}\n' \
   --data '{
     "model": "<AGNES_PUBLIC_MODEL>",
     "prompt": "A cinematic sunrise over a quiet lake, slow camera movement",
@@ -121,8 +120,8 @@ curl --request POST \
   }'
 ```
 
-预期：HTTP 400，错误码为 `invalid_seconds`，错误信息说明 1080p 为保持 24 fps 最长支持 10 秒，
-且不调用上游。
+预期：成功创建任务；响应中的 `duration` 为 `10`、`seconds` 为 `"10"`。平台向 Agnes 发送
+`num_frames: 241` 和 `frame_rate: 24`，实际生成时长和计费时长均为 10 秒。
 
 ## 3. 图生视频：统一参考图字段
 
