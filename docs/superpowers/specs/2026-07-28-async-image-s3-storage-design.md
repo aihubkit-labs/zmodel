@@ -1,13 +1,14 @@
-# 异步图片生成与 S3 临时存储设计
+# 异步图片生成/编辑与 S3 临时存储设计
 
 ## 状态
 
 - 日期：2026-07-29
 - 项目：zmodel
-- 范围：OpenAI 兼容图片生成、异步任务、私有 S3 归档、对象生命周期、计费一致性、后台对象存储设置和任务管理
+- 范围：OpenAI 兼容图片生成与编辑、异步任务、私有 S3 归档、对象生命周期、计费一致性、后台对象存储设置和任务管理
 - 起点提交：`c0ffb2aca7b467db6b1f0688464033ee1216e244`
 - 设计状态：已按确认方案完成首期实施，待部署联调与发布验收
 - 最新确认：S3 Secret 明文落现有 Option 表以支持动态配置；重启采用计划停机排空与持久化恢复，接受硬崩溃下无法彻底消除的极小重复上游请求窗口
+- 最新扩展：异步任务已覆盖 `/v1/images/edits/tasks`，支持 JSON 与 multipart 编辑输入并按原始 Content-Type 在 Worker 中重放
 - 实现验证：后端 `go test ./...`、默认前端类型检查/涉及文件 lint/i18n 同步/生产构建以及 classic 前端生产构建均已通过
 
 ## 1. 背景
@@ -17,23 +18,26 @@
 但输出可能是公开或临时 URL、纯 Base64，或者 data URI。同步接口不能为调用方提供统一的
 私有存储、固定有效期和可恢复的归档过程。
 
-本功能新增异步图片任务接口。请求提交后先完成鉴权、校验、定价和全额预扣费，再由后台
-执行图片生成，将所有结果归档到私有 S3。查询接口只在对象有效时动态返回预签名 GET URL。
-原有同步接口及其行为保持不变。
+本功能新增异步图片生成与编辑任务接口。请求提交后先完成鉴权、校验、定价和全额预扣费，再由后台
+执行图片生成或编辑，将所有结果归档到私有 S3。查询接口只在对象有效时动态返回预签名 GET URL。
+原有同步生成、编辑接口及其行为保持不变。
 
 ## 2. 已确认需求
 
-1. 保留 `POST /v1/images/generations`。
+1. 保留 `POST /v1/images/generations` 和 `POST /v1/images/edits`。
 2. 新增：
    - `POST /v1/images/generations/tasks`
    - `GET /v1/images/generations/tasks/{task_id}`
-3. 异步接口支持当前所有图片模型，并兼容 URL、纯 Base64 和 data URI 输出。
+   - `POST /v1/images/edits/tasks`
+   - `GET /v1/images/edits/tasks/{task_id}`
+3. 异步接口支持当前所有图片模型，并兼容 URL、纯 Base64 和 data URI 输出；编辑入口同时支持
+   `application/json` 与 `multipart/form-data` 请求。
 4. 异步接口不支持 `stream=true`。
 5. 图片归档到私有 S3；不保存预签名 URL；查询时动态签名。
-6. Object Key 固定为：
+6. Object Key 使用 Root 后台配置的 S3 对象键前缀，默认前缀为 `prod`：
 
    ```text
-   prod/user-files/zmodel@async-images/{yyyy}/{mm}/{dd}/{task_id}/{index}.{extension}
+   {s3_key_prefix}/user-files/zmodel@async-images/{yyyy}/{mm}/{dd}/{task_id}/{index}.{extension}
    ```
 
 7. 使用通用 `storage_objects` 表；本业务的 `business_id` 固定为
@@ -41,9 +45,9 @@
 8. 任务和对象记录永久保留。对象到期后立即停止签名，定时删除 S3 对象，但不删除数据库记录。
 9. 图片有效期按每个对象上传完成时间固化。
 10. 后台新增独立的“对象存储”设置页面。
-11. 设置包括 S3 连接信息、对象有效期、预签名时长、单次归档超时、最大尝试次数、最长重试窗口和清理间隔。
+11. 设置包括 S3 连接信息、S3 对象键前缀、对象有效期、预签名时长、单次归档超时、最大尝试次数、最长重试窗口和清理间隔。
 12. 单次归档超时默认 10 分钟，最大 20 分钟；最长重试窗口默认 6 小时。
-13. 不增加启用开关，不提供 Key Prefix 配置；文件大小限制复用现有 `MAX_FILE_DOWNLOAD_MB`。
+13. 不增加启用开关；S3 对象键前缀只由 Root 配置，调用方不能指定 Object Key；文件大小限制复用现有 `MAX_FILE_DOWNLOAD_MB`。
 14. 任务 `status` 与 `output.availability` 分离。
 15. 完整、有效的标准图片响应生成成功后立即结算；后续 S3 归档失败不自动退款，避免上游已扣费而平台承担损失。
 16. 上游生成最终失败或标准图片响应无效时只退款一次；已结算任务不能由自动归档流程退款或重复扣费。
@@ -55,13 +59,15 @@
 21. S3 Secret 按已确认方案以明文写入现有 Option 表；任何读取 API、页面和日志都不得回显。更新时空 Secret 保留原值，非空值替换原值。数据库读取者和数据库备份可接触该明文，这是选择明文存储后的明确安全边界。
 22. 计划内服务重启必须停止领取新任务并在 `SHUTDOWN_TIMEOUT_SECONDS` 内等待活跃 Worker 排空；已发出的上游生成请求不得主动取消，取得响应后优先完成持久暂存。已提交暂存清单的 S3 归档允许中断，并通过数据库租约、确定性 Object Key、共享持久暂存文件和 `HeadObject` 恢复。
 23. 机器宕机、`kill -9` 或排空超时恰好发生在“上游已生成成功、完整暂存清单尚未提交”窗口时，恢复后可能再次调用上游。系统仍保证用户只结算一次，但无法保证平台只被不支持幂等键的上游扣费一次；该残余风险已确认接受，首期不为此引入外部消息队列或分布式事务。
+24. 编辑任务在排队期间保存受请求大小上限保护的原始正文、原始 Content-Type 和同步执行路径，Worker
+    按原格式重放，以保留 multipart 文件及供应商扩展字段；任务结算或退款时必须清空原始正文。
 
 ## 3. 目标
 
-1. 复用现有图片适配器和渠道重试能力，不为每个图片渠道复制异步实现。
+1. 复用现有图片生成/编辑适配器和渠道重试能力，不为每个图片渠道复制异步实现。
 2. 在多节点、进程崩溃和任务重复执行情况下，避免重复结算或重复退款。
 3. 在任何时刻都不向调用方暴露部分归档结果。
-4. 不把图片字节写入数据库；把 URL、Base64 和 data URI 统一转换为受控的共享持久暂存文件，保证服务重启后仍可重新上传。
+4. 不把上游输出图片字节写入数据库；把 URL、Base64 和 data URI 输出统一转换为受控的共享持久暂存文件，保证服务重启后仍可重新上传。编辑输入正文仅在任务执行前临时保存在任务行中，并在终态原子清除。
 5. 不把渠道密钥写入任务、对象、暂存文件或日志；S3 Secret 只按用户确认的方案明文存入 Option 表，并严格禁止读取接口和日志回显。
 6. 让所有已完成持久暂存的输出都能在进程或节点重启后继续归档。
 7. 保持 SQLite、MySQL 5.7.8+ 和 PostgreSQL 9.6+ 兼容。
@@ -71,10 +77,9 @@
 ## 4. 非目标
 
 - 不把同步图片接口改造成异步接口。
-- 不支持异步图片编辑、variation 或 multipart 图片上传；本期只覆盖
-  `POST /v1/images/generations/tasks`。
+- 不支持异步 variation；异步编辑覆盖 JSON 和 multipart 请求，但不新增同步接口尚未支持的编辑协议。
 - 不增加公开对象、公共 Bucket 或长期不失效 URL。
-- 不增加 S3 Key Prefix 设置，也不允许调用方自定义 Object Key。
+- 不允许 API 调用方自定义 S3 Key Prefix 或 Object Key；环境前缀只由 Root 在对象存储设置中维护。
 - 不提供取消已经生成成功任务的能力。
 - 不在归档重试按钮中调用上游生成；人工操作只使用已经持久暂存的图片文件重新上传，避免产生新的上游费用。
 - 不把持久暂存目录当作用户可访问的长期对象存储；它只承担 S3 上传前后的可靠交接，并按明确生命周期清理。
@@ -131,11 +136,12 @@ Kafka、RabbitMQ 或云队列可以提供更强的消费能力，但会新增部
 ## 6. 总体架构
 
 ```text
-POST /v1/images/generations/tasks
+POST /v1/images/generations/tasks 或 POST /v1/images/edits/tasks
   -> TokenAuth / 限流
-  -> 解析、校验、敏感词检查、模型权限和渠道可用性检查
+  -> 解析 JSON 或 multipart、校验、敏感词检查、模型权限和渠道可用性检查
   -> S3 配置完整性检查
   -> 定价并冻结计费与归档配置快照
+  -> 冻结同步执行路径、原始 Content-Type 和可重放正文
   -> 同库事务：创建任务 + 全额预扣钱包/订阅/Token 配额
   -> 202 task response
   -> 唤醒全局 async-image-processing system task
@@ -143,6 +149,7 @@ POST /v1/images/generations/tasks
 async-image-processing
   -> 全局 SystemTask 租约
   -> CAS 领取 AsyncImageTask 行租约
+  -> 按 request_path 重建同步生成或编辑请求，原样恢复 Content-Type 和正文
   -> 用当前渠道配置执行共享图片中继逻辑
   -> 捕获标准 OpenAI ImageResponse
   -> URL/Base64/data URI 标准化
@@ -153,7 +160,7 @@ async-image-processing
   -> 全部对象成功后标记 output available
   -> 清除原始请求正文；确认任务完整可用后清理暂存文件
 
-GET /v1/images/generations/tasks/{task_id}
+GET /v1/images/generations/tasks/{task_id} 或 GET /v1/images/edits/tasks/{task_id}
   -> TokenAuth
   -> 只查询当前用户的任务
   -> 根据任务和 StorageObject 判断可用性
@@ -195,7 +202,10 @@ JSON 类型成为迁移前提。
 | `origin_model_name` | `varchar(191)` 索引 | 面向用户的计费模型名 |
 | `using_group` | `varchar(64)` | 提交时解析后的实际分组；`auto` 必须解析为具体分组 |
 | `last_channel_id` | `int` 索引 | 最后实际执行的渠道，仅用于日志和运行时重建，不保存 Key |
-| `request_payload` | `text` | 原始 JSON 请求；完整归档清单持久化或生成失败后清空 |
+| `request_path` | `varchar(128)` | Worker 使用的同步执行路径；生成是 `/v1/images/generations`，编辑是 `/v1/images/edits` |
+| `request_content_type` | `text` | 原始 Content-Type；multipart 值包含必须随正文重放的 boundary |
+| `request_body` | 二进制大字段 | 编辑任务的原始 JSON 或 multipart 正文；MySQL 为 `longblob`、PostgreSQL 为 `bytea`、SQLite 为 `blob`，结算或退款后清空 |
+| `request_payload` | `text` | 生成任务的原始 JSON 请求及历史兼容载荷；完整归档清单持久化或执行失败后清空 |
 | `request_snapshot` | `text` | 安全请求快照；保留模型、Prompt、数量和已知图片控制参数，排除图片、蒙版、用户标识和任意扩展字段 |
 | `billing_context` | `text` | 冻结的价格、表达式、分组倍率和请求输入快照 |
 | `archive_manifest` | `text` | 输出索引、来源类型、暂存文件相对路径、大小、MIME、SHA-256 和 revised prompt；不含图片字节或来源 URL |
@@ -230,6 +240,11 @@ JSON 类型成为迁移前提。
 - `(billing_status, output_availability)`：计费终态检查与修复审计。
 
 不使用 GORM 布尔默认标签，不使用数据库特有枚举、JSON 列或部分索引。
+
+`request_payload` 继续承载历史及新建生成任务的 JSON，以保证滚动升级兼容；`request_body` 承载编辑
+任务的原始二进制安全正文，不能用字符串重新拼装 multipart。用户查询、后台详情和列表查询均显式
+省略 `request_body` 与 `request_payload`，避免把大正文加载到普通读取路径。任务领取先只查询候选
+主键并完成 CAS，再完整加载实际领取的任务行，确保只有 Worker 执行路径读取可重放正文。
 
 ### 7.2 `storage_objects`
 
@@ -284,6 +299,8 @@ JSON 操作或方言专用默认值。
 ## 8. 状态机
 
 ### 8.1 生成状态 `status`
+
+为兼容既有模型、API 和管理页命名，本节仍称“生成状态”；对编辑任务它表示图片编辑执行状态。
 
 ```text
 queued -> running -> succeeded
@@ -347,7 +364,7 @@ reserved -> settled
 
 ## 9. API 设计
 
-### 9.1 提交任务
+### 9.1 提交生成任务
 
 ```http
 POST /v1/images/generations/tasks
@@ -389,12 +406,50 @@ Content-Type: application/json
 若事务失败，不创建可见任务且不保留任何预扣费。任务调度唤醒失败不影响 202 响应，因为定时
 调度器会再次发现已提交任务。
 
-### 9.2 查询任务
+### 9.2 提交编辑任务
+
+编辑任务使用与同步编辑接口对应的新入口：
+
+```http
+POST /v1/images/edits/tasks
+Authorization: Bearer sk-...
+Content-Type: multipart/form-data; boundary=...
+```
+
+标准 multipart 示例包含 `model`、`prompt`、`image`，可选包含 `mask`、`n`、`size`、`quality`
+等同步编辑参数。支持 JSON 图片引用的供应商也可以提交：
+
+```http
+POST /v1/images/edits/tasks
+Authorization: Bearer sk-...
+Content-Type: application/json
+
+{
+  "model": "YOUR_IMAGE_EDIT_MODEL",
+  "prompt": "make the sky blue",
+  "image": "https://example.invalid/input.png",
+  "n": 1
+}
+```
+
+提交阶段沿用同步编辑解析、`dto.MaxImageN` 校验、敏感词检查、渠道选择和预扣逻辑，并保存
+`request_path=/v1/images/edits`、完整原始 Content-Type 及受全局请求体大小上限保护的原始正文。
+JSON 与 multipart 都不重新 marshal；因此 multipart 文件、boundary、文件名以及供应商扩展字段可在
+Worker 中按提交格式重放。Advanced Custom 渠道能力检查把任务入口映射到同步路径
+`/v1/images/edits`，生成任务同理映射到 `/v1/images/generations`，不会要求渠道额外配置 `/tasks`
+路由。
+
+成功和错误响应合同与生成任务一致。创建后的任务通过
+`GET /v1/images/edits/tasks/{task_id}` 查询。
+
+### 9.3 查询任务
 
 ```http
 GET /v1/images/generations/tasks/{task_id}
 Authorization: Bearer sk-...
 ```
+
+编辑任务使用同一响应合同，通过 `GET /v1/images/edits/tasks/{task_id}` 查询。
 
 查询使用 `TokenAuth`，但不使用 `Distribute()` 和模型请求限流。任务按
 `task_id + 当前 user_id` 查询；同一用户的其他 Token 可以查询，其他用户统一得到 OpenAI 风格
@@ -443,7 +498,7 @@ HTTP 404，错误码 `image_generation_task_not_found`。
 
 数据库中永远不保存预签名 URL。
 
-### 9.3 错误合同
+### 9.4 错误合同
 
 | HTTP | 错误码 | 场景 |
 | --- | --- | --- |
@@ -507,9 +562,14 @@ func ExecuteImageAttempt(c *gin.Context, info *relaycommon.RelayInfo) (*ImageExe
 ### 10.3 后台上下文重建
 
 任务不保存渠道 Key。执行时根据任务保存的用户、Token ID、模型和具体分组重新查询当前数据库
-状态并选择当前可用渠道。后台只在内存构造的 Gin/Relay 上下文中把规范请求路径字段设为
-`/v1/images/generations`，供现有路径判断逻辑读取；不会向本机发起 HTTP 请求。随后复用现有渠道
-重试、模型映射、参数覆盖、Header 覆盖、自动禁用和错误处理。
+状态并选择当前可用渠道。后台只在内存构造 Gin/Relay 上下文，不会向本机发起 HTTP 请求。生成任务
+使用 `/v1/images/generations`，编辑任务使用 `/v1/images/edits`；Worker 从 `request_body` 重放编辑
+正文和原始 Content-Type，旧生成任务在 `request_body` 为空时继续回退到 `request_payload` 和
+`application/json`。随后复用现有渠道重试、模型映射、参数覆盖、Header 覆盖、自动禁用和错误处理。
+
+渠道初选和 Worker 重选都把 `/v1/images/generations/tasks`、`/v1/images/edits/tasks` 映射为对应
+同步路径后再检查 Advanced Custom 路由能力。日志上下文则单独保留外部任务路径，避免内部执行路径
+覆盖用户实际调用入口。
 
 Token 被删除或用户被禁用不会取消已经事务性预扣的任务；任务仍使用任务快照执行和结算。
 但是后台只能从当前渠道配置读取上游凭据，所有渠道均不可用时任务按生成失败处理并退款。
@@ -562,9 +622,11 @@ URL、纯 Base64 和 data URI 只作为生成响应中的输入形式。URL 内�
 来源类型和已暂存内容的不可变元数据，因此后续自动重试、跨节点恢复和人工重传都不依赖上游 URL
 继续有效，也不需要再次调用上游。
 
-完整 manifest 和对应对象的暂存元数据持久化后，后台不再需要重新发送生成请求，因此在同一状态更新中清空
-`request_payload`。生成最终失败时也清空 `request_payload`。这样原始 Prompt 和供应商扩展字段
-只保留到生成阶段结束，不会随永久任务记录长期保存。
+完整 manifest 和对应对象的暂存元数据持久化后，后台不再需要重新发送生成或编辑请求，因此在同一
+状态更新中原子清空 `request_body` 和 `request_payload`。上游最终失败并完成退款时也清空两者；
+来源获取或暂存基础设施事故走成功结算事务时同样清空。排队、运行以及可重试的上游执行阶段保留
+正文，保证租约恢复后仍能重放；一旦进入 `settled` 或 `refunded` 终态便不得继续保留输入图片、
+蒙版、原始 Prompt 或供应商扩展字段。
 
 空 `data`、同一条目同时缺少 URL/Base64、超出 `dto.MaxImageN` 或索引重复都属于无效上游响应，
 生成状态记为 `failed` 并退款。只有完整标准响应的条目和来源结构验证通过后才允许生成成功结算；
@@ -678,10 +740,12 @@ URL 来源获取终止使用相同的 `succeeded/settled/failed` 计费原则，
 计算，避免网络耗时缩短实际保留期。索引从 0 开始：
 
 ```text
-prod/user-files/zmodel@async-images/2026/07/29/task_xxx/0.png
+{s3_key_prefix}/user-files/zmodel@async-images/2026/07/29/task_xxx/0.png
 ```
 
 `task_id`、`index` 和扩展名都来自系统生成或固定映射，不接受调用方路径片段。
+`s3_key_prefix` 是 Root 配置的相对 S3 命名空间，默认 `prod`；开发环境可配置为 `dev`。首次创建
+`StorageObject` 时生成的完整 Key 会持久化，后续修改前缀只影响新对象，不改写历史对象或在途对象。
 
 ### 11.7 上传协议
 
@@ -936,7 +1000,7 @@ archive_attempts >= archive_max_attempts
    `generation_completed_at`；正常暂存路径写 `output_availability=archiving`，URL 来源获取终止或
    极端暂存失败路径写 `output_availability=failed` 和对应的 `archive_source_fetch_failed` 或
    `archive_staging_failed`。
-6. 清空 `request_payload`，归档阶段从此不能重新调用上游，也不能再次调整计费。
+6. 清空 `request_body` 和 `request_payload`，归档阶段从此不能重新调用上游，也不能再次调整计费。
 
 如果任务已经 `refunded`，结算函数返回稳定的“禁止自动重新计费”结果。S3 对象是否已经上传不是
 本事务的前置条件；归档成功只更新输出可用性，归档失败也不回滚本次结算。
@@ -951,7 +1015,8 @@ archive_attempts >= archive_max_attempts
 3. 只按任务保存的 `reserved_quota` 和 `token_reserved_quota` 退回对应资金来源。
 4. 原子写入 `status=failed`、`output_availability=failed`、`billing_status=refunded`、
    `billing_finalized_at`、稳定错误信息和 `admin_notification_state=none`。
-5. 清空 `request_payload`，避免终态任务永久保存原始 Prompt、扩展字段或临时上游签名 URL。
+5. 清空 `request_body` 和 `request_payload`，避免终态任务永久保存输入图片、蒙版、原始 Prompt、
+   扩展字段或临时上游签名 URL。
 
 资金变更和状态变更在同一数据库事务中，因此进程重启后不会重复退款。
 
@@ -972,8 +1037,10 @@ archive_attempts >= archive_max_attempts
 不影响额度的运维/管理员日志，便于按 `task_id` 追踪上传错误和管理员重试。主额度事务不依赖日志
 数据库成功。若日志数据库独立且写入失败，记录带 `task_id` 的系统告警，不回滚已经完成的资金
 事务，也不通过再次资金调整来补日志。
-异步图片的消费和错误日志必须展示用户入口路径 `/v1/images/generations/tasks`；Worker
-内部继续用 `/v1/images/generations` 匹配生图渠道和复用适配器，不得将内部匹配路径误写为用户请求路径。
+异步图片的消费和错误日志必须按任务类型展示用户入口路径
+`/v1/images/generations/tasks` 或 `/v1/images/edits/tasks`；Worker 内部继续用对应同步路径
+`/v1/images/generations` 或 `/v1/images/edits` 匹配渠道和复用适配器，不得将内部匹配路径误写为
+用户请求路径。历史任务没有 `request_path` 时按生成路径处理。
 
 ## 17. 最终失败和通知
 
@@ -1047,6 +1114,7 @@ S3 返回成功或对象不存在都视为删除成功，写入 `status=deleted`
 | `ObjectStorageS3Bucket` | 空 | 配置存储时必填，不允许空白字符 |
 | `ObjectStorageS3AccessKey` | 空 | 配置存储时必填 |
 | `ObjectStorageS3SecretAccessKey` | 空 | 按已确认方案以明文存入 Option 表；读取 API 永不返回 |
+| `ObjectStorageS3KeyPrefix` | `prod` | 相对路径，最长 512 字符；不允许空段、`.`、`..`、反斜杠、空白或控制字符 |
 | `ObjectStorageStagingDirectory` | 空 | 只通过 Root 后台配置；绝对路径，不能是文件系统根目录 |
 | `ObjectStorageRetentionSeconds` | `86400` | 60 到 31536000 |
 | `ObjectStoragePresignSeconds` | `600` | 60 到 604800，实际签名受对象剩余寿命限制 |
@@ -1105,6 +1173,7 @@ GET 返回：
     "bucket": "",
     "access_key": "",
     "secret_configured": false,
+    "s3_key_prefix": "prod",
     "retention_seconds": 86400,
     "presign_seconds": 600,
     "archive_timeout_seconds": 600,
@@ -1125,8 +1194,8 @@ PUT 接收完整非敏感配置和可选 `secret_access_key`：
 - 全部字段先在内存中组成候选快照并整体校验，再通过 `model.UpdateOptionsBulk` 一次持久化。
 - 任一字段失败时不部分更新。
 - 保存非空配置前，用候选凭据向候选位置写入、Head 并删除一个随机探针对象；任一步失败都拒绝
-  保存。探针 Key 使用业务前缀下的保留目录
-  `prod/user-files/zmodel@async-images/.probe/{random}`，使最小权限 IAM 策略无需额外开放 Bucket 根前缀；
+  保存。探针 Key 使用配置前缀下的业务保留目录
+  `{s3_key_prefix}/user-files/zmodel@async-images/.probe/{random}`，使最小权限 IAM 策略无需额外开放 Bucket 根前缀；
   业务对象不得使用 `.probe` 目录。探针失败时接口只返回稳定的操作提示，不得向浏览器暴露 AWS
   RequestID、HostID、IAM ARN、Bucket/Key 等内部信息，服务端日志不得记录 Secret。删除探针失败时
   拒绝保存并告警，避免留下垃圾。
@@ -1143,6 +1212,9 @@ Access Key 和 Secret 可以在原位置轮换，调用方负责保证新凭据�
 Head、删除或签名尝试只使用开始该次尝试时取得的一份不可变设置快照；重试时重新读取最新凭据，
 但对象定位始终使用对象行中的 Endpoint、Region 和 Bucket 快照。这样凭据轮换不会让单个 S3 请求
 中途换凭据，也不需要在任务表中持久化 Secret 或配置版本。
+
+S3 对象键前缀不是物理位置字段。修改它不触发位置重绑定，也不要求迁移历史对象；保存成功后，
+探针和新创建对象使用新前缀，已持久化在 `StorageObject.object_key` 中的 Key 始终保持不变。
 
 除上述满足严格条件的失败任务整组重新绑定外，连接参数更新只影响尚未创建 `StorageObject` 的
 对象和后续预签名/删除所使用的凭据。已创建对象继续使用自身保存的 Endpoint、Region 和 Bucket
@@ -1262,13 +1334,15 @@ POST /api/async-image-task/retry-failed
 - S3 Secret 按第 19.2 节以明文写入 Option 表，因此数据库及备份读取权限属于敏感权限；Secret 不写
   入任务表、对象表、暂存文件、日志或 API 响应。渠道 Key、Token Key 和运行时下载认证 Header
   也不持久化到任务、对象或暂存文件。
-- URL、Base64 和 data URI 的原始表示不写数据库、暂存文件或日志；只把识别、校验后的规范图片
-  字节写入权限受限的共享持久暂存目录。
+- 上游输出中的 URL、Base64 和 data URI 原始表示不写数据库、暂存文件或日志；只把识别、校验后的
+  规范输出图片字节写入权限受限的共享持久暂存目录。编辑任务的输入图片和蒙版会随受大小上限保护的
+  原始 JSON/multipart 正文临时写入 `request_body`，这是 Worker 重放所需的明确例外。
 - 暂存文件名和相对路径完全由系统生成，不接受用户路径；数据库只保存相对路径，API 不返回路径。
 - 多节点必须使用共享持久卷；暂存卷和备份应使用基础设施层静态加密、最小权限和容量监控。
-- 终态任务清空仅供 Worker 重放的 `request_payload`；另存安全的 `request_snapshot`，仅保留模型、
-  Prompt、数量和已知图片生成控制参数，排除图片、蒙版、用户标识和任意扩展字段。任务所有者和 Root
-  均可查看该快照；永久记录还保留计费快照、输出元数据和脱敏错误。
+- `request_body` 和 `request_payload` 使用 `json:"-"` 且从普通查询显式省略，不通过用户或 Root API
+  返回。任务结算或退款时原子清空两者；另存安全的 `request_snapshot`，仅保留操作类型、模型、
+  Prompt、数量和已知图片控制参数，排除图片、蒙版、用户标识和任意扩展字段。任务所有者和 Root 均
+  可查看该快照；永久记录还保留计费快照、输出元数据和脱敏错误。
 - 上游 `source_url` 不进入已提交 manifest；下载并可靠暂存后立即释放。
 - URL 下载使用 SSRF 保护和重定向校验。
 - 上传和下载都执行 `MAX_FILE_DOWNLOAD_MB` 单对象大小限制。
@@ -1283,7 +1357,11 @@ POST /api/async-image-task/retry-failed
 ### 22.1 模型和数据库
 
 - SQLite 集成测试验证任务、对象、唯一约束和迁移。
+- 迁移测试确认 `request_path`、`request_content_type`、`request_body` 存在，并由各数据库方言映射为
+  `varchar/text` 及 MySQL `longblob`、PostgreSQL `bytea`、SQLite `blob`。
 - CAS 领取测试验证同一任务只能被一个 Worker 获得。
+- 候选领取只读取 ID，CAS 成功后加载完整任务正文；普通用户查询、详情和列表不加载
+  `request_body/request_payload`。
 - 过期租约测试验证另一 Runner 可恢复。
 - 钱包、订阅和 Token 预扣事务测试验证任一步失败会整体回滚。
 - 完整标准响应验证成功即结算，S3 尚未上传时任务已是 `succeeded/archiving/settled`。
@@ -1349,10 +1427,14 @@ POST /api/async-image-task/retry-failed
 
 ### 22.4 API 和图片中继
 
-- 同步图片接口响应和计费回归测试保持不变。
-- 异步 POST 返回 202，且 `stream=true` 返回 400。
+- 同步图片生成和编辑接口响应、multipart 解析和计费回归测试保持不变。
+- 生成与编辑异步 POST 都返回 202，且 `stream=true` 返回 400；两组 GET 路由均可查询任务。
 - S3 未配置时在预扣费前返回 503。
-- 原始扩展字段在后台执行时仍存在。
+- JSON 编辑正文和 multipart 的 boundary、文件名、图片/蒙版字节及原始扩展字段在 Worker 重放时
+  仍存在，Content-Type 不被改写；历史生成 `request_payload` 仍可执行。
+- Advanced Custom 只需配置同步生成/编辑路由，任务路径会在渠道初选及重试时正确映射。
+- 成功结算、归档前完整性失败结算和生成失败退款都清空 `request_body/request_payload`；排队和可重试
+  执行状态保持正文完整。
 - GET 所有状态的 JSON 合同、用户隔离、404 和签名 503。
 - 单渠道图片执行共享单元不自行结算或退款；同步入口保持原有结算一次，异步入口在标准响应验证后
   结算一次，归档阶段没有资金副作用。
@@ -1377,8 +1459,9 @@ POST /api/async-image-task/retry-failed
 该文档与本设计文档属于同一需求，以下条目是发布判定标准，验收手册给出环境准备、操作步骤和预期
 结果。
 
-1. 原有同步图片生成测试和行为不回归。
-2. 异步任务对 URL、Base64、data URI 输出都能生成私有 S3 对象。
+1. 原有同步图片生成和编辑测试与行为不回归。
+2. 异步生成和编辑任务对 URL、Base64、data URI 输出都能生成私有 S3 对象；编辑同时覆盖 JSON
+   图片引用和 multipart 文件上传。
 3. GET 只在全部对象有效时返回预签名 URL，任何时候都不返回部分结果。
 4. 对象 Key、UTC 年月、索引和实际扩展名完全符合固定规则。
 5. 对象到期后立即停止签名，清理后数据库记录仍保留。
@@ -1393,12 +1476,14 @@ POST /api/async-image-task/retry-failed
 10. Root 可筛选、勾选批量重试和一键重新上传全部失败图片；重试不产生资金变化，成功后用户可以
     通过任务 GET 获得有效图片 URL 并查看或下载。
 11. 普通用户在独立异步图片任务页只能查看自己的任务；现有视频/音乐 Task Logs 数据和接口不迁移、不改变。
-12. URL/Base64/data URI 原始表示不出现在数据库、暂存文件或日志中；规范图片字节只存在于受控的
-    共享持久暂存目录和私有 S3，并按生命周期清理。
+12. 上游输出 URL/Base64/data URI 原始表示不出现在数据库、暂存文件或日志中；规范输出图片字节只
+    存在于受控的共享持久暂存目录和私有 S3，并按生命周期清理。编辑输入正文仅在任务执行前临时
+    存入数据库，不经 API/普通查询返回，并在结算或退款时清空。
 13. Secret 以明文存入 `ObjectStorageS3SecretAccessKey` Option，但不从通用或专用读取设置 API、
     页面或日志返回；空 Secret 更新保留旧值，非空值替换旧值。
 14. 对象存储设置页和异步图片任务页在六种语言下可用，并通过类型检查、lint 和生产构建。
-15. 原有同步 `/v1/images/generations` 的路由、响应、渠道重试、计费、日志和错误行为通过回归测试保持不变；未调用新异步端点时不新增预扣或 S3 副作用。
+15. 原有同步 `/v1/images/generations` 与 `/v1/images/edits` 的路由、响应、渠道重试、计费、日志和
+    错误行为通过回归测试保持不变；未调用新异步端点时不新增预扣或 S3 副作用。
 16. SQLite 本地测试通过，代码不包含破坏 MySQL/PostgreSQL 兼容性的 SQL 或迁移。
 17. 计划停机停止领取新任务，并在统一停机时限内等待已发出的上游生成请求完成响应交接；已暂存的
     S3 归档可在重启后恢复。硬崩溃窗口可能重复调用上游，但不得导致用户重复结算、重复退款或任务
@@ -1410,7 +1495,7 @@ POST /api/async-image-task/retry-failed
 2. `AsyncImageTask`、`StorageObject`、迁移、状态转换和 CAS 租约。
 3. 事务性异步图片预扣、生成成功结算和生成失败退款，先固化计费不变量测试。
 4. 提取单渠道图片执行和渠道选择/重试共享原语，保持同步接口回归测试。
-5. 异步 POST/GET 合同。
+5. 异步生成/编辑 POST/GET 合同、JSON/multipart 正文重放及 Advanced Custom 路径映射。
 6. 后台处理、URL/Base64/data URI 持久暂存与归档、崩溃恢复、SystemTask 停机排空和聚合通知。
 7. Root/用户异步图片任务查询、勾选重试和一键重新上传全部失败图片 API。
 8. 到期签名判断和清理系统任务。

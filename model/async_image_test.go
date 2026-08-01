@@ -38,6 +38,7 @@ func seedAsyncImageWalletTask(t *testing.T, taskID string, status string, owner 
 		OriginModelName:    "test-image-model",
 		UsingGroup:         "default",
 		LeaseOwner:         owner,
+		RequestBody:        []byte{'i', 'm', 'a', 'g', 'e', 0, 1},
 	}, "wallet_only"))
 }
 
@@ -113,6 +114,26 @@ func TestCountAsyncImageStagingInUseProtectsPathChanges(t *testing.T) {
 	count, err = CountAsyncImageStagingInUse()
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), count)
+}
+
+func TestClaimRunnableAsyncImageTaskLoadsStoredRequestBodyAfterLeaseClaim(t *testing.T) {
+	truncateTables(t)
+	requestBody := []byte{'i', 'm', 'a', 'g', 'e', 0, 1}
+	require.NoError(t, DB.Create(&AsyncImageTask{
+		TaskID:             "task_claim_request_body",
+		Status:             AsyncImageStatusQueued,
+		OutputAvailability: AsyncImageOutputPending,
+		BillingStatus:      AsyncImageBillingReserved,
+		NextAttemptAt:      common.GetTimestamp(),
+		RequestPath:        "/v1/images/edits",
+		RequestBody:        requestBody,
+	}).Error)
+
+	claimed, err := ClaimRunnableAsyncImageTasks("runner-request-body", 1, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	assert.Equal(t, requestBody, claimed[0].RequestBody)
+	assert.Equal(t, "runner-request-body", claimed[0].LeaseOwner)
 }
 
 func TestAsyncImageSubscriptionReservationRefundsExactlyOnce(t *testing.T) {
@@ -207,6 +228,9 @@ func TestCompleteAsyncImageGenerationSettlesExactlyOnce(t *testing.T) {
 	assert.Equal(t, AsyncImageOutputArchiving, task.OutputAvailability)
 	assert.Equal(t, AsyncImageBillingSettled, task.BillingStatus)
 	assert.Equal(t, 150, task.ActualQuota)
+	var storedTask AsyncImageTask
+	require.NoError(t, DB.Select("request_body").Where("task_id = ?", taskID).First(&storedTask).Error)
+	assert.Empty(t, storedTask.RequestBody)
 	objectsAfter, err := ListStorageObjects(taskID)
 	require.NoError(t, err)
 	require.Len(t, objectsAfter, 1)
@@ -228,6 +252,7 @@ func TestRefundAsyncImageBillingRefundsExactlyOnceAndCannotSettle(t *testing.T) 
 	require.NoError(t, DB.Model(&AsyncImageTask{}).Where("task_id = ?", taskID).Updates(map[string]any{
 		"last_channel_id": 9301,
 		"started_at":      startedAt,
+		"request_path":    "/v1/images/edits",
 	}).Error)
 
 	const failureReason = "status_code=500, upstream image generation failed"
@@ -244,6 +269,9 @@ func TestRefundAsyncImageBillingRefundsExactlyOnceAndCannotSettle(t *testing.T) 
 	assert.Equal(t, AsyncImageBillingRefunded, task.BillingStatus)
 	assert.Equal(t, "image generation failed", task.PublicErrorMessage)
 	assert.Equal(t, failureReason, task.LastError)
+	var storedTask AsyncImageTask
+	require.NoError(t, DB.Select("request_body").Where("task_id = ?", taskID).First(&storedTask).Error)
+	assert.Empty(t, storedTask.RequestBody)
 
 	var logs []Log
 	require.NoError(t, LOG_DB.Where("request_id = ? AND type = ?", taskID, LogTypeRefund).Find(&logs).Error)
@@ -262,7 +290,7 @@ func TestRefundAsyncImageBillingRefundsExactlyOnceAndCannotSettle(t *testing.T) 
 	var other map[string]interface{}
 	require.NoError(t, common.UnmarshalJsonStr(refundLog.Other, &other))
 	assert.Equal(t, taskID, other["task_id"])
-	assert.Equal(t, "/v1/images/generations/tasks", other["request_path"])
+	assert.Equal(t, "/v1/images/edits/tasks", other["request_path"])
 	assert.Equal(t, "upstream_failed", other["error_code"])
 	assert.Equal(t, failureReason, other["reason"])
 	assert.Equal(t, true, other["async_image_task"])
@@ -290,6 +318,15 @@ func TestScheduleAsyncImageGenerationRetryReleasesLeaseWithoutChangingBilling(t 
 	assert.Equal(t, int64(12345), task.NextAttemptAt)
 	assert.Empty(t, task.LeaseOwner)
 	assert.Zero(t, task.LeaseExpiresAt)
+	assert.Empty(t, task.RequestBody)
+	var storedTask AsyncImageTask
+	require.NoError(t, DB.Select("request_body").Where("task_id = ?", taskID).First(&storedTask).Error)
+	assert.Equal(t, []byte{'i', 'm', 'a', 'g', 'e', 0, 1}, storedTask.RequestBody)
+	listed, total, err := ListAsyncImageTasks(AsyncImageTaskFilter{TaskID: taskID})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	require.Len(t, listed, 1)
+	assert.Empty(t, listed[0].RequestBody)
 	assert.ErrorIs(t, ScheduleAsyncImageGenerationRetry(taskID, "runner-1", 12346, "staging unavailable"), ErrAsyncImageLeaseLost)
 }
 

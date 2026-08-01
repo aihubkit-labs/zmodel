@@ -25,6 +25,7 @@ type objectStorageSettingsResponse struct {
 	Bucket                    string `json:"bucket"`
 	AccessKey                 string `json:"access_key"`
 	SecretConfigured          bool   `json:"secret_configured"`
+	S3KeyPrefix               string `json:"s3_key_prefix"`
 	StagingDirectory          string `json:"staging_directory"`
 	RetentionSeconds          int64  `json:"retention_seconds"`
 	PresignSeconds            int64  `json:"presign_seconds"`
@@ -35,18 +36,19 @@ type objectStorageSettingsResponse struct {
 }
 
 type updateObjectStorageSettingsRequest struct {
-	Endpoint                  string `json:"endpoint"`
-	Region                    string `json:"region"`
-	Bucket                    string `json:"bucket"`
-	AccessKey                 string `json:"access_key"`
-	SecretAccessKey           string `json:"secret_access_key"`
-	StagingDirectory          string `json:"staging_directory"`
-	RetentionSeconds          int64  `json:"retention_seconds"`
-	PresignSeconds            int64  `json:"presign_seconds"`
-	ArchiveTimeoutSeconds     int64  `json:"archive_timeout_seconds"`
-	ArchiveMaxAttempts        int    `json:"archive_max_attempts"`
-	ArchiveRetryWindowSeconds int64  `json:"archive_retry_window_seconds"`
-	CleanupIntervalSeconds    int64  `json:"cleanup_interval_seconds"`
+	Endpoint                  string  `json:"endpoint"`
+	Region                    string  `json:"region"`
+	Bucket                    string  `json:"bucket"`
+	AccessKey                 string  `json:"access_key"`
+	SecretAccessKey           string  `json:"secret_access_key"`
+	S3KeyPrefix               *string `json:"s3_key_prefix"`
+	StagingDirectory          string  `json:"staging_directory"`
+	RetentionSeconds          int64   `json:"retention_seconds"`
+	PresignSeconds            int64   `json:"presign_seconds"`
+	ArchiveTimeoutSeconds     int64   `json:"archive_timeout_seconds"`
+	ArchiveMaxAttempts        int     `json:"archive_max_attempts"`
+	ArchiveRetryWindowSeconds int64   `json:"archive_retry_window_seconds"`
+	CleanupIntervalSeconds    int64   `json:"cleanup_interval_seconds"`
 }
 
 type objectStorageProbeError struct {
@@ -83,6 +85,7 @@ func GetObjectStorageSettings(c *gin.Context) {
 		Bucket:                    settings.Bucket,
 		AccessKey:                 settings.AccessKey,
 		SecretConfigured:          strings.TrimSpace(settings.SecretAccessKey) != "",
+		S3KeyPrefix:               settings.S3KeyPrefix,
 		StagingDirectory:          settings.StagingDirectory,
 		RetentionSeconds:          settings.RetentionSeconds,
 		PresignSeconds:            settings.PresignSeconds,
@@ -104,12 +107,17 @@ func UpdateObjectStorageSettings(c *gin.Context) {
 	if secret == "" {
 		secret = current.SecretAccessKey
 	}
+	s3KeyPrefix := current.S3KeyPrefix
+	if request.S3KeyPrefix != nil {
+		s3KeyPrefix = strings.TrimSpace(*request.S3KeyPrefix)
+	}
 	candidate := storage_setting.Settings{
 		Endpoint:                  strings.TrimSpace(request.Endpoint),
 		Region:                    strings.TrimSpace(request.Region),
 		Bucket:                    strings.TrimSpace(request.Bucket),
 		AccessKey:                 strings.TrimSpace(request.AccessKey),
 		SecretAccessKey:           secret,
+		S3KeyPrefix:               s3KeyPrefix,
 		StagingDirectory:          strings.TrimSpace(request.StagingDirectory),
 		RetentionSeconds:          request.RetentionSeconds,
 		PresignSeconds:            request.PresignSeconds,
@@ -168,6 +176,7 @@ func UpdateObjectStorageSettings(c *gin.Context) {
 		storage_setting.OptionS3Bucket:                  candidate.Bucket,
 		storage_setting.OptionS3AccessKey:               candidate.AccessKey,
 		storage_setting.OptionS3SecretAccessKey:         candidate.SecretAccessKey,
+		storage_setting.OptionS3KeyPrefix:               candidate.S3KeyPrefix,
 		storage_setting.OptionStagingDirectory:          candidate.StagingDirectory,
 		storage_setting.OptionRetentionSeconds:          fmt.Sprintf("%d", candidate.RetentionSeconds),
 		storage_setting.OptionPresignSeconds:            fmt.Sprintf("%d", candidate.PresignSeconds),
@@ -263,7 +272,7 @@ func probeObjectStorage(parent context.Context, settings storage_setting.Setting
 	if err != nil {
 		return &objectStorageProbeError{operation: "connection", err: err}
 	}
-	key := asyncImageObjectPrefix + "/.probe/" + random
+	key := asyncImageObjectRoot(settings.S3KeyPrefix) + "/.probe/" + random
 	_, err = storage.PutObject(ctx, objectstorage.PutObjectInput{
 		Bucket:      settings.Bucket,
 		Key:         key,

@@ -22,6 +22,7 @@ export type ObjectStorageSettings = {
   bucket: string
   access_key: string
   secret_configured: boolean
+  s3_key_prefix: string
   staging_directory: string
   retention_seconds: number
   presign_seconds: number

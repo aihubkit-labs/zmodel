@@ -1,10 +1,10 @@
-# 异步图片生成与 S3 临时存储验收手册
+# 异步图片生成/编辑与 S3 临时存储验收手册
 
 ## 文档关系
 
 - 需求日期：2026-07-28
-- 配套设计：[异步图片生成与 S3 临时存储设计](./2026-07-28-async-image-s3-storage-design.md)
-- 验收范围：异步图片任务、私有 S3 归档、持久暂存、计费、失败重传、重启恢复、对象清理和后台页面
+- 配套设计：[异步图片生成/编辑与 S3 临时存储设计](./2026-07-28-async-image-s3-storage-design.md)
+- 验收范围：异步图片生成与编辑任务、JSON/multipart 重放、私有 S3 归档、持久暂存、计费、失败重传、重启恢复、对象清理和后台页面
 - 结论记录：验收人应在本文各检查项后记录通过、失败或不适用，并保存关键任务 ID、截图和日志证据
 
 本文是上述设计文档的配套执行手册，两份文档属于同一个需求。设计文档描述约束和实现方案，本文
@@ -19,6 +19,7 @@
 - `BASE_URL`：待验收服务地址。
 - `TOKEN`：有目标图片模型权限和足够额度的普通用户 Token。
 - `OTHER_USER_TOKEN`：另一个用户的 Token，用于验证任务隔离。
+- `INPUT_IMAGE`：本地有效图片文件，例如 `./input.png`。
 - Root 后台账号。
 - 一个私有 S3 Bucket，以及可临时调整权限的验收专用 IAM 凭据。
 - 至少一个真实图片渠道；验证 Base64 和 data URI 时还需要支持相应输出的渠道或模拟渠道。
@@ -35,9 +36,9 @@ mkdir -p /data/zmodel/async-image-staging
 应具有不必要的访问权限。暂存目录只通过 Root 后台保存到数据库，不使用环境变量配置。
 
 S3 Bucket 必须禁止匿名读取。应用凭据至少应具有
-`prod/user-files/zmodel@async-images/*` 下的 `PutObject`、`GetObject`（包括 `HeadObject`）和
+`{s3_key_prefix}/user-files/zmodel@async-images/*` 下的 `PutObject`、`GetObject`（包括 `HeadObject`）和
 `DeleteObject` 权限。保存设置时使用
-`prod/user-files/zmodel@async-images/.probe/{random}` 完成写入、Head 和删除探针，不需要开放 Bucket
+`{s3_key_prefix}/user-files/zmodel@async-images/.probe/{random}` 完成写入、Head 和删除探针，不需要开放 Bucket
 根前缀。
 
 AWS IAM 最小对象权限可参考以下策略，并把 `<bucket>` 替换为实际 Bucket 名：
@@ -53,7 +54,7 @@ AWS IAM 最小对象权限可参考以下策略，并把 `<bucket>` 替换为实
         "s3:GetObject",
         "s3:DeleteObject"
       ],
-      "Resource": "arn:aws:s3:::<bucket>/prod/user-files/zmodel@async-images/*"
+      "Resource": "arn:aws:s3:::<bucket>/<s3_key_prefix>/user-files/zmodel@async-images/*"
     }
   ]
 }
@@ -65,34 +66,43 @@ AWS IAM 最小对象权限可参考以下策略，并把 `<bucket>` 替换为实
 ## 2. 部署和迁移检查
 
 1. 启动服务，确认启动过程没有数据库迁移错误。
-2. 确认数据库存在 `async_image_tasks` 和 `storage_objects` 表。
+2. 确认数据库存在 `async_image_tasks` 和 `storage_objects` 表，并确认 `async_image_tasks` 已新增
+   `request_path`、`request_content_type`、`request_body` 列。`request_body` 在 MySQL、PostgreSQL、
+   SQLite 中应分别为 `longblob`、`bytea`、`blob`（允许数据库工具使用等价大小写显示）。
 3. 确认后台准备填写的暂存目录位于持久卷，而不是容器临时文件系统。
 4. 多节点环境分别进入各节点，确认相同相对路径指向同一文件。
-5. 执行自动化验证：
+5. 执行自动化验证。根 Go 包通过 `go:embed` 依赖 `web/default/dist` 和 `web/classic/dist`，新 worktree
+   中这两个忽略目录通常不存在，所以必须先完成两个前端生产构建，再运行根包或全量 Go 测试：
 
    ```bash
-   go test ./...
    cd web/default
+   bun install
    bun run typecheck
    bun run i18n:sync
    bun run build
    cd ../classic
+   bun install
    bun run build
+   cd ../..
+   go test ./...
    ```
 
-预期：全部命令通过；默认前端 i18n 检查不存在缺失、额外或未翻译条目。
+预期：全部命令通过；默认前端 i18n 检查不存在缺失、额外或未翻译条目。`dist` 和 `node_modules`
+均为本地构建产物，不应出现在 Git 变更中。若 Go 测试报 `pattern web/*/dist: no matching files found`，
+说明对应前端尚未构建，不是后端测试失败；完成上述生产构建后重新执行 Go 测试。
 
 ## 3. 对象存储设置
 
 使用 Root 登录，进入“系统设置 → 对象存储”。确认进入页面后左侧仍是系统设置下钻菜单，并且
 “对象存储”菜单可见且处于选中状态。
 
-填写 Endpoint、Region、Bucket、Access Key、Secret Access Key 和持久暂存目录。AWS S3 的
+填写 Endpoint、Region、Bucket、Access Key、Secret Access Key、S3 对象键前缀和持久暂存目录。AWS S3 的
 Endpoint 留空；MinIO 等兼容服务填写 HTTP(S) 地址。持久暂存目录填写
-`/data/zmodel/async-image-staging`。首次正常链路建议使用：
+`/data/zmodel/async-image-staging`。生产环境前缀填写 `prod`，开发环境填写 `dev`。首次正常链路建议使用：
 
 | 设置 | 验收值 |
 | --- | ---: |
+| S3 对象键前缀 | `dev`（开发环境）或 `prod`（生产环境） |
 | 对象保留时间 | 600 秒 |
 | 预签名 URL 有效期 | 60 秒 |
 | 单次归档超时 | 30 秒 |
@@ -102,7 +112,7 @@ Endpoint 留空；MinIO 等兼容服务填写 HTTP(S) 地址。持久暂存目�
 
 保存时系统会先对持久暂存目录执行创建、写入、`fsync`、原子重命名、读取和删除探针，再执行 S3
 随机探针对象的 `Put -> Head -> Delete`。预期保存成功，暂存目录和 Bucket 中均不遗留探针文件。
-刷新页面后持久暂存目录保持原值；Secret 输入框必须为空，只显示“已配置”状态。
+刷新页面后持久暂存目录和 S3 对象键前缀保持原值；Secret 输入框必须为空，只显示“已配置”状态。
 
 没有在途任务和保留文件时，把目录改为另一个非根绝对路径，预期探针通过并保存成功；确认数据库
 中的 `ObjectStorageStagingDirectory` Option 已同步更新，再切回验收目录。把目录改为相对路径或
@@ -123,9 +133,14 @@ GET /api/option
 `ObjectStorageS3SecretAccessKey`。数据库 `options` 表中该 Option 按确认方案保存明文。再次保存时
 Secret 留空，原值应继续有效；输入新 Secret 后应替换原值。
 
+保存 `dev` 前缀后提交一个新异步图片任务，确认新对象写入
+`dev/user-files/zmodel@async-images/...`，且探针也只使用 `dev` 前缀。将前缀切换为 `prod` 不应触发
+Endpoint、Region 或 Bucket 的位置重绑定；切换前已创建对象的完整 Object Key 保持不变，只有新对象
+使用 `prod`。
+
 ## 4. 同步图片回归
 
-调用原同步接口：
+分别调用原同步生成和编辑接口。生成请求：
 
 ```bash
 curl -sS "$BASE_URL/v1/images/generations" \
@@ -136,6 +151,20 @@ curl -sS "$BASE_URL/v1/images/generations" \
 
 预期：响应结构、渠道选择、重试、计费、消费日志和错误行为与发布前一致；该调用不得创建
 `async_image_tasks` 记录，也不得产生 S3 或暂存副作用。
+
+编辑请求：
+
+```bash
+curl -sS "$BASE_URL/v1/images/edits" \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "model=YOUR_IMAGE_EDIT_MODEL" \
+  -F "prompt=make the sky blue" \
+  -F "image=@$INPUT_IMAGE" \
+  -F "n=1" | jq
+```
+
+预期：同步编辑的 multipart 文件、响应、渠道选择、重试和计费行为与发布前一致，也不得创建异步任务
+或产生异步 S3/暂存副作用。
 
 ## 5. 异步正常链路
 
@@ -173,6 +202,38 @@ queued/pending -> running/pending -> succeeded/archiving -> succeeded/available
 - 用户只结算一次，任务 Root 视图显示 `billing_status=settled`。
 - 全部对象可用前，查询接口不得返回任何部分图片地址。
 
+随后分别验证 multipart 和 JSON 异步编辑。multipart 请求：
+
+```bash
+curl -i "$BASE_URL/v1/images/edits/tasks" \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "model=YOUR_IMAGE_EDIT_MODEL" \
+  -F "prompt=make the sky blue" \
+  -F "image=@$INPUT_IMAGE" \
+  -F "n=1"
+```
+
+对支持 JSON 图片引用的渠道，再提交：
+
+```bash
+curl -i "$BASE_URL/v1/images/edits/tasks" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"YOUR_IMAGE_EDIT_MODEL","prompt":"make the sky blue","image":"https://YOUR_TEST_HOST/input.png","n":1}'
+```
+
+两种请求都应返回 HTTP 202。分别保存编辑任务 ID 并轮询：
+
+```bash
+curl -sS "$BASE_URL/v1/images/edits/tasks/$EDIT_TASK_ID" \
+  -H "Authorization: Bearer $TOKEN" | jq
+```
+
+预期状态序列、私有 S3 对象、签名 URL、计费和不返回部分结果的规则与生成任务相同；实际渠道收到的
+路径是 `/v1/images/edits`。multipart 的 Content-Type boundary、文件名、图片字节和可选 mask 必须
+完整，JSON 的图片引用与供应商扩展字段不得因异步持久化而丢失。Advanced Custom 渠道只配置同步
+`/v1/images/edits` 路由也应能被任务入口选中，不需要额外配置 `/v1/images/edits/tasks`。
+
 ## 6. 来源格式兼容
 
 分别验证 URL、纯 Base64 和 data URI 三种上游响应。可使用支持 `response_format=b64_json` 的真实
@@ -190,8 +251,24 @@ queued/pending -> running/pending -> succeeded/archiving -> succeeded/available
 3. 让暂存目录不可写后提交：HTTP 503，错误码 `archive_staging_unavailable`。
 4. 用 `OTHER_USER_TOKEN` 查询 `$TASK_ID`：HTTP 404，错误码
    `image_generation_task_not_found`。
+5. 用 `OTHER_USER_TOKEN` 查询 `$EDIT_TASK_ID`：HTTP 404，错误码
+   `image_generation_task_not_found`。
+6. 提交超过服务请求体上限的 multipart 图片或蒙版：请求应在创建任务前失败，不得写入截断正文或
+   发生预扣费。
 
-前三项失败均不得创建可见任务或扣除额度。测试结束后立即恢复配置和目录权限。
+前三项及超限请求均不得创建可见任务或扣除额度。测试结束后立即恢复配置和目录权限。
+
+在可暂停 Worker 的验收环境中暂停异步处理，再提交一个带唯一文件名和已知测试字节的编辑任务。
+只查询长度、哈希或非敏感元数据，不把原始正文输出到终端或验收记录，并确认：
+
+- `queued` 任务保存 `request_path=/v1/images/edits`、包含 boundary 的 `request_content_type`，且
+  `request_body` 非空；`request_payload` 为空。
+- 恢复 Worker 后，人为制造可重试的上游错误时，`running/reserved` 任务仍保留相同正文，以便下次
+  租约领取重放。
+- 成功结算进入 `settled` 或最终失败退款进入 `refunded` 后，`request_body` 与 `request_payload`
+  均为空；来源获取或暂存事故走成功结算终态时也必须为空。
+- 历史生成任务仅有 `request_payload` 时仍能执行，且继续使用 `/v1/images/generations` 和
+  `application/json`。
 
 ## 8. S3 上传失败和人工重传
 
@@ -222,9 +299,9 @@ billing_status=settled
 
 若页面将暂存完整性故障显示为不可重试事故，这是正确行为；普通 S3 上传失败必须允许重传。
 
-## 9. 上游生成失败和退款
+## 9. 上游执行失败和退款
 
-使用验收专用渠道让上游稳定返回 500，再提交异步任务。预期终态为：
+使用验收专用渠道让上游稳定返回 500，分别提交异步生成和编辑任务。两者预期终态均为：
 
 ```text
 status=failed
@@ -242,20 +319,25 @@ billing_status=refunded
 - 没有选中渠道就失败时，渠道可以为空，但必须显示“无可用渠道”等具体失败原因；
 - 继续等待 Worker 重复扫描后，同一任务 ID 仍只有这一条退款日志。
 
-生成成功的消费日志和生成失败的退款/错误日志中，“路径”都应显示用户实际调用的
-`/v1/images/generations/tasks`，不得显示 Worker 内部用于渠道匹配的 `/v1/images/generations`。
+生成成功的消费日志和生成失败的退款/错误日志中，“路径”都应显示用户实际调用的任务入口：生成
+任务为 `/v1/images/generations/tasks`，编辑任务为 `/v1/images/edits/tasks`。不得显示 Worker
+内部用于渠道匹配的 `/v1/images/generations` 或 `/v1/images/edits`；旧任务没有 `request_path` 时
+仍应显示生成任务入口。
 
 ## 10. 重启恢复
 
 1. 恢复有效对象存储配置，把最大尝试次数设回 3 或以上。
-2. 提交任务，生成完成后暂时阻断 S3，使任务进入 `succeeded/archiving`。
+2. 分别提交生成任务和 multipart 编辑任务，生成或编辑完成后暂时阻断 S3，使任务进入
+   `succeeded/archiving`。
 3. 记录上游渠道请求次数、用户额度和暂存文件。
 4. 正常停止服务，确认进程在 `SHUTDOWN_TIMEOUT_SECONDS` 内排空活跃 Worker。
 5. 使用同一数据库和同一暂存卷重新启动，恢复 S3 网络或权限。
 6. 轮询至任务进入 `available`。
 
-预期：恢复过程不重新调用上游、不重复结算，任务不会永久停留在 `running` 或 `uploading`。对于
-S3 Put 已成功但数据库尚未确认的对象，Worker 应通过 `HeadObject` 元数据和 `LastModified` 恢复，
+预期：恢复过程不重新调用上游、不重复结算，任务不会永久停留在 `running` 或 `uploading`。编辑任务
+在上游调用完成前重启时仍可从数据库恢复原 Content-Type 与 multipart 正文；完成结算后正文已经清空，
+归档恢复只读取持久暂存文件。对于 S3 Put 已成功但数据库尚未确认的对象，Worker 应通过
+`HeadObject` 元数据和 `LastModified` 恢复，
 不覆盖上传且不延长原有效期。
 
 ## 11. 到期和清理
@@ -270,7 +352,7 @@ S3 Put 已成功但数据库尚未确认的对象，Worker 应通过 `HeadObject
 
 ## 12. 页面、语言和发布判定
 
-普通用户进入“使用日志 → 异步图片任务”时只能看到自己的任务。Root 应能使用任务 ID、用户、
+普通用户进入“使用日志 → 异步图片任务”时只能看到自己的生成和编辑任务。Root 应能使用任务 ID、用户、
 模型、生成状态、输出状态、计费状态和时间筛选；列表应展示提交时间、结束时间、渠道、用户、分组、
 平台、模型、耗时、对象成功数/总数、尝试次数和脱敏错误，并能执行选中重传与全部失败重传。普通
 用户列表不得返回或显示渠道、平台和其他用户信息。
@@ -304,20 +386,29 @@ Root 列表的用户列应只显示用户名，不得拼接 `(#用户ID)`；缺�
 使用普通用户查看自己的详情，确认可以预览和下载，但响应及页面不包含 Bucket、Object Key、ETag、
 内部错误或其他用户任务。使用 Root 查看同一任务时，详情接口应返回 Token、订阅、渠道、Provider、
 Endpoint、Region、Bucket、Object Key、ETag 和内部错误等审计字段，但界面不展示用户 ID、渠道 ID
-或 Token ID；接口仍不得返回 S3 Secret 或持久暂存相对路径。请求参数应显示提交时安全快照中的模型、Prompt、数量和图片生成控制参数，不得包含图片、蒙版、
+或 Token ID；接口仍不得返回 S3 Secret 或持久暂存相对路径。请求参数应显示提交时安全快照中的操作
+类型、模型、Prompt、数量和图片控制参数，不得包含图片、蒙版、
 用户标识、任意扩展字段、Base64 或 data URI。改造前已清空原始请求的历史任务应显示“历史任务未
 保留请求参数”，不得显示含糊的 `-`。对 `failed`、`expired` 或已删除对象打开详情，预期保留状态和错误信息，但不显示可用的预览、
 下载链接。
+
+通过普通用户任务 GET、用户/Root 列表接口和用户/Root 详情接口检查编辑任务响应。所有响应都不得
+包含 `request_body`、`request_payload`、原始 Content-Type、multipart boundary、上传文件名、输入
+图片/蒙版字节或可识别的 Base64/data URI 片段；数据库慢查询或调试日志也不得打印这些字段。列表
+轮询应只加载任务摘要，不因在途编辑任务携带大正文而显著增加响应大小或数据库读取量。
 
 依次切换 `en`、`zh`、`fr`、`ru`、`ja`、`vi`，检查对象存储设置页和异步图片任务页不存在缺失
 文案、溢出、遮挡或错误回显 Secret。
 
 只有以下条件全部满足时才允许发布：
 
-- 同步图片接口无行为回归。
+- 同步图片生成和编辑接口无行为回归。
+- 异步编辑的 JSON、multipart、Worker 重放、Advanced Custom 路径映射和编辑任务 GET 均正确。
 - URL、Base64、data URI 均可归档。
 - 生成成功但归档失败仍只结算一次，并可从暂存文件恢复。
 - 上游生成失败只退款一次。
+- 编辑请求正文只在排队/可重试执行阶段保留，任何结算或退款终态均已清空，且所有 API/列表查询不
+  返回或加载原始正文。
 - 用户隔离、Secret 脱敏、私有对象和预签名时限均正确。
 - 重启恢复、到期停止签名、S3 删除和数据库永久记录均正确。
 - 后端测试、默认前端类型检查/i18n/构建及 classic 前端构建全部通过。

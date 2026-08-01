@@ -588,6 +588,12 @@ Object.assign(newKeys.en, {
   'The S3 Secret Access Key is stored as plaintext in the database. Anyone with database or backup access can read it.':
     'The S3 Secret Access Key is stored as plaintext in the database. Anyone with database or backup access can read it.',
   'S3 connection': 'S3 connection',
+  'S3 object key prefix': 'S3 object key prefix',
+  'S3 object key prefix is required': 'S3 object key prefix is required',
+  'Use a relative S3 prefix without empty, . or .. path segments':
+    'Use a relative S3 prefix without empty, . or .. path segments',
+  'New async image objects are stored under this prefix.':
+    'New async image objects are stored under this prefix.',
   'Objects remain private and are delivered with temporary signed URLs.':
     'Objects remain private and are delivered with temporary signed URLs.',
   'Secret configured': 'Secret configured',
@@ -656,6 +662,12 @@ Object.assign(newKeys.zh, {
   'The S3 Secret Access Key is stored as plaintext in the database. Anyone with database or backup access can read it.':
     'S3 Secret Access Key 会以明文存入数据库，拥有数据库或备份读取权限的人可以查看。',
   'S3 connection': 'S3 连接',
+  'S3 object key prefix': 'S3 对象键前缀',
+  'S3 object key prefix is required': 'S3 对象键前缀不能为空',
+  'Use a relative S3 prefix without empty, . or .. path segments':
+    '请使用不含空路径段、. 或 .. 的相对 S3 前缀',
+  'New async image objects are stored under this prefix.':
+    '新的异步图片对象将存储在此前缀下。',
   'Objects remain private and are delivered with temporary signed URLs.':
     '对象保持私有，仅通过临时签名 URL 交付。',
   'Secret configured': 'Secret 已配置',
@@ -722,6 +734,12 @@ Object.assign(newKeys['zh-TW'], {
   'The S3 Secret Access Key is stored as plaintext in the database. Anyone with database or backup access can read it.':
     'S3 Secret Access Key 會以明文存入資料庫，擁有資料庫或備份讀取權限的人可查看。',
   'S3 connection': 'S3 連線',
+  'S3 object key prefix': 'S3 物件鍵前綴',
+  'S3 object key prefix is required': 'S3 物件鍵前綴為必填',
+  'Use a relative S3 prefix without empty, . or .. path segments':
+    '請使用不含空路徑段、. 或 .. 的相對 S3 前綴',
+  'New async image objects are stored under this prefix.':
+    '新的非同步圖片物件將儲存在此前綴下。',
   'Objects remain private and are delivered with temporary signed URLs.':
     '物件維持私有，僅透過臨時簽名 URL 交付。',
   'Secret configured': 'Secret 已設定',
@@ -789,6 +807,12 @@ Object.assign(newKeys.fr, {
   'The S3 Secret Access Key is stored as plaintext in the database. Anyone with database or backup access can read it.':
     'La clé secrète S3 est stockée en clair dans la base. Toute personne ayant accès à la base ou aux sauvegardes peut la lire.',
   'S3 connection': 'Connexion S3',
+  'S3 object key prefix': 'Préfixe de clé d’objet S3',
+  'S3 object key prefix is required': 'Le préfixe de clé S3 est obligatoire',
+  'Use a relative S3 prefix without empty, . or .. path segments':
+    'Utilisez un préfixe S3 relatif sans segment vide, . ou ..',
+  'New async image objects are stored under this prefix.':
+    'Les nouveaux objets d’image asynchrones sont stockés sous ce préfixe.',
   'Objects remain private and are delivered with temporary signed URLs.':
     'Les objets restent privés et sont fournis via des URL signées temporaires.',
   'Secret configured': 'Secret configuré',
@@ -857,6 +881,13 @@ Object.assign(newKeys.ja, {
   'The S3 Secret Access Key is stored as plaintext in the database. Anyone with database or backup access can read it.':
     'S3 シークレットアクセスキーはデータベースに平文で保存され、DB またはバックアップの閲覧権限者が読み取れます。',
   'S3 connection': 'S3 接続',
+  'S3 object key prefix': 'S3 オブジェクトキープレフィックス',
+  'S3 object key prefix is required':
+    'S3 オブジェクトキープレフィックスは必須です',
+  'Use a relative S3 prefix without empty, . or .. path segments':
+    '空のセグメント、.、.. を含まない相対 S3 プレフィックスを使用してください',
+  'New async image objects are stored under this prefix.':
+    '新しい非同期画像オブジェクトはこのプレフィックス配下に保存されます。',
   'Objects remain private and are delivered with temporary signed URLs.':
     'オブジェクトは非公開のまま、一時的な署名付き URL で提供されます。',
   'Secret configured': 'シークレット設定済み',
@@ -926,6 +957,12 @@ Object.assign(newKeys.ru, {
   'The S3 Secret Access Key is stored as plaintext in the database. Anyone with database or backup access can read it.':
     'Секретный ключ S3 хранится в базе открытым текстом и доступен лицам с доступом к базе или резервным копиям.',
   'S3 connection': 'Подключение S3',
+  'S3 object key prefix': 'Префикс ключа объекта S3',
+  'S3 object key prefix is required': 'Префикс ключа объекта S3 обязателен',
+  'Use a relative S3 prefix without empty, . or .. path segments':
+    'Используйте относительный префикс S3 без пустых сегментов, . и ..',
+  'New async image objects are stored under this prefix.':
+    'Новые объекты асинхронных изображений сохраняются под этим префиксом.',
   'Objects remain private and are delivered with temporary signed URLs.':
     'Объекты остаются закрытыми и выдаются по временным подписанным URL.',
   'Secret configured': 'Секрет настроен',
@@ -996,6 +1033,12 @@ Object.assign(newKeys.vi, {
   'The S3 Secret Access Key is stored as plaintext in the database. Anyone with database or backup access can read it.':
     'S3 Secret Access Key được lưu dạng văn bản thuần trong cơ sở dữ liệu; người có quyền đọc cơ sở dữ liệu hoặc bản sao lưu có thể xem.',
   'S3 connection': 'Kết nối S3',
+  'S3 object key prefix': 'Tiền tố khóa đối tượng S3',
+  'S3 object key prefix is required': 'Bắt buộc nhập tiền tố khóa đối tượng S3',
+  'Use a relative S3 prefix without empty, . or .. path segments':
+    'Dùng tiền tố S3 tương đối không có đoạn rỗng, . hoặc ..',
+  'New async image objects are stored under this prefix.':
+    'Các đối tượng ảnh bất đồng bộ mới được lưu dưới tiền tố này.',
   'Objects remain private and are delivered with temporary signed URLs.':
     'Đối tượng vẫn ở chế độ riêng tư và được cung cấp qua URL ký tạm thời.',
   'Secret configured': 'Đã cấu hình bí mật',

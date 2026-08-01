@@ -74,6 +74,14 @@ func SetRelayRouter(router *gin.Engine) {
 		asyncImageTaskRouter.POST("", middleware.ModelRequestRateLimit(), middleware.Distribute(), controller.SubmitAsyncImageTask)
 		asyncImageTaskRouter.GET("/:task_id", controller.GetAsyncImageTask)
 	}
+	asyncImageEditTaskRouter := router.Group("/v1/images/edits/tasks")
+	asyncImageEditTaskRouter.Use(middleware.RouteTag("relay"))
+	asyncImageEditTaskRouter.Use(middleware.SystemPerformanceCheck())
+	asyncImageEditTaskRouter.Use(middleware.TokenAuth())
+	{
+		asyncImageEditTaskRouter.POST("", middleware.ModelRequestRateLimit(), middleware.Distribute(), controller.SubmitAsyncImageTask)
+		asyncImageEditTaskRouter.GET("/:task_id", controller.GetAsyncImageTask)
+	}
 	relayV1Router := router.Group("/v1")
 	relayV1Router.Use(middleware.RouteTag("relay"))
 	relayV1Router.Use(middleware.SystemPerformanceCheck())
