@@ -24,7 +24,10 @@ type OpenAIVideo struct {
 	CompletedAt        int64             `json:"completed_at,omitempty"`
 	ExpiresAt          int64             `json:"expires_at,omitempty"`
 	Seconds            string            `json:"seconds,omitempty"`
+	Duration           int               `json:"duration,omitempty"`
 	Size               string            `json:"size,omitempty"`
+	Resolution         string            `json:"resolution,omitempty"`
+	Ratio              string            `json:"ratio,omitempty"`
 	RemixedFromVideoID string            `json:"remixed_from_video_id,omitempty"`
 	Error              *OpenAIVideoError `json:"error,omitempty"`
 	Metadata           map[string]any    `json:"metadata,omitempty"`

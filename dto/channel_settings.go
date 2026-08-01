@@ -11,13 +11,31 @@ import (
 )
 
 type ChannelSettings struct {
-	ForceFormat              bool   `json:"force_format,omitempty"`
-	ThinkingToContent        bool   `json:"thinking_to_content,omitempty"`
-	Proxy                    string `json:"proxy"`
-	VideoContentProxyEnabled bool   `json:"video_content_proxy_enabled,omitempty"`
-	PassThroughBodyEnabled   bool   `json:"pass_through_body_enabled,omitempty"`
-	SystemPrompt             string `json:"system_prompt,omitempty"`
-	SystemPromptOverride     bool   `json:"system_prompt_override,omitempty"`
+	ForceFormat              bool          `json:"force_format,omitempty"`
+	ThinkingToContent        bool          `json:"thinking_to_content,omitempty"`
+	Proxy                    string        `json:"proxy"`
+	VideoContentProxyEnabled bool          `json:"video_content_proxy_enabled,omitempty"`
+	VideoProtocol            VideoProtocol `json:"video_protocol,omitempty"`
+	PassThroughBodyEnabled   bool          `json:"pass_through_body_enabled,omitempty"`
+	SystemPrompt             string        `json:"system_prompt,omitempty"`
+	SystemPromptOverride     bool          `json:"system_prompt_override,omitempty"`
+}
+
+type VideoProtocol string
+
+const (
+	VideoProtocolOpenAI       VideoProtocol = "openai_video"
+	VideoProtocolSeedance     VideoProtocol = "seedance"
+	VideoProtocolAgnesVideoV2 VideoProtocol = "agnes_video_v2"
+)
+
+func (s ChannelSettings) ValidateVideoRequestSettings() error {
+	switch s.VideoProtocol {
+	case "", VideoProtocolOpenAI, VideoProtocolSeedance, VideoProtocolAgnesVideoV2:
+		return nil
+	default:
+		return fmt.Errorf("unsupported video_protocol %q", s.VideoProtocol)
+	}
 }
 
 type VertexKeyType string

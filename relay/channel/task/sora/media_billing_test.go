@@ -1,14 +1,17 @@
 package sora
 
 import (
+	"bytes"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/gin-gonic/gin"
@@ -172,6 +175,563 @@ func TestSeedanceBuildRequestBodyPreservesReferenceMedia(t *testing.T) {
 	assert.Equal(t, []string{"https://example.com/1.mp3"}, upstream.ReferenceAudios)
 }
 
+func TestSeedanceProtocolUsesMappedUpstreamModelCapabilities(t *testing.T) {
+	ctx, info := newSeedanceTestContext(t, `{
+		"model":"public-seedance-alias",
+		"prompt":"demo",
+		"duration":15,
+		"resolution":"1080P"
+	}`)
+	info.ChannelSetting.VideoProtocol = dto.VideoProtocolSeedance
+	info.UpstreamModelName = "videos-standard"
+	adaptor := &TaskAdaptor{}
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+
+	dimensions, err := adaptor.EstimateBillingDimensions(ctx, info)
+	require.NoError(t, err)
+	assert.Equal(t, float64(15), dimensions.Seconds)
+	assert.Equal(t, "1080p", dimensions.ResolutionTier)
+
+	body, err := adaptor.BuildRequestBody(ctx, info)
+	require.NoError(t, err)
+	data, err := io.ReadAll(body)
+	require.NoError(t, err)
+	var upstream map[string]any
+	require.NoError(t, common.Unmarshal(data, &upstream))
+	assert.Equal(t, "videos-standard", upstream["model"])
+	assert.Equal(t, float64(15), upstream["duration"])
+	assert.Equal(t, "1080p", upstream["resolution"])
+}
+
+func TestOpenAIVideoProtocolDoesNotApplySeedanceModelProfile(t *testing.T) {
+	ctx, info := newSeedanceTestContext(t, `{
+		"model":"videos-mini",
+		"prompt":"demo",
+		"duration":30,
+		"resolution":"1080p"
+	}`)
+	info.ChannelSetting.VideoProtocol = dto.VideoProtocolOpenAI
+	info.UpstreamModelName = "videos-mini"
+	adaptor := &TaskAdaptor{}
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+
+	request, err := relaycommon.GetTaskRequest(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 30, request.Duration)
+	assert.Equal(t, "1080p", request.Resolution)
+}
+
+func TestVideoRequestWithoutProtocolPreservesHistoricalFields(t *testing.T) {
+	ctx, info := newSeedanceTestContext(t, `{"model":"agnes-video-v2","prompt":"demo","custom_flag":false}`)
+	info.UpstreamModelName = "agnes-video-v2"
+	adaptor := &TaskAdaptor{}
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+
+	body, err := adaptor.BuildRequestBody(ctx, info)
+	require.NoError(t, err)
+	data, err := io.ReadAll(body)
+	require.NoError(t, err)
+	var upstream map[string]any
+	require.NoError(t, common.Unmarshal(data, &upstream))
+	assert.Contains(t, upstream, "custom_flag")
+	assert.Equal(t, false, upstream["custom_flag"])
+}
+
+func TestConfiguredVideoProtocolRejectsUnknownField(t *testing.T) {
+	ctx, info := newSeedanceTestContext(t, `{"model":"agnes-video-v2","prompt":"demo","custom_flag":false}`)
+	info.ChannelSetting.VideoProtocol = dto.VideoProtocolAgnesVideoV2
+	taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "unsupported_parameter", taskErr.Code)
+}
+
+func TestVideoRequestProviderOptionsFlattensConfiguredNamespace(t *testing.T) {
+	ctx, info := newSeedanceTestContext(t, `{
+		"model":"public-agnes-alias",
+		"prompt":"demo",
+		"duration":10,
+		"resolution":"720p",
+		"provider_options":{
+			"agnes":{
+				"custom_flag":false,
+				"custom_zero":0,
+				"custom_object":{"enabled":true},
+				"custom_array":["a",2]
+			}
+		}
+	}`)
+	info.ChannelSetting.VideoProtocol = dto.VideoProtocolAgnesVideoV2
+	info.UpstreamModelName = "agnes-video-v2"
+	adaptor := &TaskAdaptor{}
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+	dimensions, err := adaptor.EstimateBillingDimensions(ctx, info)
+	require.NoError(t, err)
+	assert.Equal(t, float64(10), dimensions.Seconds)
+	assert.Equal(t, float64(10), adaptor.EstimateBilling(ctx, info)["seconds"])
+
+	body, err := adaptor.BuildRequestBody(ctx, info)
+	require.NoError(t, err)
+	data, err := io.ReadAll(body)
+	require.NoError(t, err)
+	var upstream map[string]any
+	require.NoError(t, common.Unmarshal(data, &upstream))
+	assert.Equal(t, "agnes-video-v2", upstream["model"])
+	assert.NotContains(t, upstream, "provider_options")
+	assert.NotContains(t, upstream, "duration")
+	assert.NotContains(t, upstream, "seconds")
+	assert.Equal(t, float64(241), upstream["num_frames"])
+	assert.Equal(t, float64(24), upstream["frame_rate"])
+	assert.Equal(t, float64(1280), upstream["width"])
+	assert.Equal(t, float64(720), upstream["height"])
+	assert.Equal(t, false, upstream["custom_flag"])
+	assert.Equal(t, float64(0), upstream["custom_zero"])
+	assert.Equal(t, map[string]any{"enabled": true}, upstream["custom_object"])
+	assert.Equal(t, []any{"a", float64(2)}, upstream["custom_array"])
+}
+
+func TestAgnesProviderConvertsDurationToFrameParametersWithoutModelHardcoding(t *testing.T) {
+	ctx, info := newSeedanceTestContext(t, `{
+		"model":"future-agnes-model-name",
+		"prompt":"demo",
+		"duration":10,
+		"provider_options":{"agnes":{"custom_flag":true}}
+	}`)
+	info.ChannelSetting.VideoProtocol = dto.VideoProtocolAgnesVideoV2
+	info.UpstreamModelName = "renamed-upstream-agnes-model"
+	adaptor := &TaskAdaptor{}
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+
+	body, err := adaptor.BuildRequestBody(ctx, info)
+	require.NoError(t, err)
+	data, err := io.ReadAll(body)
+	require.NoError(t, err)
+	var upstream map[string]any
+	require.NoError(t, common.Unmarshal(data, &upstream))
+	assert.Equal(t, "renamed-upstream-agnes-model", upstream["model"])
+	assert.NotContains(t, upstream, "duration")
+	assert.NotContains(t, upstream, "seconds")
+	assert.Equal(t, float64(241), upstream["num_frames"])
+	assert.Equal(t, float64(24), upstream["frame_rate"])
+	assert.Equal(t, float64(1280), upstream["width"])
+	assert.Equal(t, float64(720), upstream["height"])
+}
+
+func TestAgnesProviderConvertsResolutionAndRatioToDimensions(t *testing.T) {
+	for _, test := range []struct {
+		resolution string
+		ratio      string
+		wantWidth  float64
+		wantHeight float64
+	}{
+		{resolution: "480p", ratio: "16:9", wantWidth: 854, wantHeight: 480},
+		{resolution: "720p", ratio: "9:16", wantWidth: 720, wantHeight: 1280},
+		{resolution: "1080p", ratio: "1:1", wantWidth: 1080, wantHeight: 1080},
+		{resolution: "720p", ratio: "4:3", wantWidth: 960, wantHeight: 720},
+		{resolution: "480p", ratio: "3:4", wantWidth: 480, wantHeight: 640},
+	} {
+		t.Run(test.resolution+"_"+test.ratio, func(t *testing.T) {
+			ctx, info := newSeedanceTestContext(t, fmt.Sprintf(`{
+				"model":"agnes-video-v2",
+				"prompt":"demo",
+				"duration":10,
+				"resolution":%q,
+				"ratio":%q
+			}`, test.resolution, test.ratio))
+			info.ChannelSetting.VideoProtocol = dto.VideoProtocolAgnesVideoV2
+			info.UpstreamModelName = "agnes-video-v2.0"
+			adaptor := &TaskAdaptor{}
+			require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+
+			request, err := relaycommon.GetTaskRequest(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, test.resolution, request.Resolution)
+			assert.Equal(t, test.ratio, request.Ratio)
+
+			body, err := adaptor.BuildRequestBody(ctx, info)
+			require.NoError(t, err)
+			data, err := io.ReadAll(body)
+			require.NoError(t, err)
+			var upstream map[string]any
+			require.NoError(t, common.Unmarshal(data, &upstream))
+			assert.Equal(t, test.wantWidth, upstream["width"])
+			assert.Equal(t, test.wantHeight, upstream["height"])
+			assert.NotContains(t, upstream, "resolution")
+			assert.NotContains(t, upstream, "ratio")
+			assert.NotContains(t, upstream, "size")
+		})
+	}
+}
+
+func TestAgnesProviderRejectsUnsupportedResolutionInputs(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		body     string
+		wantCode string
+	}{
+		{name: "resolution", body: `{"model":"agnes-video-v2","prompt":"demo","resolution":"4k"}`, wantCode: "invalid_resolution"},
+		{name: "ratio", body: `{"model":"agnes-video-v2","prompt":"demo","ratio":"2:1"}`, wantCode: "invalid_ratio"},
+		{name: "size", body: `{"model":"agnes-video-v2","prompt":"demo","size":"1280x720"}`, wantCode: "invalid_size"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, info := newSeedanceTestContext(t, test.body)
+			info.ChannelSetting.VideoProtocol = dto.VideoProtocolAgnesVideoV2
+			taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
+			require.NotNil(t, taskErr)
+			assert.Equal(t, test.wantCode, taskErr.Code)
+		})
+	}
+}
+
+func TestAgnesProviderDurationDefaultsAndBounds(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		body      string
+		want      int
+		wantCode  string
+		wantFrame float64
+	}{
+		{name: "default", body: `{"model":"agnes-video-v2","prompt":"demo"}`, want: 5, wantFrame: 121},
+		{name: "maximum", body: `{"model":"agnes-video-v2","prompt":"demo","duration":18}`, want: 18, wantFrame: 433},
+		{name: "above maximum", body: `{"model":"agnes-video-v2","prompt":"demo","duration":19}`, wantCode: "invalid_seconds"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, info := newSeedanceTestContext(t, test.body)
+			info.ChannelSetting.VideoProtocol = dto.VideoProtocolAgnesVideoV2
+			info.UpstreamModelName = "agnes-video-v2"
+			adaptor := &TaskAdaptor{}
+			taskErr := adaptor.ValidateRequestAndSetAction(ctx, info)
+			if test.wantCode != "" {
+				require.NotNil(t, taskErr)
+				assert.Equal(t, test.wantCode, taskErr.Code)
+				return
+			}
+			require.Nil(t, taskErr)
+			request, err := relaycommon.GetTaskRequest(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, test.want, request.Duration)
+			assert.Equal(t, "720p", request.Resolution)
+			assert.Equal(t, "16:9", request.Ratio)
+			dimensions, err := adaptor.EstimateBillingDimensions(ctx, info)
+			require.NoError(t, err)
+			assert.Equal(t, float64(test.want), dimensions.Seconds)
+			assert.Equal(t, float64(test.want), adaptor.EstimateBilling(ctx, info)["seconds"])
+
+			body, err := adaptor.BuildRequestBody(ctx, info)
+			require.NoError(t, err)
+			data, err := io.ReadAll(body)
+			require.NoError(t, err)
+			var upstream map[string]any
+			require.NoError(t, common.Unmarshal(data, &upstream))
+			assert.Equal(t, test.wantFrame, upstream["num_frames"])
+			assert.Equal(t, float64(24), upstream["frame_rate"])
+			assert.Equal(t, float64(1280), upstream["width"])
+			assert.Equal(t, float64(720), upstream["height"])
+		})
+	}
+}
+
+func TestAgnesProviderPreservesFrameRateAndRejectsUnsupported1080pDuration(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		duration   int
+		wantCode   string
+		wantFrames float64
+	}{
+		{name: "maximum 1080p duration", duration: 10, wantFrames: 241},
+		{name: "duration exceeding 1080p frame limit", duration: 11, wantCode: "invalid_seconds"},
+		{name: "global maximum duration", duration: 18, wantCode: "invalid_seconds"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, info := newSeedanceTestContext(t, fmt.Sprintf(`{
+				"model":"agnes-video-v2.0",
+				"prompt":"demo",
+				"duration":%d,
+				"resolution":"1080p",
+				"ratio":"16:9"
+			}`, test.duration))
+			info.ChannelSetting.VideoProtocol = dto.VideoProtocolAgnesVideoV2
+			info.UpstreamModelName = "agnes-video-v2.0"
+			adaptor := &TaskAdaptor{}
+			taskErr := adaptor.ValidateRequestAndSetAction(ctx, info)
+			if test.wantCode != "" {
+				require.NotNil(t, taskErr)
+				assert.Equal(t, test.wantCode, taskErr.Code)
+				assert.Contains(t, taskErr.Message, "10 seconds")
+				assert.Contains(t, taskErr.Message, "24 fps")
+				return
+			}
+			require.Nil(t, taskErr)
+
+			body, err := adaptor.BuildRequestBody(ctx, info)
+			require.NoError(t, err)
+			data, err := io.ReadAll(body)
+			require.NoError(t, err)
+			var upstream map[string]any
+			require.NoError(t, common.Unmarshal(data, &upstream))
+
+			assert.Equal(t, test.wantFrames, upstream["num_frames"])
+			assert.Equal(t, float64(agnesPreferredFrameRate), upstream["frame_rate"])
+			assert.Equal(t, float64(1920), upstream["width"])
+			assert.Equal(t, float64(1080), upstream["height"])
+		})
+	}
+}
+
+func TestAgnesProviderMapsUnifiedReferenceImageToUpstreamImage(t *testing.T) {
+	ctx, info := newSeedanceTestContext(t, `{
+		"model":"agnes-video-v2.0",
+		"prompt":"animate the reference image",
+		"referenceImages":[" https://example.com/reference.jpg?token=signed "],
+		"duration":10,
+		"resolution":"720p",
+		"ratio":"16:9"
+	}`)
+	info.ChannelSetting.VideoProtocol = dto.VideoProtocolAgnesVideoV2
+	info.UpstreamModelName = "agnes-video-v2.0"
+	adaptor := &TaskAdaptor{}
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+
+	request, err := relaycommon.GetTaskRequest(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"https://example.com/reference.jpg?token=signed"}, request.ReferenceImages)
+
+	body, err := adaptor.BuildRequestBody(ctx, info)
+	require.NoError(t, err)
+	data, err := io.ReadAll(body)
+	require.NoError(t, err)
+	var upstream map[string]any
+	require.NoError(t, common.Unmarshal(data, &upstream))
+
+	assert.Equal(t, "https://example.com/reference.jpg?token=signed", upstream["image"])
+	assert.NotContains(t, upstream, "referenceImages")
+	assert.NotContains(t, upstream, "images")
+	assert.NotContains(t, upstream, "input_reference")
+}
+
+func TestAgnesProviderRejectsProviderSpecificReferenceImageFields(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{name: "image", body: `{"model":"agnes-video-v2.0","prompt":"demo","image":"https://example.com/reference.jpg"}`},
+		{name: "images", body: `{"model":"agnes-video-v2.0","prompt":"demo","images":["https://example.com/reference.jpg"]}`},
+		{name: "input reference", body: `{"model":"agnes-video-v2.0","prompt":"demo","input_reference":"https://example.com/reference.jpg"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, info := newSeedanceTestContext(t, test.body)
+			info.ChannelSetting.VideoProtocol = dto.VideoProtocolAgnesVideoV2
+			taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
+			require.NotNil(t, taskErr)
+			assert.Equal(t, "invalid_reference_images", taskErr.Code)
+			assert.Contains(t, taskErr.Message, "referenceImages")
+		})
+	}
+}
+
+func TestAgnesProviderValidatesUnifiedReferenceImages(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{
+			name: "multiple images",
+			body: `{"model":"agnes-video-v2.0","prompt":"demo","referenceImages":["https://example.com/1.jpg","https://example.com/2.jpg"]}`,
+		},
+		{
+			name: "empty URL",
+			body: `{"model":"agnes-video-v2.0","prompt":"demo","referenceImages":["  "]}`,
+		},
+		{
+			name: "non HTTP URL",
+			body: `{"model":"agnes-video-v2.0","prompt":"demo","referenceImages":["file:///tmp/reference.jpg"]}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, info := newSeedanceTestContext(t, test.body)
+			info.ChannelSetting.VideoProtocol = dto.VideoProtocolAgnesVideoV2
+			taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
+			require.NotNil(t, taskErr)
+			assert.Equal(t, "invalid_reference_images", taskErr.Code)
+			if test.name == "multiple images" {
+				assert.Equal(t, "Agnes supports at most one reference image", taskErr.Message)
+			}
+		})
+	}
+}
+
+func TestAgnesProviderRejectsMultipartReferenceImages(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		fieldName string
+		file      bool
+	}{
+		{name: "URL field", fieldName: "referenceImages"},
+		{name: "provider image field", fieldName: "image"},
+		{name: "uploaded file", fieldName: "referenceImages", file: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var body bytes.Buffer
+			writer := multipart.NewWriter(&body)
+			require.NoError(t, writer.WriteField("model", "agnes-video-v2.0"))
+			require.NoError(t, writer.WriteField("prompt", "animate the reference image"))
+			if test.file {
+				part, err := writer.CreateFormFile(test.fieldName, "reference.jpg")
+				require.NoError(t, err)
+				_, err = part.Write([]byte("fake image"))
+				require.NoError(t, err)
+			} else {
+				require.NoError(t, writer.WriteField(test.fieldName, "https://example.com/reference.jpg"))
+			}
+			require.NoError(t, writer.Close())
+
+			req := httptest.NewRequest(http.MethodPost, "/v1/videos", &body)
+			req.Header.Set("Content-Type", writer.FormDataContentType())
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = req
+			_, err := common.GetBodyStorage(ctx)
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				common.CleanupBodyStorage(ctx)
+			})
+
+			info := &relaycommon.RelayInfo{
+				ChannelMeta:   &relaycommon.ChannelMeta{},
+				TaskRelayInfo: &relaycommon.TaskRelayInfo{},
+			}
+			info.ChannelSetting.VideoProtocol = dto.VideoProtocolAgnesVideoV2
+			taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
+			require.NotNil(t, taskErr)
+			assert.Equal(t, "invalid_reference_images", taskErr.Code)
+			assert.Contains(t, taskErr.Message, "application/json")
+		})
+	}
+}
+
+func TestAgnesProviderNormalizesSecondsAliasAndRejectsConflicts(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		body     string
+		wantCode string
+		want     int
+	}{
+		{name: "seconds alias", body: `{"model":"agnes-video-v2","prompt":"demo","seconds":"10"}`, want: 10},
+		{name: "matching fields", body: `{"model":"agnes-video-v2","prompt":"demo","duration":10,"seconds":"10"}`, want: 10},
+		{name: "conflicting fields", body: `{"model":"agnes-video-v2","prompt":"demo","duration":5,"seconds":"10"}`, wantCode: "duration_conflict"},
+		{name: "non-integer alias", body: `{"model":"agnes-video-v2","prompt":"demo","seconds":"ten"}`, wantCode: "invalid_seconds"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, info := newSeedanceTestContext(t, test.body)
+			info.ChannelSetting.VideoProtocol = dto.VideoProtocolAgnesVideoV2
+			adaptor := &TaskAdaptor{}
+			taskErr := adaptor.ValidateRequestAndSetAction(ctx, info)
+			if test.wantCode != "" {
+				require.NotNil(t, taskErr)
+				assert.Equal(t, test.wantCode, taskErr.Code)
+				return
+			}
+			require.Nil(t, taskErr)
+			request, err := relaycommon.GetTaskRequest(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, test.want, request.Duration)
+			assert.Empty(t, request.Seconds)
+		})
+	}
+}
+
+func TestVideoRequestProviderOptionsRejectsWrongNamespace(t *testing.T) {
+	ctx, info := newSeedanceTestContext(t, `{
+		"model":"agnes-video-v2",
+		"prompt":"demo",
+		"provider_options":{"other":{"custom_flag":true}}
+	}`)
+	info.ChannelSetting.VideoProtocol = dto.VideoProtocolAgnesVideoV2
+	taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "invalid_provider_options", taskErr.Code)
+}
+
+func TestVideoRequestProviderOptionsRejectsProtectedOverrides(t *testing.T) {
+	for _, field := range []string{"model", "mode", "image", "referenceImages", "duration", "seconds", "num_frames", "frame_rate", "width", "height", "resolution", "n", "callback_url", "authorization"} {
+		t.Run(field, func(t *testing.T) {
+			ctx, info := newSeedanceTestContext(t, fmt.Sprintf(`{
+				"model":"agnes-video-v2",
+				"prompt":"demo",
+				"provider_options":{"agnes":{%q:0}}
+			}`, field))
+			info.ChannelSetting.VideoProtocol = dto.VideoProtocolAgnesVideoV2
+			taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
+			require.NotNil(t, taskErr)
+			assert.Equal(t, "provider_option_conflict", taskErr.Code)
+		})
+	}
+}
+
+func TestVideoRequestProviderOptionsRejectsTopLevelCollision(t *testing.T) {
+	ctx, info := newSeedanceTestContext(t, `{
+		"model":"agnes-video-v2",
+		"prompt":"demo",
+		"metadata":{"source":"client"},
+		"provider_options":{"agnes":{"metadata":{"source":"provider"}}}
+	}`)
+	info.ChannelSetting.VideoProtocol = dto.VideoProtocolAgnesVideoV2
+	taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "provider_option_conflict", taskErr.Code)
+}
+
+func TestVideoRequestProviderOptionsRejectsNestedBillingOverride(t *testing.T) {
+	for _, field := range []string{"duration", "num_frames", "frame_rate"} {
+		t.Run(field, func(t *testing.T) {
+			ctx, info := newSeedanceTestContext(t, fmt.Sprintf(`{
+				"model":"agnes-video-v2",
+				"prompt":"demo",
+				"duration":10,
+				"provider_options":{"agnes":{"parameters":{%q:999999}}}
+			}`, field))
+			info.ChannelSetting.VideoProtocol = dto.VideoProtocolAgnesVideoV2
+			taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
+			require.NotNil(t, taskErr)
+			assert.Equal(t, "provider_option_conflict", taskErr.Code)
+		})
+	}
+}
+
+func TestParseTaskResultSupportsDurationNumberAndString(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body string
+		want int
+	}{
+		{name: "number", body: `{"status":"completed","duration":10}`, want: 10},
+		{name: "string", body: `{"status":"completed","duration":"12"}`, want: 12},
+		{name: "duration preferred", body: `{"status":"completed","duration":8,"seconds":"6"}`, want: 8},
+		{name: "seconds fallback", body: `{"status":"completed","duration":"invalid","seconds":"7"}`, want: 7},
+		{name: "decimal seconds fallback", body: `{"status":"completed","seconds":"10.0"}`, want: 10},
+		{name: "NaN seconds ignored", body: `{"status":"completed","seconds":"NaN"}`, want: 0},
+		{name: "oversized ignored", body: `{"status":"completed","duration":3601,"seconds":"999999"}`, want: 0},
+		{name: "negative ignored", body: `{"status":"completed","duration":-1,"seconds":"-2"}`, want: 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := (&TaskAdaptor{}).ParseTaskResult([]byte(test.body))
+			require.NoError(t, err)
+			assert.Equal(t, test.want, result.Duration)
+		})
+	}
+}
+
+func TestParseTaskResultUsesAgnesNormalizedResolution(t *testing.T) {
+	result, err := (&TaskAdaptor{}).ParseTaskResult([]byte(`{
+		"status":"completed",
+		"seconds":"10.0",
+		"size":"1088x832",
+		"metadata":{"size_mapping":{"resolution":"720p","ratio":"4:3"}}
+	}`))
+	require.NoError(t, err)
+	assert.Equal(t, 10, result.Duration)
+	assert.Equal(t, "720p", result.Resolution)
+}
+
 func TestSeedanceCompletionIgnoresUnknownResolution(t *testing.T) {
 	dimensions := (&TaskAdaptor{}).AdjustBillingDimensionsOnComplete(nil, &relaycommon.TaskInfo{
 		Duration:   8,
@@ -193,4 +753,44 @@ func TestSeedanceCompletionRejectsResolutionUnsupportedByOriginalModel(t *testin
 			assert.Nil(t, dimensions)
 		})
 	}
+}
+
+func TestAgnesCompletionUsesAgnesDurationAndResolutionBounds(t *testing.T) {
+	task := &model.Task{
+		PrivateData: model.TaskPrivateData{
+			BillingContext: &model.TaskBillingContext{VideoProtocol: dto.VideoProtocolAgnesVideoV2},
+		},
+	}
+	dimensions := (&TaskAdaptor{}).AdjustBillingDimensionsOnComplete(task, &relaycommon.TaskInfo{
+		Duration:   18,
+		Resolution: "1080p",
+	})
+	require.NotNil(t, dimensions)
+	assert.Equal(t, float64(18), dimensions.Seconds)
+	assert.Equal(t, "1080p", dimensions.ResolutionTier)
+
+	dimensions = (&TaskAdaptor{}).AdjustBillingDimensionsOnComplete(task, &relaycommon.TaskInfo{
+		Duration:   19,
+		Resolution: "4k",
+	})
+	assert.Nil(t, dimensions)
+}
+
+func TestSeedanceCompletionUsesMappedUpstreamModelCapabilities(t *testing.T) {
+	task := &model.Task{
+		Properties: model.Properties{
+			OriginModelName:   "public-seedance-alias",
+			UpstreamModelName: "videos-mini",
+		},
+		PrivateData: model.TaskPrivateData{
+			BillingContext: &model.TaskBillingContext{VideoProtocol: dto.VideoProtocolSeedance},
+		},
+	}
+	dimensions := (&TaskAdaptor{}).AdjustBillingDimensionsOnComplete(task, &relaycommon.TaskInfo{
+		Duration:   10,
+		Resolution: "1080p",
+	})
+	require.NotNil(t, dimensions)
+	assert.Equal(t, float64(10), dimensions.Seconds)
+	assert.Empty(t, dimensions.ResolutionTier)
 }

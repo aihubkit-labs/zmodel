@@ -2,8 +2,10 @@ package sora
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
@@ -41,18 +43,26 @@ type ImageURL struct {
 }
 
 type responseTask struct {
-	ID                 string `json:"id"`
-	TaskID             string `json:"task_id,omitempty"` //兼容旧接口
-	Object             string `json:"object"`
-	Model              string `json:"model"`
-	Status             string `json:"status"`
-	Progress           int    `json:"progress"`
-	CreatedAt          int64  `json:"created_at"`
-	CompletedAt        int64  `json:"completed_at,omitempty"`
-	ExpiresAt          int64  `json:"expires_at,omitempty"`
-	Seconds            string `json:"seconds,omitempty"`
-	Size               string `json:"size,omitempty"`
-	Resolution         string `json:"resolution,omitempty"`
+	ID          string          `json:"id"`
+	TaskID      string          `json:"task_id,omitempty"` //兼容旧接口
+	Object      string          `json:"object"`
+	Model       string          `json:"model"`
+	Status      string          `json:"status"`
+	Progress    int             `json:"progress"`
+	CreatedAt   int64           `json:"created_at"`
+	CompletedAt int64           `json:"completed_at,omitempty"`
+	ExpiresAt   int64           `json:"expires_at,omitempty"`
+	Seconds     string          `json:"seconds,omitempty"`
+	Duration    json.RawMessage `json:"duration,omitempty"`
+	Size        string          `json:"size,omitempty"`
+	Resolution  string          `json:"resolution,omitempty"`
+	Ratio       string          `json:"ratio,omitempty"`
+	Metadata    *struct {
+		SizeMapping struct {
+			Resolution string `json:"resolution,omitempty"`
+			Ratio      string `json:"ratio,omitempty"`
+		} `json:"size_mapping,omitempty"`
+	} `json:"metadata,omitempty"`
 	RemixedFromVideoID string `json:"remixed_from_video_id,omitempty"`
 	Error              *struct {
 		Message string `json:"message"`
@@ -92,21 +102,37 @@ func validateRemixRequest(c *gin.Context) *dto.TaskError {
 
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.TaskError) {
 	if info.Action == constant.TaskActionRemix {
-		return validateRemixRequest(c)
+		if taskErr := validateRemixRequest(c); taskErr != nil {
+			return taskErr
+		}
+		return validateVideoProtocolRequest(c, info)
+	}
+	if info.ChannelSetting.VideoProtocol == dto.VideoProtocolAgnesVideoV2 &&
+		strings.Contains(strings.ToLower(c.GetHeader("Content-Type")), "multipart/form-data") {
+		if taskErr := validateAgnesMultipartReferenceInput(c); taskErr != nil {
+			return taskErr
+		}
 	}
 	if taskErr := relaycommon.ValidateMultipartDirect(c, info); taskErr != nil {
 		return taskErr
 	}
+	if taskErr := validateVideoProtocolRequest(c, info); taskErr != nil {
+		return taskErr
+	}
+	if taskErr := normalizeVideoProtocolRequest(c, info); taskErr != nil {
+		return taskErr
+	}
 	req, err := relaycommon.GetTaskRequest(c)
-	if err != nil || !isSeedanceCompatibleModel(req.Model) {
+	if err != nil || !usesSeedanceProtocol(info, req.Model) {
 		return nil
 	}
+	capabilityModel := seedanceCapabilityModel(info, req.Model)
 	resolution := strings.ToLower(strings.TrimSpace(req.Resolution))
 	if resolution == "" {
 		return service.TaskErrorWrapperLocal(fmt.Errorf("resolution is required"), "invalid_resolution", http.StatusBadRequest)
 	}
-	if !seedanceResolutionSupported(req.Model, resolution) {
-		return service.TaskErrorWrapperLocal(fmt.Errorf("model %s does not support resolution %s", req.Model, resolution), "invalid_resolution", http.StatusBadRequest)
+	if !seedanceResolutionSupported(capabilityModel, resolution) {
+		return service.TaskErrorWrapperLocal(fmt.Errorf("model %s does not support resolution %s", capabilityModel, resolution), "invalid_resolution", http.StatusBadRequest)
 	}
 	duration := req.Duration
 	if duration == 0 && req.Seconds != "" {
@@ -123,6 +149,20 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	req.Resolution = resolution
 	c.Set("task_request", req)
 	return nil
+}
+
+func usesSeedanceProtocol(info *relaycommon.RelayInfo, modelName string) bool {
+	if info != nil && info.ChannelSetting.VideoProtocol != "" {
+		return info.ChannelSetting.VideoProtocol == dto.VideoProtocolSeedance
+	}
+	return isSeedanceCompatibleModel(modelName)
+}
+
+func seedanceCapabilityModel(info *relaycommon.RelayInfo, requestModel string) string {
+	if info != nil && info.ChannelSetting.VideoProtocol == dto.VideoProtocolSeedance && strings.TrimSpace(info.UpstreamModelName) != "" {
+		return info.UpstreamModelName
+	}
+	return requestModel
 }
 
 func isSeedanceCompatibleModel(modelName string) bool {
@@ -145,7 +185,7 @@ func seedanceResolutionSupported(modelName, resolution string) bool {
 	}
 }
 
-func (a *TaskAdaptor) EstimateBillingDimensions(c *gin.Context, _ *relaycommon.RelayInfo) (billingexpr.BillingDimensions, error) {
+func (a *TaskAdaptor) EstimateBillingDimensions(c *gin.Context, info *relaycommon.RelayInfo) (billingexpr.BillingDimensions, error) {
 	req, err := relaycommon.GetTaskRequest(c)
 	if err != nil {
 		return billingexpr.BillingDimensions{}, err
@@ -155,12 +195,13 @@ func (a *TaskAdaptor) EstimateBillingDimensions(c *gin.Context, _ *relaycommon.R
 		seconds = req.Duration
 	}
 	resolution := strings.ToLower(strings.TrimSpace(req.Resolution))
-	if isSeedanceCompatibleModel(req.Model) {
+	if usesSeedanceProtocol(info, req.Model) {
+		capabilityModel := seedanceCapabilityModel(info, req.Model)
 		if seconds < 4 || seconds > 15 {
 			return billingexpr.BillingDimensions{}, fmt.Errorf("duration is required and must be between 4 and 15 seconds for tiered billing")
 		}
-		if !seedanceResolutionSupported(req.Model, resolution) {
-			return billingexpr.BillingDimensions{}, fmt.Errorf("invalid resolution %s for model %s", resolution, req.Model)
+		if !seedanceResolutionSupported(capabilityModel, resolution) {
+			return billingexpr.BillingDimensions{}, fmt.Errorf("invalid resolution %s for model %s", resolution, capabilityModel)
 		}
 	}
 	if seconds <= 0 {
@@ -237,16 +278,34 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	contentType := c.GetHeader("Content-Type")
 
 	if strings.HasPrefix(contentType, "application/json") {
-		var bodyMap map[string]interface{}
+		var bodyMap map[string]json.RawMessage
 		if err := common.Unmarshal(cachedBody, &bodyMap); err == nil {
-			bodyMap["model"] = info.UpstreamModelName
-			if parsed, getErr := relaycommon.GetTaskRequest(c); getErr == nil && isSeedanceCompatibleModel(parsed.Model) {
-				delete(bodyMap, "seconds")
-				bodyMap["resolution"] = parsed.Resolution
-				if parsed.Duration > 0 {
-					bodyMap["duration"] = parsed.Duration
+			modelJSON, marshalErr := common.Marshal(info.UpstreamModelName)
+			if marshalErr != nil {
+				return nil, errors.Wrap(marshalErr, "marshal_upstream_model_failed")
+			}
+			bodyMap["model"] = modelJSON
+			if parsed, getErr := relaycommon.GetTaskRequest(c); getErr == nil {
+				if usesSeedanceProtocol(info, parsed.Model) {
+					delete(bodyMap, "seconds")
+					resolutionJSON, marshalErr := common.Marshal(parsed.Resolution)
+					if marshalErr != nil {
+						return nil, errors.Wrap(marshalErr, "marshal_resolution_failed")
+					}
+					bodyMap["resolution"] = resolutionJSON
+					if parsed.Duration > 0 {
+						durationJSON, marshalErr := common.Marshal(parsed.Duration)
+						if marshalErr != nil {
+							return nil, errors.Wrap(marshalErr, "marshal_duration_failed")
+						}
+						bodyMap["duration"] = durationJSON
+					}
+				}
+				if err := applyVideoProtocolRequest(info.ChannelSetting.VideoProtocol, parsed, bodyMap); err != nil {
+					return nil, errors.Wrap(err, "normalize_video_protocol_request_failed")
 				}
 			}
+			mergeVideoProviderOptions(c, bodyMap, info.ChannelSetting.VideoProtocol)
 			if newBody, err := common.Marshal(bodyMap); err == nil {
 				return bytes.NewReader(newBody), nil
 			}
@@ -263,21 +322,36 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		writer := multipart.NewWriter(&buf)
 		writer.WriteField("model", info.UpstreamModelName)
 		parsed, _ := relaycommon.GetTaskRequest(c)
+		seedanceRequest := usesSeedanceProtocol(info, parsed.Model)
+		agnesRequest := info.ChannelSetting.VideoProtocol == dto.VideoProtocolAgnesVideoV2
 		for key, values := range formData.Value {
 			if key == "model" {
 				continue
 			}
-			if isSeedanceCompatibleModel(parsed.Model) && (key == "resolution" || key == "duration" || key == "seconds") {
+			if seedanceRequest && (key == "resolution" || key == "duration" || key == "seconds") {
+				continue
+			}
+			if agnesRequest && (key == "duration" || key == "seconds" || key == "num_frames" || key == "frame_rate" ||
+				key == "resolution" || key == "ratio" || key == "size" || key == "width" || key == "height") {
 				continue
 			}
 			for _, v := range values {
 				writer.WriteField(key, v)
 			}
 		}
-		if isSeedanceCompatibleModel(parsed.Model) {
+		if seedanceRequest {
 			writer.WriteField("resolution", parsed.Resolution)
-			if parsed.Duration > 0 {
-				writer.WriteField("duration", strconv.Itoa(parsed.Duration))
+		}
+		if seedanceRequest && parsed.Duration > 0 {
+			writer.WriteField("duration", strconv.Itoa(parsed.Duration))
+		}
+		if agnesRequest && parsed.Duration > 0 {
+			numFrames, frameRate := agnesVideoFrameParameters(parsed.Duration)
+			writer.WriteField("num_frames", strconv.Itoa(numFrames))
+			writer.WriteField("frame_rate", strconv.Itoa(frameRate))
+			if width, height, ok := agnesVideoDimensions(parsed.Resolution, parsed.Ratio); ok {
+				writer.WriteField("width", strconv.Itoa(width))
+				writer.WriteField("height", strconv.Itoa(height))
 			}
 		}
 		for fieldName, fileHeaders := range formData.File {
@@ -348,10 +422,29 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 		return
 	}
 
-	// 使用公开 task_xxxx ID 返回给客户端
-	dResp.ID = info.PublicTaskID
-	dResp.TaskID = info.PublicTaskID
-	c.JSON(http.StatusOK, dResp)
+	request, _ := relaycommon.GetTaskRequest(c)
+	publicModel := request.Model
+	if publicModel == "" {
+		publicModel = info.OriginModelName
+	}
+	publicBody, err := normalizePublicVideoResponse(responseBody, publicVideoResponseValues{
+		ID:          info.PublicTaskID,
+		Model:       publicModel,
+		Status:      normalizePublicVideoStatus(dResp.Status),
+		Progress:    dResp.Progress,
+		SetProgress: true,
+		CreatedAt:   dResp.CreatedAt,
+		CompletedAt: dResp.CompletedAt,
+		Duration:    request.Duration,
+		Resolution:  request.Resolution,
+		Ratio:       request.Ratio,
+		Size:        dResp.Size,
+	})
+	if err != nil {
+		taskErr = service.TaskErrorWrapper(err, "normalize_video_response_failed", http.StatusInternalServerError)
+		return
+	}
+	c.Data(http.StatusOK, "application/json; charset=utf-8", publicBody)
 	return upstreamID, responseBody, nil
 }
 
@@ -413,10 +506,11 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		}
 	default:
 	}
-	if seconds, err := strconv.Atoi(resTask.Seconds); err == nil && seconds > 0 {
-		taskResult.Duration = seconds
-	}
+	taskResult.Duration = responseDuration(resTask.Duration, resTask.Seconds)
 	taskResult.Resolution = strings.ToLower(strings.TrimSpace(resTask.Resolution))
+	if taskResult.Resolution == "" && resTask.Metadata != nil {
+		taskResult.Resolution = strings.ToLower(strings.TrimSpace(resTask.Metadata.SizeMapping.Resolution))
+	}
 	if taskResult.Resolution == "" {
 		taskResult.Resolution = strings.ToLower(strings.TrimSpace(resTask.Size))
 	}
@@ -427,24 +521,135 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	return &taskResult, nil
 }
 
+func responseDuration(duration json.RawMessage, seconds string) int {
+	if len(duration) > 0 && string(duration) != "null" {
+		var numeric int64
+		if err := common.Unmarshal(duration, &numeric); err == nil && numeric > 0 && numeric <= relaycommon.MaxTaskDurationSeconds {
+			return int(numeric)
+		}
+		var text string
+		if err := common.Unmarshal(duration, &text); err == nil {
+			if numeric, err = strconv.ParseInt(text, 10, 64); err == nil && numeric > 0 && numeric <= relaycommon.MaxTaskDurationSeconds {
+				return int(numeric)
+			}
+		}
+	}
+	numericSeconds, err := strconv.ParseFloat(seconds, 64)
+	if err != nil || math.IsNaN(numericSeconds) || math.IsInf(numericSeconds, 0) ||
+		numericSeconds <= 0 || numericSeconds > relaycommon.MaxTaskDurationSeconds {
+		return 0
+	}
+	return int(math.Round(numericSeconds))
+}
+
+type publicVideoResponseValues struct {
+	ID          string
+	Model       string
+	Status      string
+	Progress    int
+	SetProgress bool
+	CreatedAt   int64
+	CompletedAt int64
+	Duration    int
+	Resolution  string
+	Ratio       string
+	Size        string
+}
+
+func normalizePublicVideoStatus(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "submitted", "queued", "pending":
+		return dto.VideoStatusQueued
+	case "processing", "in_progress", "running":
+		return dto.VideoStatusInProgress
+	case "completed", "success", "succeeded":
+		return dto.VideoStatusCompleted
+	case "failed", "failure", "cancelled", "canceled":
+		return dto.VideoStatusFailed
+	case "unknown":
+		return dto.VideoStatusUnknown
+	default:
+		return status
+	}
+}
+
+func normalizePublicVideoResponse(data []byte, values publicVideoResponseValues) ([]byte, error) {
+	if !gjson.ParseBytes(data).IsObject() {
+		return nil, fmt.Errorf("video response must be a JSON object")
+	}
+
+	type fieldUpdate struct {
+		path    string
+		value   any
+		enabled bool
+	}
+	updates := []fieldUpdate{
+		{path: "id", value: values.ID, enabled: values.ID != ""},
+		{path: "task_id", value: values.ID, enabled: values.ID != ""},
+		{path: "object", value: "video", enabled: true},
+		{path: "model", value: values.Model, enabled: values.Model != ""},
+		{path: "status", value: values.Status, enabled: values.Status != ""},
+		{path: "progress", value: values.Progress, enabled: values.SetProgress},
+		{path: "created_at", value: values.CreatedAt, enabled: values.CreatedAt > 0},
+		{path: "completed_at", value: values.CompletedAt, enabled: values.CompletedAt > 0},
+		{path: "duration", value: values.Duration, enabled: values.Duration > 0},
+		{path: "seconds", value: strconv.Itoa(values.Duration), enabled: values.Duration > 0},
+		{path: "resolution", value: strings.ToLower(strings.TrimSpace(values.Resolution)), enabled: strings.TrimSpace(values.Resolution) != ""},
+		{path: "ratio", value: strings.TrimSpace(values.Ratio), enabled: strings.TrimSpace(values.Ratio) != ""},
+		{path: "size", value: strings.TrimSpace(values.Size), enabled: strings.TrimSpace(values.Size) != ""},
+	}
+
+	result := data
+	for _, update := range updates {
+		if !update.enabled {
+			continue
+		}
+		updated, err := sjson.SetBytes(result, update.path, update.value)
+		if err != nil {
+			return nil, errors.Wrapf(err, "set public video response field %s failed", update.path)
+		}
+		result = updated
+	}
+	return result, nil
+}
+
 func (a *TaskAdaptor) AdjustBillingDimensionsOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) *billingexpr.BillingDimensions {
 	if taskResult == nil {
 		return nil
 	}
+	protocol := dto.VideoProtocol("")
+	if task != nil && task.PrivateData.BillingContext != nil {
+		protocol = task.PrivateData.BillingContext.VideoProtocol
+	}
 	dimensions := billingexpr.BillingDimensions{}
-	if taskResult.Duration >= 4 && taskResult.Duration <= 15 {
+	validDuration := taskResult.Duration >= 4 && taskResult.Duration <= 15
+	if protocol == dto.VideoProtocolAgnesVideoV2 {
+		validDuration = taskResult.Duration >= 1 && taskResult.Duration <= agnesMaxDurationSeconds
+	} else if protocol == dto.VideoProtocolOpenAI {
+		validDuration = taskResult.Duration > 0 && taskResult.Duration <= relaycommon.MaxTaskDurationSeconds
+	}
+	if validDuration {
 		dimensions.Seconds = float64(taskResult.Duration)
 	}
 	resolution := strings.ToLower(strings.TrimSpace(taskResult.Resolution))
 	if resolution == "480p" || resolution == "720p" || resolution == "1080p" || resolution == "4k" {
 		modelName := ""
 		if task != nil {
-			modelName = task.Properties.OriginModelName
+			modelName = task.Properties.UpstreamModelName
+			if modelName == "" {
+				modelName = task.Properties.OriginModelName
+			}
 			if modelName == "" && task.PrivateData.BillingContext != nil {
 				modelName = task.PrivateData.BillingContext.OriginModelName
 			}
 		}
-		if !isSeedanceCompatibleModel(modelName) || seedanceResolutionSupported(modelName, resolution) {
+		validResolution := true
+		if protocol == dto.VideoProtocolAgnesVideoV2 {
+			validResolution = resolution != "4k"
+		} else if protocol == dto.VideoProtocolSeedance || (protocol == "" && isSeedanceCompatibleModel(modelName)) {
+			validResolution = seedanceResolutionSupported(modelName, resolution)
+		}
+		if validResolution {
 			dimensions.ResolutionTier = resolution
 		}
 	}
@@ -455,34 +660,112 @@ func (a *TaskAdaptor) AdjustBillingDimensionsOnComplete(task *model.Task, taskRe
 }
 
 func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
-	data := task.Data
-	type fieldUpdate struct {
-		path  string
-		value string
+	var upstream responseTask
+	if err := common.Unmarshal(task.Data, &upstream); err != nil {
+		return nil, errors.Wrap(err, "unmarshal stored video response failed")
 	}
 
-	updates := []fieldUpdate{
-		{path: "id", value: task.TaskID},
-		{path: "task_id", value: task.TaskID},
+	request := relaycommon.TaskRequestSnapshot{}
+	if task.Properties.Input != "" {
+		_ = common.UnmarshalJsonStr(task.Properties.Input, &request)
+	}
+
+	publicModel := request.Model
+	if publicModel == "" {
+		publicModel = task.Properties.OriginModelName
+	}
+	status := normalizePublicVideoStatus(upstream.Status)
+	if taskStatus := task.Status.ToVideoStatus(); taskStatus != dto.VideoStatusUnknown {
+		status = taskStatus
+	}
+	progress := upstream.Progress
+	if task.Progress != "" {
+		progressText := strings.TrimSuffix(strings.TrimSpace(task.Progress), "%")
+		if parsedProgress, err := strconv.Atoi(progressText); err == nil {
+			progress = parsedProgress
+		}
+	}
+	if task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure {
+		progress = 100
+	}
+	duration := responseDuration(upstream.Duration, upstream.Seconds)
+	if duration == 0 {
+		duration = request.Duration
+		if duration == 0 && request.Seconds != "" {
+			duration, _ = strconv.Atoi(request.Seconds)
+		}
+	}
+	resolution := strings.ToLower(strings.TrimSpace(upstream.Resolution))
+	if resolution == "" && upstream.Metadata != nil {
+		resolution = strings.ToLower(strings.TrimSpace(upstream.Metadata.SizeMapping.Resolution))
+	}
+	if resolution == "" && isPublicVideoResolution(upstream.Size) {
+		resolution = strings.ToLower(strings.TrimSpace(upstream.Size))
+	}
+	if resolution == "" || strings.Contains(resolution, "x") {
+		resolution = strings.ToLower(strings.TrimSpace(request.Resolution))
+	}
+	ratio := strings.TrimSpace(upstream.Ratio)
+	if ratio == "" && upstream.Metadata != nil {
+		ratio = strings.TrimSpace(upstream.Metadata.SizeMapping.Ratio)
+	}
+	if ratio == "" {
+		ratio = strings.TrimSpace(request.Ratio)
+	}
+	size := strings.TrimSpace(upstream.Size)
+	if size == "" && task.PrivateData.BillingContext != nil &&
+		task.PrivateData.BillingContext.VideoProtocol == dto.VideoProtocolAgnesVideoV2 {
+		if width, height, ok := agnesVideoDimensions(resolution, ratio); ok {
+			size = fmt.Sprintf("%dx%d", width, height)
+		}
+	}
+	createdAt := upstream.CreatedAt
+	if task.SubmitTime > 0 {
+		createdAt = task.SubmitTime
+	}
+	completedAt := upstream.CompletedAt
+	if task.FinishTime > 0 {
+		completedAt = task.FinishTime
+	}
+
+	data, err := normalizePublicVideoResponse(task.Data, publicVideoResponseValues{
+		ID:          task.TaskID,
+		Model:       publicModel,
+		Status:      status,
+		Progress:    progress,
+		SetProgress: true,
+		CreatedAt:   createdAt,
+		CompletedAt: completedAt,
+		Duration:    duration,
+		Resolution:  resolution,
+		Ratio:       ratio,
+		Size:        size,
+	})
+	if err != nil {
+		return nil, err
 	}
 	if task.Status == model.TaskStatusSuccess {
 		proxyURL := taskcommon.BuildProxyURL(task.TaskID)
-		updates = append(updates,
-			fieldUpdate{path: "url", value: proxyURL},
-			fieldUpdate{path: "video_url", value: proxyURL},
-			fieldUpdate{path: "metadata.url", value: proxyURL},
-		)
+		for _, path := range []string{"url", "video_url", "metadata.url"} {
+			data, err = sjson.SetBytes(data, path, proxyURL)
+			if err != nil {
+				return nil, errors.Wrapf(err, "set %s failed", path)
+			}
+		}
 		for _, path := range []string{
 			"metadata.content_url",
 			"metadata.local_url",
 			"metadata.video_url",
 			"metadata.final_video_url",
 		} {
-			if gjson.GetBytes(data, path).Exists() {
-				updates = append(updates, fieldUpdate{path: path, value: proxyURL})
+			if !gjson.GetBytes(data, path).Exists() {
+				continue
+			}
+			data, err = sjson.SetBytes(data, path, proxyURL)
+			if err != nil {
+				return nil, errors.Wrapf(err, "set %s failed", path)
 			}
 		}
-		var err error
 		data, err = sjson.DeleteBytes(data, "metadata.origin_video_url")
 		if err != nil {
 			return nil, errors.Wrap(err, "delete metadata.origin_video_url failed")
@@ -506,12 +789,14 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 		}
 	}
 
-	var err error
-	for _, update := range updates {
-		data, err = sjson.SetBytes(data, update.path, update.value)
-		if err != nil {
-			return nil, errors.Wrapf(err, "set %s failed", update.path)
-		}
-	}
 	return data, nil
+}
+
+func isPublicVideoResolution(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "480p", "720p", "1080p", "4k":
+		return true
+	default:
+		return false
+	}
 }

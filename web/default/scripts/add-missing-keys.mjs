@@ -1084,6 +1084,56 @@ Object.assign(newKeys.vi, {
   not_staged: 'Chưa lưu tạm',
 })
 
+Object.assign(newKeys.en, {
+  'Agnes Video V2': 'Agnes Video V2',
+  'OpenAI Video / Sora Compatible': 'OpenAI Video / Sora Compatible',
+  'Seedance Compatible': 'Seedance Compatible',
+  'Select video protocol': 'Select video protocol',
+  'Video Protocol': 'Video Protocol',
+})
+Object.assign(newKeys.zh, {
+  'Agnes Video V2': 'Agnes Video V2',
+  'OpenAI Video / Sora Compatible': 'OpenAI Video / Sora 兼容',
+  'Seedance Compatible': 'Seedance 兼容',
+  'Select video protocol': '选择视频协议',
+  'Video Protocol': '视频协议',
+})
+Object.assign(newKeys['zh-TW'], {
+  'Agnes Video V2': 'Agnes Video V2',
+  'OpenAI Video / Sora Compatible': 'OpenAI Video / Sora 相容',
+  'Seedance Compatible': 'Seedance 相容',
+  'Select video protocol': '選擇影片協議',
+  'Video Protocol': '影片協議',
+})
+Object.assign(newKeys.fr, {
+  'Agnes Video V2': 'Agnes Video V2',
+  'OpenAI Video / Sora Compatible': 'Compatible OpenAI Video / Sora',
+  'Seedance Compatible': 'Compatible Seedance',
+  'Select video protocol': 'Sélectionner le protocole vidéo',
+  'Video Protocol': 'Protocole vidéo',
+})
+Object.assign(newKeys.ja, {
+  'Agnes Video V2': 'Agnes Video V2',
+  'OpenAI Video / Sora Compatible': 'OpenAI Video / Sora 互換',
+  'Seedance Compatible': 'Seedance 互換',
+  'Select video protocol': '動画プロトコルを選択',
+  'Video Protocol': '動画プロトコル',
+})
+Object.assign(newKeys.ru, {
+  'Agnes Video V2': 'Agnes Video V2',
+  'OpenAI Video / Sora Compatible': 'Совместимый с OpenAI Video / Sora',
+  'Seedance Compatible': 'Совместимый с Seedance',
+  'Select video protocol': 'Выберите видеопротокол',
+  'Video Protocol': 'Видеопротокол',
+})
+Object.assign(newKeys.vi, {
+  'Agnes Video V2': 'Agnes Video V2',
+  'OpenAI Video / Sora Compatible': 'Tương thích OpenAI Video / Sora',
+  'Seedance Compatible': 'Tương thích Seedance',
+  'Select video protocol': 'Chọn giao thức video',
+  'Video Protocol': 'Giao thức video',
+})
+
 async function main() {
   for (const [locale, trans] of Object.entries(newKeys)) {
     const filePath = path.join(LOCALES_DIR, `${locale}.json`)

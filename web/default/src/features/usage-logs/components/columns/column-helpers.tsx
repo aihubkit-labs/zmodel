@@ -162,13 +162,18 @@ export function createDurationColumn<T>(config: {
 }
 
 /**
- * Create a channel column (admin only) - #id badge matching common logs
+ * Create a channel column (admin only) - optionally display the channel name
  */
 export function createChannelColumn<T>(config: {
   accessorKey?: string
+  channelNameAccessorKey?: keyof T
   headerLabel: string
 }): ColumnDef<T> {
-  const { accessorKey = 'channel_id', headerLabel } = config
+  const {
+    accessorKey = 'channel_id',
+    channelNameAccessorKey,
+    headerLabel,
+  } = config
 
   return {
     accessorKey,
@@ -180,14 +185,24 @@ export function createChannelColumn<T>(config: {
       if (!channelId) {
         return <span className='text-muted-foreground/60 text-xs'>-</span>
       }
+      const channelNameValue = channelNameAccessorKey
+        ? row.original[channelNameAccessorKey]
+        : undefined
+      const channelName =
+        typeof channelNameValue === 'string' ? channelNameValue.trim() : ''
+      if (channelNameAccessorKey && !channelName) {
+        return <span className='text-muted-foreground/60 text-xs'>-</span>
+      }
+      const displayLabel = channelName || `#${channelId}`
+
       return (
         <StatusBadge
-          label={`#${channelId}`}
+          label={displayLabel}
           autoColor={String(channelId)}
-          copyText={String(channelId)}
+          copyText={displayLabel}
           size='sm'
           showDot={false}
-          className='font-mono'
+          title={channelName ? `${channelName} (#${channelId})` : displayLabel}
         />
       )
     },

@@ -118,7 +118,8 @@ type TaskBillingContext struct {
 	ModelRatio          float64                       `json:"model_ratio,omitempty"`       // 模型倍率
 	OtherRatios         map[string]float64            `json:"other_ratios,omitempty"`      // 附加倍率（时长、分辨率等）
 	OriginModelName     string                        `json:"origin_model_name,omitempty"` // 模型名称，必须为OriginModelName
-	PerCallBilling      bool                          `json:"per_call_billing,omitempty"`  // 按次计费：跳过轮询阶段的差额结算
+	VideoProtocol       dto.VideoProtocol             `json:"video_protocol,omitempty"`
+	PerCallBilling      bool                          `json:"per_call_billing,omitempty"` // 按次计费：跳过轮询阶段的差额结算
 	BillingMode         string                        `json:"billing_mode,omitempty"`
 	ExprString          string                        `json:"expr_string,omitempty"`
 	ExprHash            string                        `json:"expr_hash,omitempty"`
