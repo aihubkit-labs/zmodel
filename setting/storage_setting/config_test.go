@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,6 +16,7 @@ func validObjectStorageSettings() Settings {
 		Bucket:                    "test-bucket",
 		AccessKey:                 "test-access-key",
 		SecretAccessKey:           "test-secret",
+		S3KeyPrefix:               DefaultS3KeyPrefix,
 		StagingDirectory:          "/data/zmodel/async-image-staging",
 		RetentionSeconds:          DefaultRetentionSeconds,
 		PresignSeconds:            DefaultPresignSeconds,
@@ -22,6 +24,32 @@ func validObjectStorageSettings() Settings {
 		ArchiveMaxAttempts:        DefaultArchiveMaxAttempts,
 		ArchiveRetryWindowSeconds: DefaultArchiveRetryWindow,
 		CleanupIntervalSeconds:    DefaultCleanupInterval,
+	}
+}
+
+func TestGetSettingsDefaultsS3KeyPrefixForExistingInstallations(t *testing.T) {
+	common.OptionMapRWMutex.Lock()
+	original := common.OptionMap
+	common.OptionMap = map[string]string{}
+	common.OptionMapRWMutex.Unlock()
+	t.Cleanup(func() {
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap = original
+		common.OptionMapRWMutex.Unlock()
+	})
+
+	assert.Equal(t, DefaultS3KeyPrefix, GetSettings().S3KeyPrefix)
+}
+
+func TestSettingsRequiresSafeS3KeyPrefix(t *testing.T) {
+	settings := validObjectStorageSettings()
+	settings.S3KeyPrefix = "dev"
+	require.NoError(t, settings.Validate())
+
+	invalidPrefixes := []string{"", "/dev", "dev/", "dev//images", "dev/../prod", `dev\images`, "dev images"}
+	for _, prefix := range invalidPrefixes {
+		settings.S3KeyPrefix = prefix
+		require.ErrorContains(t, settings.Validate(), "S3 key prefix", prefix)
 	}
 }
 

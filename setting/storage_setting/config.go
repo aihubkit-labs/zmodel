@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/QuantumNous/new-api/common"
 )
@@ -16,6 +17,7 @@ const (
 	OptionS3Bucket                        = "ObjectStorageS3Bucket"
 	OptionS3AccessKey                     = "ObjectStorageS3AccessKey"
 	OptionS3SecretAccessKey               = "ObjectStorageS3SecretAccessKey"
+	OptionS3KeyPrefix                     = "ObjectStorageS3KeyPrefix"
 	OptionStagingDirectory                = "ObjectStorageStagingDirectory"
 	OptionRetentionSeconds                = "ObjectStorageRetentionSeconds"
 	OptionPresignSeconds                  = "ObjectStoragePresignSeconds"
@@ -29,6 +31,7 @@ const (
 	DefaultArchiveMaxAttempts             = 8
 	DefaultArchiveRetryWindow       int64 = 21600
 	DefaultCleanupInterval          int64 = 900
+	DefaultS3KeyPrefix                    = "prod"
 )
 
 type Settings struct {
@@ -37,6 +40,7 @@ type Settings struct {
 	Bucket                    string `json:"bucket"`
 	AccessKey                 string `json:"access_key"`
 	SecretAccessKey           string `json:"-"`
+	S3KeyPrefix               string `json:"s3_key_prefix"`
 	StagingDirectory          string `json:"staging_directory"`
 	RetentionSeconds          int64  `json:"retention_seconds"`
 	PresignSeconds            int64  `json:"presign_seconds"`
@@ -49,12 +53,17 @@ type Settings struct {
 func GetSettings() Settings {
 	common.OptionMapRWMutex.RLock()
 	defer common.OptionMapRWMutex.RUnlock()
+	s3KeyPrefix := strings.TrimSpace(common.OptionMap[OptionS3KeyPrefix])
+	if s3KeyPrefix == "" {
+		s3KeyPrefix = DefaultS3KeyPrefix
+	}
 	return Settings{
 		Endpoint:                  strings.TrimSpace(common.OptionMap[OptionS3Endpoint]),
 		Region:                    strings.TrimSpace(common.OptionMap[OptionS3Region]),
 		Bucket:                    strings.TrimSpace(common.OptionMap[OptionS3Bucket]),
 		AccessKey:                 strings.TrimSpace(common.OptionMap[OptionS3AccessKey]),
 		SecretAccessKey:           common.OptionMap[OptionS3SecretAccessKey],
+		S3KeyPrefix:               s3KeyPrefix,
 		StagingDirectory:          strings.TrimSpace(common.OptionMap[OptionStagingDirectory]),
 		RetentionSeconds:          parseInt64(common.OptionMap[OptionRetentionSeconds], DefaultRetentionSeconds),
 		PresignSeconds:            parseInt64(common.OptionMap[OptionPresignSeconds], DefaultPresignSeconds),
@@ -88,6 +97,9 @@ func (s Settings) Validate() error {
 	if strings.TrimSpace(s.SecretAccessKey) == "" {
 		return errors.New("secret access key is required")
 	}
+	if err := validateS3KeyPrefix(s.S3KeyPrefix); err != nil {
+		return err
+	}
 	if s.StagingDirectory == "" {
 		return errors.New("staging directory is required")
 	}
@@ -118,6 +130,26 @@ func (s Settings) Validate() error {
 	}
 	if s.CleanupIntervalSeconds < 60 || s.CleanupIntervalSeconds > 86400 {
 		return errors.New("cleanup interval seconds must be between 60 and 86400")
+	}
+	return nil
+}
+
+func validateS3KeyPrefix(prefix string) error {
+	if prefix == "" {
+		return errors.New("S3 key prefix is required")
+	}
+	if len(prefix) > 512 || strings.HasPrefix(prefix, "/") || strings.HasSuffix(prefix, "/") || strings.Contains(prefix, "\\") {
+		return errors.New("S3 key prefix must be a relative path of at most 512 characters")
+	}
+	for _, segment := range strings.Split(prefix, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return errors.New("S3 key prefix cannot contain empty, . or .. path segments")
+		}
+		for _, character := range segment {
+			if unicode.IsSpace(character) || unicode.IsControl(character) {
+				return errors.New("S3 key prefix cannot contain whitespace or control characters")
+			}
+		}
 	}
 	return nil
 }

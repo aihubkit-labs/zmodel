@@ -163,7 +163,7 @@ func Distribute() func(c *gin.Context) {
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
 		SetupContextForSelectedChannel(c, channel, modelRequest.Model)
 		c.Next()
-		if channel != nil && c.Writer != nil && c.Writer.Status() < http.StatusBadRequest && c.Request.URL.Path != "/v1/images/generations/tasks" {
+		if channel != nil && c.Writer != nil && c.Writer.Status() < http.StatusBadRequest && !isAsyncImageTaskSubmissionPath(c.Request.URL.Path) {
 			service.RecordChannelAffinity(c, channel.Id)
 		}
 	}
@@ -181,9 +181,15 @@ func channelSupportsRequestPath(channel *model.Channel, requestPath string, requ
 	}
 	if requestPath == "/v1/images/generations/tasks" {
 		requestPath = "/v1/images/generations"
+	} else if requestPath == "/v1/images/edits/tasks" {
+		requestPath = "/v1/images/edits"
 	}
 	config := channel.GetOtherSettings().AdvancedCustom
 	return config != nil && config.SupportsPathForModel(requestPath, requestModel)
+}
+
+func isAsyncImageTaskSubmissionPath(requestPath string) bool {
+	return requestPath == "/v1/images/generations/tasks" || requestPath == "/v1/images/edits/tasks"
 }
 
 // getModelFromRequest 从请求中读取模型信息

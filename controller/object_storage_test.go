@@ -60,6 +60,7 @@ func TestObjectStorageSettingsAPIsNeverReturnSecret(t *testing.T) {
 		storage_setting.OptionS3Bucket:                  "test-bucket",
 		storage_setting.OptionS3AccessKey:               "test-access-key",
 		storage_setting.OptionS3SecretAccessKey:         secret,
+		storage_setting.OptionS3KeyPrefix:               "dev",
 		storage_setting.OptionStagingDirectory:          stagingDirectory,
 		storage_setting.OptionRetentionSeconds:          "86400",
 		storage_setting.OptionPresignSeconds:            "600",
@@ -86,6 +87,7 @@ func TestObjectStorageSettingsAPIsNeverReturnSecret(t *testing.T) {
 			AccessKey        string `json:"access_key"`
 			SecretConfigured bool   `json:"secret_configured"`
 			StagingDirectory string `json:"staging_directory"`
+			S3KeyPrefix      string `json:"s3_key_prefix"`
 		} `json:"data"`
 	}
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &dedicated))
@@ -93,6 +95,7 @@ func TestObjectStorageSettingsAPIsNeverReturnSecret(t *testing.T) {
 	assert.Equal(t, "test-access-key", dedicated.Data.AccessKey)
 	assert.True(t, dedicated.Data.SecretConfigured)
 	assert.Equal(t, stagingDirectory, dedicated.Data.StagingDirectory)
+	assert.Equal(t, "dev", dedicated.Data.S3KeyPrefix)
 
 	recorder = httptest.NewRecorder()
 	context, _ = gin.CreateTestContext(recorder)
@@ -110,10 +113,10 @@ func TestObjectStorageProbeUsesAuthorizedAsyncImagePrefixAndCleansUp(t *testing.
 	}
 	t.Cleanup(func() { objectstorage.NewStorage = originalFactory })
 
-	err := probeObjectStorage(context.Background(), storage_setting.Settings{Bucket: "test-bucket"})
+	err := probeObjectStorage(context.Background(), storage_setting.Settings{Bucket: "test-bucket", S3KeyPrefix: "dev"})
 	require.NoError(t, err)
 	require.Equal(t, []string{"put", "head", "delete"}, storage.calls)
-	assert.True(t, strings.HasPrefix(storage.putInput.Key, asyncImageObjectPrefix+"/.probe/"))
+	assert.True(t, strings.HasPrefix(storage.putInput.Key, "dev/user-files/zmodel@async-images/.probe/"))
 	assert.Equal(t, storage.putInput.Key, storage.headInput.Key)
 	assert.Equal(t, storage.putInput.Key, storage.deleteInput.Key)
 	assert.Equal(t, "test-bucket", storage.putInput.Bucket)
@@ -128,7 +131,7 @@ func TestObjectStorageProbeRequiresCleanupPermission(t *testing.T) {
 	}
 	t.Cleanup(func() { objectstorage.NewStorage = originalFactory })
 
-	err := probeObjectStorage(context.Background(), storage_setting.Settings{Bucket: "test-bucket"})
+	err := probeObjectStorage(context.Background(), storage_setting.Settings{Bucket: "test-bucket", S3KeyPrefix: "prod"})
 	require.Error(t, err)
 	assert.Equal(t, i18n.MsgObjectStorageProbeCleanupFailed, objectStorageProbeErrorMessageKey(err))
 	assert.Equal(t, []string{"put", "head", "delete"}, storage.calls)
@@ -144,6 +147,7 @@ func TestUpdateObjectStorageSettingsDoesNotExposeProviderProbeError(t *testing.T
 		storage_setting.OptionS3Bucket:                  "test-bucket",
 		storage_setting.OptionS3AccessKey:               "test-access-key",
 		storage_setting.OptionS3SecretAccessKey:         "test-secret",
+		storage_setting.OptionS3KeyPrefix:               "dev",
 		storage_setting.OptionStagingDirectory:          stagingDirectory,
 		storage_setting.OptionRetentionSeconds:          "86400",
 		storage_setting.OptionPresignSeconds:            "600",
@@ -201,4 +205,5 @@ func TestUpdateObjectStorageSettingsDoesNotExposeProviderProbeError(t *testing.T
 	assert.NotContains(t, recorder.Body.String(), "RequestID")
 	assert.NotContains(t, recorder.Body.String(), "HostID")
 	assert.NotContains(t, recorder.Body.String(), "arn:aws")
+	assert.True(t, strings.HasPrefix(storage.putInput.Key, "dev/user-files/zmodel@async-images/.probe/"))
 }

@@ -39,6 +39,25 @@ export const createObjectStorageSchema = (t: (key: string) => string) =>
         ),
       access_key: z.string().trim().min(1, t('Access Key is required')),
       secret_access_key: z.string(),
+      s3_key_prefix: z
+        .string()
+        .trim()
+        .min(1, t('S3 object key prefix is required'))
+        .max(512)
+        .refine(
+          (value) =>
+            !value.startsWith('/') &&
+            !value.endsWith('/') &&
+            !value.includes('\\') &&
+            !/\s/.test(value) &&
+            value
+              .split('/')
+              .every(
+                (segment) =>
+                  segment !== '' && segment !== '.' && segment !== '..'
+              ),
+          t('Use a relative S3 prefix without empty, . or .. path segments')
+        ),
       staging_directory: z
         .string()
         .trim()

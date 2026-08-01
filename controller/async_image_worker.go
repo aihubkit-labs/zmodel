@@ -23,6 +23,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/objectstorage"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/storage_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -35,7 +36,7 @@ const (
 	asyncImageLeaseDuration     = 5 * time.Minute
 	asyncImageLeaseRenewal      = time.Minute
 	asyncImageProcessBatchSize  = 16
-	asyncImageObjectPrefix      = "prod/user-files/zmodel@async-images"
+	asyncImageObjectNamespace   = "user-files/zmodel@async-images"
 )
 
 type asyncImageProcessHandler struct{}
@@ -120,15 +121,26 @@ func generateAsyncImageTask(ctx context.Context, task *model.AsyncImageTask, own
 		return err
 	}
 
-	request := &dto.ImageRequest{}
-	if err := common.UnmarshalJsonStr(task.RequestPayload, request); err != nil {
-		return model.RefundAsyncImageBilling(task.TaskID, "invalid_request_error", "stored image request is invalid", "stored image request is invalid")
-	}
-	c, recorder, writer, cleanup, err := newAsyncImageRelayContext(task, request)
+	c, recorder, writer, cleanup, err := newAsyncImageRelayContext(task)
 	if err != nil {
 		return model.RefundAsyncImageBilling(task.TaskID, "image_generation_failed", "image generation could not be started", "image generation could not be started")
 	}
 	defer cleanup()
+	requestValue, err := helper.GetAndValidateRequest(c, types.RelayFormatOpenAIImage)
+	if err != nil {
+		return model.RefundAsyncImageBilling(task.TaskID, "invalid_request_error", "stored image request is invalid", "stored image request is invalid")
+	}
+	request, ok := requestValue.(*dto.ImageRequest)
+	if !ok {
+		return model.RefundAsyncImageBilling(task.TaskID, "invalid_request_error", "stored image request is invalid", "stored image request is invalid")
+	}
+	common.SetContextKey(c, constant.ContextKeyOriginalModel, request.Model)
+	imageCount := int64(1)
+	if request.N != nil && *request.N > 0 {
+		imageCount = int64(*request.N)
+	}
+	perImage := int64(constant.MaxFileDownloadMB) * 1024 * 1024
+	writer.maxBytes = imageCount*(perImage+perImage/3+1024) + 1024*1024
 
 	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatOpenAIImage, request, nil)
 	if err != nil {
@@ -154,7 +166,7 @@ func generateAsyncImageTask(ctx context.Context, task *model.AsyncImageTask, own
 
 	retryParam := &service.RetryParam{
 		Ctx: c, TokenGroup: relayInfo.TokenGroup, ModelName: relayInfo.OriginModelName,
-		RequestPath: "/v1/images/generations", Retry: common.GetPointer(0),
+		RequestPath: asyncImageRelayRequestPath(task), Retry: common.GetPointer(0),
 	}
 	var execution *relay.ImageExecutionResult
 	var finalError *types.NewAPIError
@@ -254,7 +266,7 @@ func generateAsyncImageTask(ctx context.Context, task *model.AsyncImageTask, own
 	for _, item := range manifest {
 		objects = append(objects, model.StorageObject{
 			ObjectIndex: item.Index, Endpoint: settings.Endpoint, Region: settings.Region, Bucket: settings.Bucket,
-			ObjectKey: asyncImageObjectKey(task.TaskID, item), MimeType: item.MimeType,
+			ObjectKey: asyncImageObjectKey(settings.S3KeyPrefix, task.TaskID, item), MimeType: item.MimeType,
 			Extension: item.Extension, SizeBytes: item.SizeBytes, StagingRelativePath: item.StagingRelativePath,
 			StagingSizeBytes: item.SizeBytes, StagingSHA256: item.SHA256, StagedAt: common.GetTimestamp(),
 		})
@@ -307,18 +319,18 @@ func (writer *boundedGinWriter) Reset() {
 
 func (writer *boundedGinWriter) Err() error { return writer.err }
 
-func newAsyncImageRelayContext(task *model.AsyncImageTask, imageRequest *dto.ImageRequest) (*gin.Context, *httptest.ResponseRecorder, *boundedGinWriter, func(), error) {
+func newAsyncImageRelayContext(task *model.AsyncImageTask) (*gin.Context, *httptest.ResponseRecorder, *boundedGinWriter, func(), error) {
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
-	request, err := http.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewBufferString(task.RequestPayload))
+	request, err := newAsyncImageRelayRequest(task)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	request.Header.Set("Content-Type", "application/json")
+	requestPath := request.URL.Path
 	c.Request = request
 	c.Set(common.RequestIdKey, task.TaskID)
 	common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
-	common.SetContextKey(c, constant.ContextKeyLogRequestPath, "/v1/images/generations/tasks")
+	common.SetContextKey(c, constant.ContextKeyLogRequestPath, strings.TrimSuffix(requestPath, "/")+"/tasks")
 	common.SetContextKey(c, constant.ContextKeyOriginalModel, task.OriginModelName)
 	common.SetContextKey(c, constant.ContextKeyUsingGroup, task.UsingGroup)
 	c.Set("id", task.UserID)
@@ -341,27 +353,56 @@ func newAsyncImageRelayContext(task *model.AsyncImageTask, imageRequest *dto.Ima
 		common.SetContextKey(c, constant.ContextKeyTokenGroup, task.UsingGroup)
 	}
 	common.SetContextKey(c, constant.ContextKeyUsingGroup, task.UsingGroup)
-	common.SetContextKey(c, constant.ContextKeyOriginalModel, imageRequest.Model)
 
-	n := int64(1)
-	if imageRequest.N != nil && *imageRequest.N > 0 {
-		n = int64(*imageRequest.N)
-	}
 	perImage := int64(constant.MaxFileDownloadMB) * 1024 * 1024
-	maxBytes := n*(perImage+perImage/3+1024) + 1024*1024
+	maxBytes := perImage + perImage/3 + 2*1024*1024
 	writer := &boundedGinWriter{ResponseWriter: c.Writer, maxBytes: maxBytes}
 	c.Writer = writer
-	cleanup := func() { common.CleanupBodyStorage(c) }
+	cleanup := func() {
+		if c.Request.MultipartForm != nil {
+			_ = c.Request.MultipartForm.RemoveAll()
+		}
+		common.CleanupBodyStorage(c)
+	}
 	return c, recorder, writer, cleanup, nil
 }
 
-func asyncImageObjectKey(taskID string, item service.AsyncImageManifestItem) string {
+func newAsyncImageRelayRequest(task *model.AsyncImageTask) (*http.Request, error) {
+	requestBody := task.RequestBody
+	if len(requestBody) == 0 {
+		requestBody = []byte(task.RequestPayload)
+	}
+	requestPath := asyncImageRelayRequestPath(task)
+	request, err := http.NewRequest(http.MethodPost, requestPath, bytes.NewReader(requestBody))
+	if err != nil {
+		return nil, err
+	}
+	contentType := task.RequestContentType
+	if contentType == "" {
+		contentType = "application/json"
+	}
+	request.Header.Set("Content-Type", contentType)
+	return request, nil
+}
+
+func asyncImageRelayRequestPath(task *model.AsyncImageTask) string {
+	if task != nil && task.RequestPath == "/v1/images/edits" {
+		return task.RequestPath
+	}
+	return "/v1/images/generations"
+}
+
+func asyncImageObjectRoot(s3KeyPrefix string) string {
+	return s3KeyPrefix + "/" + asyncImageObjectNamespace
+}
+
+func asyncImageObjectKey(s3KeyPrefix string, taskID string, item service.AsyncImageManifestItem) string {
 	parts := strings.Split(filepathSlash(item.StagingRelativePath), "/")
 	year, month, day := time.Now().UTC().Format("2006"), time.Now().UTC().Format("01"), time.Now().UTC().Format("02")
 	if len(parts) >= 5 {
 		year, month, day = parts[1], parts[2], parts[3]
 	}
-	return fmt.Sprintf("%s/%s/%s/%s/%s/%d.%s", asyncImageObjectPrefix, year, month, day, taskID, item.Index, item.Extension)
+	return fmt.Sprintf("%s/%s/%s/%s/%s/%d.%s", asyncImageObjectRoot(s3KeyPrefix), year, month, day, taskID, item.Index, item.Extension)
 }
 
 func filepathSlash(value string) string { return strings.ReplaceAll(value, "\\", "/") }

@@ -62,6 +62,9 @@ type AsyncImageTask struct {
 	UsingGroup                 string `json:"using_group" gorm:"type:varchar(64)"`
 	LastChannelID              int    `json:"last_channel_id" gorm:"index"`
 	LastChannelType            int    `json:"last_channel_type"`
+	RequestPath                string `json:"-" gorm:"type:varchar(128)"`
+	RequestContentType         string `json:"-" gorm:"type:text"`
+	RequestBody                []byte `json:"-"`
 	RequestPayload             string `json:"-" gorm:"type:text"`
 	RequestSnapshot            string `json:"-" gorm:"type:text"`
 	BillingContext             string `json:"-" gorm:"type:text"`
@@ -373,6 +376,7 @@ func CompleteAsyncImageGeneration(taskID string, owner string, actualQuota int, 
 			"generation_completed_at": now,
 			"archive_manifest":        manifest,
 			"source_kind":             sourceKind,
+			"request_body":            []byte(nil),
 			"request_payload":         "",
 			"public_error_code":       "",
 			"public_error_message":    "",
@@ -451,6 +455,7 @@ func CompleteAsyncImageGenerationWithArchiveFailure(taskID string, owner string,
 				"generation_completed_at":       now,
 				"completed_at":                  now,
 				"source_kind":                   sourceKind,
+				"request_body":                  []byte(nil),
 				"request_payload":               "",
 				"public_error_code":             errorCode,
 				"public_error_message":          errorMessage,
@@ -477,7 +482,7 @@ func CompleteAsyncImageGenerationWithArchiveFailure(taskID string, owner string,
 
 func GetAsyncImageTaskForUser(taskID string, userID int) (*AsyncImageTask, error) {
 	var task AsyncImageTask
-	if err := DB.Where("task_id = ? AND user_id = ?", taskID, userID).First(&task).Error; err != nil {
+	if err := DB.Omit("request_body", "request_payload").Where("task_id = ? AND user_id = ?", taskID, userID).First(&task).Error; err != nil {
 		return nil, err
 	}
 	return &task, nil
@@ -485,7 +490,7 @@ func GetAsyncImageTaskForUser(taskID string, userID int) (*AsyncImageTask, error
 
 func GetAsyncImageTaskByTaskID(taskID string) (*AsyncImageTask, error) {
 	var task AsyncImageTask
-	if err := DB.Where("task_id = ?", taskID).First(&task).Error; err != nil {
+	if err := DB.Omit("request_body", "request_payload").Where("task_id = ?", taskID).First(&task).Error; err != nil {
 		return nil, err
 	}
 	return &task, nil
@@ -500,8 +505,10 @@ func ClaimRunnableAsyncImageTasks(owner string, limit int, leaseDuration time.Du
 	}
 	now := common.GetTimestamp()
 	leaseUntil := now + int64(leaseDuration.Seconds())
-	var candidates []AsyncImageTask
-	err := DB.Where("next_attempt_at <= ? AND (lease_owner = '' OR lease_expires_at <= ?)", now, now).
+	var candidates []struct {
+		ID int64
+	}
+	err := DB.Model(&AsyncImageTask{}).Select("id").Where("next_attempt_at <= ? AND (lease_owner = '' OR lease_expires_at <= ?)", now, now).
 		Where("(status IN ? AND output_availability = ? AND billing_status = ?) OR (status = ? AND output_availability = ? AND billing_status = ?)",
 			[]string{AsyncImageStatusQueued, AsyncImageStatusRunning}, AsyncImageOutputPending, AsyncImageBillingReserved,
 			AsyncImageStatusSucceeded, AsyncImageOutputArchiving, AsyncImageBillingSettled).
@@ -520,9 +527,11 @@ func ClaimRunnableAsyncImageTasks(owner string, limit int, leaseDuration time.Du
 		if result.RowsAffected != 1 {
 			continue
 		}
-		candidate.LeaseOwner = owner
-		candidate.LeaseExpiresAt = leaseUntil
-		claimed = append(claimed, candidate)
+		var claimedTask AsyncImageTask
+		if err := DB.Where("id = ?", candidate.ID).First(&claimedTask).Error; err != nil {
+			return claimed, err
+		}
+		claimed = append(claimed, claimedTask)
 		if len(claimed) >= limit {
 			break
 		}
@@ -985,7 +994,7 @@ func ListAsyncImageTasks(filter AsyncImageTaskFilter) ([]AsyncImageTask, int64, 
 		pageSize = 20
 	}
 	var tasks []AsyncImageTask
-	err := query.Order("id desc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&tasks).Error
+	err := query.Omit("request_body", "request_payload").Order("id desc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&tasks).Error
 	return tasks, total, err
 }
 
@@ -1254,6 +1263,7 @@ func RefundAsyncImageBilling(taskID string, errorCode string, errorMessage strin
 				"public_error_code":        errorCode,
 				"public_error_message":     errorMessage,
 				"last_error":               failureReason,
+				"request_body":             []byte(nil),
 				"request_payload":          "",
 				"admin_notification_state": "none",
 				"lease_owner":              "",
@@ -1282,6 +1292,10 @@ func RefundAsyncImageBilling(taskID string, errorCode string, errorMessage strin
 			if startedAt > 0 && refundedAt > startedAt {
 				useTimeSeconds = int(refundedAt - startedAt)
 			}
+			requestPath := refundedTask.RequestPath
+			if requestPath == "" {
+				requestPath = "/v1/images/generations"
+			}
 			RecordTaskBillingLog(RecordTaskBillingLogParams{
 				UserId:         refundedTask.UserID,
 				LogType:        LogTypeRefund,
@@ -1295,7 +1309,7 @@ func RefundAsyncImageBilling(taskID string, errorCode string, errorMessage strin
 				UseTimeSeconds: useTimeSeconds,
 				Other: map[string]interface{}{
 					"task_id":          refundedTask.TaskID,
-					"request_path":     "/v1/images/generations/tasks",
+					"request_path":     strings.TrimSuffix(requestPath, "/") + "/tasks",
 					"error_code":       errorCode,
 					"reason":           failureReason,
 					"async_image_task": true,

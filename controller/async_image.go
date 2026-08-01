@@ -88,7 +88,11 @@ func SubmitAsyncImageTask(c *gin.Context) {
 		respondAsyncImageError(c, http.StatusBadRequest, string(types.ErrorCodeReadRequestBodyFailed), err.Error())
 		return
 	}
-	requestSnapshot, err := asyncImageRequestSnapshot(request)
+	requestPath := "/v1/images/generations"
+	if strings.HasPrefix(c.Request.URL.Path, "/v1/images/edits") {
+		requestPath = "/v1/images/edits"
+	}
+	requestSnapshot, err := asyncImageRequestSnapshot(request, requestPath)
 	if err != nil {
 		respondAsyncImageError(c, http.StatusInternalServerError, string(types.ErrorCodeUpdateDataError), err.Error())
 		return
@@ -133,7 +137,8 @@ func SubmitAsyncImageTask(c *gin.Context) {
 		OriginModelName:        relayInfo.OriginModelName,
 		UsingGroup:             relayInfo.UsingGroup,
 		LastChannelID:          0,
-		RequestPayload:         string(rawBody),
+		RequestPath:            requestPath,
+		RequestContentType:     c.GetHeader("Content-Type"),
 		RequestSnapshot:        requestSnapshot,
 		BillingContext:         string(billingContextData),
 		RetentionSeconds:       storageSettings.RetentionSeconds,
@@ -143,6 +148,13 @@ func SubmitAsyncImageTask(c *gin.Context) {
 		NextAttemptAt:          common.GetTimestamp(),
 		SourceKind:             "none",
 		AdminNotificationState: "none",
+	}
+	if requestPath == "/v1/images/edits" {
+		task.RequestBody = rawBody
+	} else {
+		// Keep the existing JSON payload format for generation tasks so queued
+		// tasks remain compatible across rolling upgrades.
+		task.RequestPayload = string(rawBody)
 	}
 	if err := model.CreateAsyncImageTaskWithReservation(task, relayInfo.UserSetting.BillingPreference); err != nil {
 		if errors.Is(err, model.ErrAsyncImageInsufficientQuota) {
@@ -158,13 +170,16 @@ func SubmitAsyncImageTask(c *gin.Context) {
 	c.JSON(http.StatusAccepted, asyncImageTaskResponse(task, nil, nil))
 }
 
-// asyncImageRequestSnapshot persists the useful generation parameters while
+// asyncImageRequestSnapshot persists the useful image request parameters while
 // excluding image input fields and arbitrary extensions that may contain large
 // data URLs or sensitive values.
-func asyncImageRequestSnapshot(request *dto.ImageRequest) (string, error) {
+func asyncImageRequestSnapshot(request *dto.ImageRequest, requestPath string) (string, error) {
 	snapshot := map[string]any{
 		"model":  request.Model,
 		"prompt": request.Prompt,
+	}
+	if requestPath == "/v1/images/edits" {
+		snapshot["operation"] = "edit"
 	}
 	if request.N != nil {
 		snapshot["n"] = *request.N

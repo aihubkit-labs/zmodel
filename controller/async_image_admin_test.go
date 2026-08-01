@@ -110,12 +110,12 @@ func createAsyncImageDetailFixture(t *testing.T) {
 }
 
 func TestAsyncImageObjectKeyIncludesDayPartition(t *testing.T) {
-	key := asyncImageObjectKey("task_day_partition", service.AsyncImageManifestItem{
+	key := asyncImageObjectKey("dev", "task_day_partition", service.AsyncImageManifestItem{
 		Index:               1,
 		Extension:           "png",
 		StagingRelativePath: "42/2026/07/29/task_day_partition/1.img",
 	})
-	assert.Equal(t, "prod/user-files/zmodel@async-images/2026/07/29/task_day_partition/1.png", key)
+	assert.Equal(t, "dev/user-files/zmodel@async-images/2026/07/29/task_day_partition/1.png", key)
 }
 
 func TestAsyncImageTaskResponseUsesPublicContract(t *testing.T) {
@@ -154,9 +154,19 @@ func TestAsyncImageRequestSnapshotExcludesImageInputs(t *testing.T) {
 	var request dto.ImageRequest
 	require.NoError(t, common.UnmarshalJsonStr(`{"model":"gpt-image","prompt":"red apple","n":2,"images":["data:image/png;base64,private"],"mask":"private-mask","custom":"private-value"}`, &request))
 
-	snapshot, err := asyncImageRequestSnapshot(&request)
+	snapshot, err := asyncImageRequestSnapshot(&request, "/v1/images/generations")
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"model":"gpt-image","prompt":"red apple","n":2}`, snapshot)
+}
+
+func TestAsyncImageEditRequestSnapshotIdentifiesOperationWithoutInputs(t *testing.T) {
+	var request dto.ImageRequest
+	require.NoError(t, common.UnmarshalJsonStr(`{"model":"gpt-image","prompt":"make it blue","image":"data:image/png;base64,private","mask":"private-mask"}`, &request))
+
+	snapshot, err := asyncImageRequestSnapshot(&request, "/v1/images/edits")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"model":"gpt-image","prompt":"make it blue","operation":"edit"}`, snapshot)
+	assert.NotContains(t, snapshot, "private")
 }
 
 func TestAsyncImageTaskDetailReturnsPreviewAndDownloadURLs(t *testing.T) {
