@@ -4,7 +4,10 @@
 
 本文档说明 zmodel 对 OpenAI Video 兼容上游的异步任务和视频内容下载代理方案。
 
-当前直接场景是通过 OpenAI 渠道类型接入 FriModel 和 MegabyAI 提供的 Seedance 2.0 封装接口。两个供应商复用同一套 OpenAI Video 兼容协议，供应商差异限于模型列表、定价和 `metadata` 扩展字段。本文档描述的是协议兼容层和维护约束，不记录任何真实 API Key。
+当前直接场景包括通过 OpenAI 渠道类型接入 FriModel 和 MegabyAI 提供的 Seedance 2.0 封装接口，
+以及通过同一视频入口接入 Agnes Video。Seedance 供应商复用 OpenAI Video 兼容协议；Agnes 的公共
+业务语义相同，但时长线协议字段和专属参数存在差异，需要在 OpenAI/Sora task adaptor 边界内转换。
+本文档描述协议兼容层和维护约束，不记录任何真实 API Key。
 
 代码和自动化测试是行为真相；本文档用于解释设计背景、关键契约和后续维护方式。
 
@@ -70,7 +73,117 @@ referenceAudios
 
 这样可以避免重复协议实现，并减少后续合并上游 new-api 代码时的冲突面。
 
-### 3.2 区分公开任务 ID和上游任务 ID
+### 3.2 统一视频参数与协议选择
+
+客户端继续通过统一的 `POST /v1/videos` 接口调用视频模型。公共业务语义使用稳定字段，例如时长统一
+使用整数 `duration`；上游字段名不同不要求客户端切换公共参数。
+
+渠道 `setting` 只使用一个协议字段：
+
+```json
+{
+  "video_protocol": "agnes_video_v2"
+}
+```
+
+有效协议为 `openai_video`、`seedance` 和 `agnes_video_v2`。协议决定请求校验、公共字段转换和扩展
+参数命名空间。空或缺失保持发布前的历史请求逻辑，不做隐式协议推断或数据迁移。管理后台只提供
+“视频协议”下拉框，不提供严格、供应商选项或透传模式，也没有供应商命名空间输入框。
+
+供应商专属参数使用命名空间传入：
+
+```json
+{
+  "model": "public-agnes-model",
+  "prompt": "A cinematic sunrise over a quiet lake",
+  "duration": 10,
+  "provider_options": {
+    "agnes": {
+      "<agnes-specific-option>": "<value>"
+    }
+  }
+}
+```
+
+`provider_options` 是请求字段，不是渠道模式。命名空间由协议固定派生：`openai_video` 使用
+`openai`，`seedance` 使用 `seedance`，`agnes_video_v2` 使用 `agnes`。该字段只接受 JSON 请求；
+选中值必须是 JSON object。发送上游前移除命名空间包装，并保持字符串、数字、布尔值、对象和数组
+的原始 JSON 类型。供应商选项不能覆盖公共请求、时长、分辨率、输出数量、计费、回调、鉴权、
+上游地址或其他安全敏感字段，也不能与已有顶层字段重名。嵌套对象和数组执行同类检查，最大深度为
+16。冲突请求在调用上游和产生费用前返回 HTTP 400。
+
+`provider_options` 不负责选择渠道。系统仍先按公开模型、分组、优先级和模型映射选定渠道，再根据
+该渠道配置校验和转换参数。同一公开模型指向多个供应商时，应通过既有路由配置或独立公开模型别名
+消除歧义。
+
+### 3.3 Agnes 时长协议转换
+
+Agnes 渠道通过 `video_protocol=agnes_video_v2` 启用轻量转换，不按 Agnes 模型名称硬编码判断：
+
+```text
+客户端 duration（整数）
+  -> 归一化并校验时长
+  -> 使用归一化 duration 计费
+  -> 删除上游请求中的 duration、seconds、num_frames 和 frame_rate
+  -> 向 Agnes 发送 num_frames = duration * 24 + 1、frame_rate = 24
+```
+
+顶层字符串 `seconds` 暂时作为 Agnes 旧客户端的兼容别名；新客户端应使用公共 `duration`。两者同时
+出现时必须一致，否则返回 HTTP 400 和 `duration_conflict`。响应解析兼容数字或字符串
+`duration`，并在其缺失或无效时回退到数值字符串 `seconds`，包括 `"10.0"`。未传时长时 Agnes
+渠道归一为约 5 秒。为保证视频流畅度，所有分辨率固定使用 24 fps：`480p`、`720p` 支持
+1–18 秒，`1080p` 支持 1–10 秒；超过对应范围返回 HTTP 400，不通过降低帧率延长视频。
+
+客户端可按下表选择时长：
+
+| Agnes `resolution` | 公共 `duration` 允许值 | 固定帧率 | 最大请求帧数 |
+| --- | --- | --- | --- |
+| `480p` | 1–18 的整数 | 24 fps | 433 |
+| `720p` | 1–18 的整数 | 24 fps | 433 |
+| `1080p` | 1–10 的整数 | 24 fps | 241 |
+
+该范围是平台API合同，并统一适用于 Agnes 当前支持的全部宽高比。若客户端不传 `resolution`，使用
+默认 `720p`；不传 `duration`，使用默认5秒。超出范围时平台在调用上游前返回
+`invalid_seconds`，避免用户收到嵌套的上游 `fail_to_fetch_task` 错误。
+
+Agnes 官方创建任务参数不包含 `seconds`；实际时长由 `num_frames` 和 `frame_rate` 控制，且
+`num_frames` 遵循 `8n + 1`。官方文档给出的全局上限是 441 帧，但上游还会按分辨率和宽高比
+设置更低上限；已确认 `1080p + 16:9` 最多接受 241 帧，因此该组合在 24 fps 下最长为 10 秒。
+`seconds`、`num_frames` 和 `frame_rate` 均不属于
+`provider_options.agnes`，也不能覆盖公共时长。只有无法归一为公共业务语义的 Agnes 专属能力才
+放入供应商选项。
+
+### 3.4 Agnes 分辨率协议转换
+
+用户使用公共 `resolution` 和 `ratio`：
+
+```json
+{
+  "resolution": "720p",
+  "ratio": "16:9"
+}
+```
+
+Agnes 适配器将其转换为 `width: 1280`、`height: 720`。支持的分辨率为 `480p`、`720p`、`1080p`；
+支持的宽高比为 `16:9`、`9:16`、`1:1`、`4:3`、`3:4`。未传时默认 `720p + 16:9`。Agnes 会把
+名义尺寸映射到最近的内部标准输出尺寸，任务完成后以响应 `metadata.size_mapping.resolution` 和
+`size` 为实际结果。
+
+Agnes 统一模式不接受公共 `size`，也不允许 `provider_options.agnes` 覆盖 `width`、`height`、
+`resolution` 或 `ratio`，避免请求、实际输出和计费使用不同分辨率。
+
+### 3.5 统一参考图字段
+
+用户统一使用 `referenceImages` 表达视频参考图片。Seedance 兼容协议保持该数组字段和顺序发送
+上游；Agnes Video V2 只支持0或1张参考图，单张时由适配器转换为 Agnes 的顶层 `image` URL。
+Agnes 请求不接受顶层 `image`、`images` 或 `input_reference`，也不允许通过
+`provider_options.agnes` 覆盖参考图字段。多图、空 URL 或非 HTTP/HTTPS URL 在调用上游前返回
+HTTP 400 和 `invalid_reference_images`。
+
+Agnes 当前仅保证 `application/json` 中的图片 URL，不保证 multipart 本地文件上传。图片地址必须
+能由 Agnes 上游直接访问。
+
+### 3.6 区分公开任务 ID和上游任务 ID
 
 任务包含两个不同用途的 ID：
 
@@ -83,7 +196,7 @@ referenceAudios
 
 历史任务可能没有 `UpstreamTaskID`。此时 `Task.GetUpstreamTaskID()` 回退使用 `TaskID`，保持旧数据兼容。
 
-### 3.3 保存任务实际使用的上游密钥
+### 3.7 保存任务实际使用的上游密钥
 
 异步任务从创建到下载可能跨越较长时间。在此期间，渠道密钥可能发生以下变化：
 
@@ -181,6 +294,22 @@ task_id
 ```
 
 响应中不得残留上游任务 ID。
+
+视频协议适配器同时提供稳定公共字段：
+
+| 字段 | 公共语义 |
+| --- | --- |
+| `model` | 用户请求的公开模型名 |
+| `status` | `queued`、`in_progress`、`completed`、`failed` |
+| `progress` | 0–100 的整数，终态为 100 |
+| `duration` | 整数秒；查询时实际值优先，请求快照回退 |
+| `resolution` | `480p`、`720p`、`1080p`、`4k` 等逻辑档位 |
+| `ratio` | 公共宽高比；供应商未返回时使用请求快照 |
+
+`seconds` 和 `size` 是兼容字段，不是 Agnes 专属字段。Seedance 的部分 OpenAI Video/Sora 兼容
+服务也可能返回，但客户端不能假设一定存在。平台在已知时长时把 `seconds` 规范为整数字符串；
+`size` 保留具体像素尺寸，例如 `1280x720`，不会代替逻辑档位 `resolution`。其他非敏感供应商
+扩展字段继续保留。
 
 ### 5.2 成功状态
 
@@ -334,7 +463,7 @@ Cache-Control: private, max-age=86400
 
 使用 `private` 是因为内容访问依赖用户身份和任务归属，不应被共享缓存存储为公共资源。
 
-### 6.4 流式传输和超时
+### 6.5 流式传输和超时
 
 视频内容通过 `io.Copy` 流式转发，不在内存中读取完整视频。
 
@@ -400,8 +529,12 @@ Task.Data
 
 | 文件 | 职责 |
 | --- | --- |
-| `model/task.go` | 创建任务时保存最终选择的上游密钥 |
-| `relay/channel/task/sora/adaptor.go` | 重写公开任务 ID和视频代理 URL |
+| `model/task.go` | 保存任务密钥、上游任务 ID和视频协议计费快照 |
+| `dto/channel_settings.go` | 定义视频协议枚举和设置校验 |
+| `model/channel.go` | 新增或更新渠道时校验视频请求设置 |
+| `relay/channel/task/sora/video_protocol.go` | 协议校验、安全保护、供应商选项展开和 Agnes 转换 |
+| `relay/channel/task/sora/adaptor.go` | 构造上游请求，兼容响应时长，重写公开任务 ID和视频代理 URL |
+| `controller/relay.go` | 把任务提交时的视频协议写入私有计费上下文 |
 | `controller/video_proxy.go` | 鉴权后代理上游视频内容，处理 Range 和响应头 |
 | `relay/channel/task/taskcommon/helpers.go` | 构造 zmodel 视频代理 URL |
 | `router/video-router.go` | 注册现有视频提交、查询和内容代理路由 |
@@ -410,6 +543,8 @@ Task.Data
 
 | 文件 | 覆盖范围 |
 | --- | --- |
+| `model/channel_settings_test.go` | 视频协议设置校验 |
+| `relay/channel/task/sora/media_billing_test.go` | 协议 profile、供应商参数保护、Agnes 转换和计费时长 |
 | `relay/channel/task/sora/adaptor_test.go` | ID和 URL重写、非成功状态地址清理 |
 | `relay/channel/task/sora/live_e2e_test.go` | 可选真实接口 E2E，以及 E2E 流程自身的本地协议模拟测试 |
 | `model/task_init_test.go` | 最终渠道密钥进入任务私有数据并成功落库 |
@@ -421,6 +556,24 @@ Task.Data
 
 | 场景 | 预期结果 |
 | --- | --- |
+| 协议为空 | 保持迭代前的历史请求处理行为 |
+| 已配置协议收到未知字段 | 返回 `unsupported_parameter`，不调用上游 |
+| 供应商选项命名空间匹配 | 保持 JSON 类型并展开到上游请求顶层 |
+| 供应商选项覆盖公共、计费或安全字段 | 返回 `provider_option_conflict`，不调用上游 |
+| Agnes 请求使用公共 `duration: 10` | 上游收到 `num_frames: 241`、`frame_rate: 24`，计费使用 10 秒 |
+| Agnes 请求使用 `1080p + duration: 10` | 上游收到 241 帧和 24 fps，保持流畅度 |
+| Agnes 请求使用 `1080p + duration: 11–18` | 平台返回 `invalid_seconds`，不降低帧率、不调用上游 |
+| Agnes 请求使用 `720p + 16:9` | 上游收到 `width: 1280`、`height: 720` |
+| Agnes 请求使用单个公共 `referenceImages` URL | 上游收到顶层 `image`，不残留公共字段 |
+| Agnes 请求使用多图、原生参考图字段或 multipart 文件 | 返回 `invalid_reference_images`，不调用上游 |
+| Agnes 响应包含 `metadata.size_mapping.resolution` | 使用标准化后的实际分辨率进行任务记录和结算 |
+| Agnes 创建响应只含 `seconds: "10.0"` 和 `size: "1280x720"` | 返回公共 `duration: 10`、`resolution: "720p"`、`ratio: "16:9"`，保留兼容 `size` |
+| Agnes 查询的实际时长与请求时长不同 | 公共 `duration` 返回上游实际时长，请求快照只作缺失回退 |
+| Seedance 上游未返回 `seconds` 或 `size` | 仍从提交快照返回公共 `duration` 和 `resolution` |
+| 历史任务请求快照损坏 | 查询继续成功并使用可解析的上游公共字段 |
+| Agnes 完成结果为 1–18 秒 | 按任务保存的 Agnes 协议范围更新实际结算维度 |
+| Agnes 同时收到不一致的 `duration` 和 `seconds` | 返回 `duration_conflict`，不调用上游 |
+| Agnes 更换或新增模型名称 | 继续按渠道 `video_protocol` 转换，无需修改模型名单 |
 | 成功任务查询 | `id` 和 `task_id` 为公开 ID |
 | 成功任务查询 | 顶层和上游实际返回的 metadata 下载 URL 均指向 zmodel |
 | 成功任务查询 | 响应不包含上游任务 ID和上游域名 |
@@ -559,11 +712,15 @@ zmodel 后续合并官方 new-api 源仓库时，应重点检查以下位置：
 7. `Range`、`If-Range`、`200` 和 `206` 支持是否完整。
 8. 响应头是否仍采用白名单，而不是复制全部上游响应头。
 9. SSRF 校验是否仍然有效。
-10. 本文档列出的回归测试是否全部通过。
+10. `video_protocol` 三个协议值和空值历史行为是否保持兼容。
+11. Agnes 是否仍按 `video_protocol` 而不是模型名称执行 `duration -> num_frames + frame_rate` 转换，并固定保持 24 fps。
+12. Agnes 是否仍把公共 `resolution + ratio` 转换为 `width + height`。
+13. 供应商选项是否仍禁止覆盖时长、分辨率、计费、回调、鉴权和上游地址字段。
+14. 本文档列出的回归测试是否全部通过。
 
 为了降低合并冲突，维护时应继续遵循以下原则：
 
-- 优先扩展现有 OpenAI/Sora 通道，不新增供应商专用协议层。
+- 优先复用现有 OpenAI/Sora 任务编排，通过轻量协议 profile 隔离供应商字段差异。
 - 优先复用现有字段、路由和 helper。
 - 将供应商差异限制在已有 adaptor、任务初始化和内容代理扩展点。
 - 不为单一供应商修改无关任务平台的通用行为。
@@ -580,3 +737,14 @@ openai-video-provider-integration
 ```
 
 Skill 应只维护可重复执行的流程清单，例如协议识别、任务 ID隔离、密钥快照、URL重写、Range 支持、安全检查和测试命令。具体实现细节仍以代码、测试和本文档为准，避免在 Skill 中复制整份设计说明而造成内容漂移。
+
+## 13. Agnes 视频协议迭代文档
+
+通用文档只记录已经进入 OpenAI Video 兼容层的稳定行为。本次迭代的设计决策、非目标、完整代码
+映射、发布建议和可复制的 `curl` 验收步骤见：
+
+- [Agnes 视频协议适配设计](../superpowers/specs/2026-08-01-agnes-video-provider-options-design.md)
+- [Agnes 视频协议验收手册](../superpowers/specs/2026-08-01-agnes-video-provider-options-acceptance.md)
+
+后续验收发现协议差异或实现发生调整时，应同时更新代码、自动化测试、对应迭代文档和本文档中的
+稳定能力摘要。

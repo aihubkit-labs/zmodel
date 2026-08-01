@@ -742,6 +742,7 @@ export function ChannelMutateDrawer({
   const currentForceFormat = form.watch('force_format')
   const currentThinkingToContent = form.watch('thinking_to_content')
   const currentPassThroughBodyEnabled = form.watch('pass_through_body_enabled')
+  const currentVideoProtocol = form.watch('video_protocol')
   const currentDisableTaskPollingSleep = form.watch(
     'disable_task_polling_sleep'
   )
@@ -1009,6 +1010,7 @@ export function ChannelMutateDrawer({
     currentForceFormat ||
     currentThinkingToContent ||
     currentPassThroughBodyEnabled ||
+    currentVideoProtocol ||
     currentDisableTaskPollingSleep ||
     currentProxy?.trim() ||
     currentSystemPrompt?.trim() ||
@@ -4158,6 +4160,68 @@ export function ChannelMutateDrawer({
                                   </FormItem>
                                 )}
                               />
+
+                              {[1, 55].includes(currentType) ? (
+                                <FormField
+                                  control={form.control}
+                                  name='video_protocol'
+                                  render={({ field }) => (
+                                    <FormItem className='gap-2 px-4 py-3'>
+                                      <FormLabel>
+                                        {t('Video Protocol')}
+                                      </FormLabel>
+                                      <Select
+                                        items={[
+                                          {
+                                            value: 'openai_video',
+                                            label: t(
+                                              'OpenAI Video / Sora Compatible'
+                                            ),
+                                          },
+                                          {
+                                            value: 'seedance',
+                                            label: t('Seedance Compatible'),
+                                          },
+                                          {
+                                            value: 'agnes_video_v2',
+                                            label: t('Agnes Video V2'),
+                                          },
+                                        ]}
+                                        onValueChange={field.onChange}
+                                        value={field.value || null}
+                                      >
+                                        <FormControl>
+                                          <SelectTrigger className='w-full'>
+                                            <SelectValue
+                                              placeholder={t(
+                                                'Select video protocol'
+                                              )}
+                                            />
+                                          </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent
+                                          alignItemWithTrigger={false}
+                                        >
+                                          <SelectGroup>
+                                            <SelectItem value='openai_video'>
+                                              {t(
+                                                'OpenAI Video / Sora Compatible'
+                                              )}
+                                            </SelectItem>
+                                            <SelectItem value='seedance'>
+                                              {t('Seedance Compatible')}
+                                            </SelectItem>
+                                            <SelectItem value='agnes_video_v2'>
+                                              {t('Agnes Video V2')}
+                                            </SelectItem>
+                                          </SelectGroup>
+                                        </SelectContent>
+                                      </Select>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              ) : null}
                             </div>
 
                             <FormField

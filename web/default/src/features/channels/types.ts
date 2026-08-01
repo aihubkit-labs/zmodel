@@ -84,10 +84,13 @@ export interface ChannelSettings {
   thinking_to_content?: boolean
   proxy?: string
   video_content_proxy_enabled?: boolean
+  video_protocol?: VideoProtocol
   pass_through_body_enabled?: boolean
   system_prompt?: string
   system_prompt_override?: boolean
 }
+
+export type VideoProtocol = '' | 'openai_video' | 'seedance' | 'agnes_video_v2'
 
 export interface ChannelOtherSettings {
   azure_responses_version?: string

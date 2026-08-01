@@ -189,6 +189,9 @@ export const channelFormSchema = z
     thinking_to_content: z.boolean().optional(),
     proxy: z.string().optional(),
     video_content_proxy_enabled: z.boolean().optional(),
+    video_protocol: z
+      .enum(['', 'openai_video', 'seedance', 'agnes_video_v2'])
+      .optional(),
     pass_through_body_enabled: z.boolean().optional(),
     system_prompt: z.string().optional(),
     system_prompt_override: z.boolean().optional(),
@@ -330,6 +333,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   thinking_to_content: false,
   proxy: '',
   video_content_proxy_enabled: false,
+  video_protocol: '',
   pass_through_body_enabled: false,
   system_prompt: '',
   system_prompt_override: false,
@@ -369,6 +373,7 @@ export function transformChannelToFormDefaults(
     thinking_to_content: false,
     proxy: '',
     video_content_proxy_enabled: false,
+    video_protocol: '' as const,
     pass_through_body_enabled: false,
     system_prompt: '',
     system_prompt_override: false,
@@ -377,12 +382,20 @@ export function transformChannelToFormDefaults(
   if (channel.setting) {
     try {
       const parsed = JSON.parse(channel.setting)
+      const videoProtocol = [
+        'openai_video',
+        'seedance',
+        'agnes_video_v2',
+      ].includes(parsed.video_protocol)
+        ? parsed.video_protocol
+        : ''
       extraSettings = {
         force_format: parsed.force_format || false,
         thinking_to_content: parsed.thinking_to_content || false,
         proxy: parsed.proxy || '',
         video_content_proxy_enabled:
           parsed.video_content_proxy_enabled || false,
+        video_protocol: videoProtocol,
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
         system_prompt: parsed.system_prompt || '',
         system_prompt_override: parsed.system_prompt_override || false,
@@ -501,6 +514,7 @@ function buildSettingJSON(formData: ChannelFormValues): string {
     thinking_to_content: formData.thinking_to_content || false,
     proxy: formData.proxy || '',
     video_content_proxy_enabled: formData.video_content_proxy_enabled || false,
+    video_protocol: formData.video_protocol || '',
     pass_through_body_enabled: formData.pass_through_body_enabled || false,
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,

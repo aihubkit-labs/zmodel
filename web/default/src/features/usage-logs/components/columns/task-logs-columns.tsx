@@ -141,8 +141,11 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
   if (isAdmin) {
     columns.push(
       {
-        ...createChannelColumn<TaskLog>({ headerLabel: t('Channel') }),
-        size: 120,
+        ...createChannelColumn<TaskLog>({
+          channelNameAccessorKey: 'channel_name',
+          headerLabel: t('Channel'),
+        }),
+        size: 160,
       },
       {
         id: 'user',

@@ -590,6 +590,7 @@ func RelayTask(c *gin.Context) {
 			ModelRatio:      relayInfo.PriceData.ModelRatio,
 			OtherRatios:     relayInfo.PriceData.OtherRatios(),
 			OriginModelName: relayInfo.OriginModelName,
+			VideoProtocol:   relayInfo.ChannelSetting.VideoProtocol,
 			PerCallBilling:  relayInfo.TieredBillingSnapshot == nil && (common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice),
 		}
 		if snap := relayInfo.TieredBillingSnapshot; snap != nil {
