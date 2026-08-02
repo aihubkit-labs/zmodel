@@ -40,14 +40,27 @@ export async function getRedemptions(
   return res.data
 }
 
-// Search redemption codes by keyword
+// Search redemption codes by keyword, status, or redeemed time
 export async function searchRedemptions(
   params: SearchRedemptionsParams
 ): Promise<GetRedemptionsResponse> {
-  const { keyword = '', status = '', p = 1, page_size = 10 } = params
+  const {
+    keyword = '',
+    status = '',
+    start_timestamp,
+    end_timestamp,
+    p = 1,
+    page_size = 10,
+  } = params
   const queryParams = new URLSearchParams()
   queryParams.set('keyword', keyword)
   if (status) queryParams.set('status', status)
+  if (start_timestamp) {
+    queryParams.set('start_timestamp', String(start_timestamp))
+  }
+  if (end_timestamp) {
+    queryParams.set('end_timestamp', String(end_timestamp))
+  }
   queryParams.set('p', String(p))
   queryParams.set('page_size', String(page_size))
   const res = await api.get(`/api/redemption/search?${queryParams.toString()}`)

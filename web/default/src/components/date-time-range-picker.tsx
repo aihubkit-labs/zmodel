@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { CalendarDays } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -27,14 +27,24 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { toIntlLocale } from '@/i18n/languages'
 import dayjs from '@/lib/dayjs'
 import { cn } from '@/lib/utils'
 
-interface CompactDateTimeRangePickerProps {
+interface DateTimeRangePickerProps {
   start?: Date
   end?: Date
   onChange: (range: { start?: Date; end?: Date }) => void
   className?: string
+  monthOptionsCount?: number
 }
 
 function toInputValue(date?: Date): string {
@@ -47,38 +57,63 @@ function fromInputValue(value: string): Date | undefined {
   return Number.isNaN(date.getTime()) ? undefined : date
 }
 
-export function CompactDateTimeRangePicker({
-  start,
-  end,
-  onChange,
-  className,
-}: CompactDateTimeRangePickerProps) {
-  const { t } = useTranslation()
+export function DateTimeRangePicker(props: DateTimeRangePickerProps) {
+  const { t, i18n } = useTranslation()
+  const fieldId = useId()
   const [open, setOpen] = useState(false)
-  const [draftStart, setDraftStart] = useState(toInputValue(start))
-  const [draftEnd, setDraftEnd] = useState(toInputValue(end))
+  const [draftStart, setDraftStart] = useState(toInputValue(props.start))
+  const [draftEnd, setDraftEnd] = useState(toInputValue(props.end))
+  const draftInvalid = Boolean(draftStart && draftEnd && draftStart > draftEnd)
 
   const label = useMemo(() => {
-    if (!start && !end) return t('Date Range')
-    // The popover's <input type="datetime-local"> only supports minute
-    // precision, so seconds are always 00 (manual pick) or 59 (preset
-    // end-of-day). Hide them in the trigger label to keep the button
-    // width compact while still showing the meaningful timestamp.
-    const startText = start ? dayjs(start).format('YYYY-MM-DD HH:mm') : '-'
-    const endText = end ? dayjs(end).format('YYYY-MM-DD HH:mm') : '-'
+    if (!props.start && !props.end) return t('Date Range')
+    const startText = props.start
+      ? dayjs(props.start).format('YYYY-MM-DD HH:mm')
+      : '-'
+    const endText = props.end
+      ? dayjs(props.end).format('YYYY-MM-DD HH:mm')
+      : '-'
     return `${startText} ~ ${endText}`
-  }, [end, start, t])
+  }, [props.end, props.start, t])
+
+  const monthOptions = useMemo(() => {
+    if (!props.monthOptionsCount) return []
+    const formatter = new Intl.DateTimeFormat(
+      toIntlLocale(i18n.resolvedLanguage || i18n.language),
+      { year: 'numeric', month: 'long' }
+    )
+    const currentMonth = dayjs().startOf('month')
+    return Array.from({ length: props.monthOptionsCount }, (_, index) => {
+      const month = currentMonth.subtract(index, 'month')
+      return {
+        value: month.format('YYYY-MM'),
+        label: formatter.format(month.toDate()),
+      }
+    })
+  }, [i18n.language, i18n.resolvedLanguage, props.monthOptionsCount])
+
+  const selectedMonth = useMemo(() => {
+    if (!props.start || !props.end) return null
+    const start = dayjs(props.start)
+    const end = dayjs(props.end)
+    const isFullMonth =
+      start.isSame(end, 'month') &&
+      start.isSame(start.startOf('month'), 'second') &&
+      end.isSame(end.endOf('month'), 'second')
+    return isFullMonth ? start.format('YYYY-MM') : null
+  }, [props.end, props.start])
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen) {
-      setDraftStart(toInputValue(start))
-      setDraftEnd(toInputValue(end))
+      setDraftStart(toInputValue(props.start))
+      setDraftEnd(toInputValue(props.end))
     }
     setOpen(nextOpen)
   }
 
   const applyDraft = () => {
-    onChange({
+    if (draftInvalid) return
+    props.onChange({
       start: fromInputValue(draftStart),
       end: fromInputValue(draftEnd),
     })
@@ -112,7 +147,20 @@ export function CompactDateTimeRangePicker({
     const range = presets[kind]
     setDraftStart(toInputValue(range.start))
     setDraftEnd(toInputValue(range.end))
-    onChange(range)
+    props.onChange(range)
+    setOpen(false)
+  }
+
+  const applyMonth = (value: string | null) => {
+    if (!value) return
+    const month = dayjs(`${value}-01`)
+    const range = {
+      start: month.startOf('month').toDate(),
+      end: month.endOf('month').toDate(),
+    }
+    setDraftStart(toInputValue(range.start))
+    setDraftEnd(toInputValue(range.end))
+    props.onChange(range)
     setOpen(false)
   }
 
@@ -125,13 +173,16 @@ export function CompactDateTimeRangePicker({
             variant='outline'
             className={cn(
               'w-full justify-start gap-2 px-2.5 text-sm leading-5 font-normal tabular-nums',
-              !start && !end && 'text-muted-foreground',
-              className
+              !props.start && !props.end && 'text-muted-foreground',
+              props.className
             )}
           />
         }
       >
-        <CalendarDays className='text-muted-foreground size-4 shrink-0' />
+        <CalendarDays
+          data-icon='inline-start'
+          className='text-muted-foreground shrink-0'
+        />
         <span className='truncate'>{label}</span>
       </PopoverTrigger>
       <PopoverContent
@@ -141,13 +192,19 @@ export function CompactDateTimeRangePicker({
         <div className='space-y-3'>
           <div className='grid gap-2 sm:grid-cols-[1fr_auto_1fr] sm:items-end'>
             <div className='space-y-1.5'>
-              <div className='text-muted-foreground text-xs'>
+              <label
+                htmlFor={`${fieldId}-start`}
+                className='text-muted-foreground text-xs'
+              >
                 {t('Start Time')}
-              </div>
+              </label>
               <Input
+                id={`${fieldId}-start`}
                 type='datetime-local'
                 value={draftStart}
-                onChange={(e) => setDraftStart(e.target.value)}
+                max={draftEnd || undefined}
+                aria-invalid={draftInvalid}
+                onChange={(event) => setDraftStart(event.target.value)}
                 className='h-8 text-sm leading-5 tabular-nums'
               />
             </div>
@@ -155,13 +212,19 @@ export function CompactDateTimeRangePicker({
               ~
             </span>
             <div className='space-y-1.5'>
-              <div className='text-muted-foreground text-xs'>
+              <label
+                htmlFor={`${fieldId}-end`}
+                className='text-muted-foreground text-xs'
+              >
                 {t('End Time')}
-              </div>
+              </label>
               <Input
+                id={`${fieldId}-end`}
                 type='datetime-local'
                 value={draftEnd}
-                onChange={(e) => setDraftEnd(e.target.value)}
+                min={draftStart || undefined}
+                aria-invalid={draftInvalid}
+                onChange={(event) => setDraftEnd(event.target.value)}
                 className='h-8 text-sm leading-5 tabular-nums'
               />
             </div>
@@ -204,19 +267,45 @@ export function CompactDateTimeRangePicker({
             >
               {t('30 Days')}
             </Button>
-            <Button
-              type='button'
-              variant='secondary'
-              size='sm'
-              className='h-7 flex-1 px-2 text-xs'
-              onClick={() => applyPreset('month')}
-            >
-              {t('This month')}
-            </Button>
+            {props.monthOptionsCount ? (
+              <Select
+                items={monthOptions}
+                value={selectedMonth}
+                onValueChange={applyMonth}
+              >
+                <SelectTrigger size='sm' className='min-w-36 flex-1 text-xs'>
+                  <SelectValue placeholder={t('Select month')} />
+                </SelectTrigger>
+                <SelectContent alignItemWithTrigger={false} align='end'>
+                  <SelectGroup>
+                    {monthOptions.map((month) => (
+                      <SelectItem key={month.value} value={month.value}>
+                        {month.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            ) : (
+              <Button
+                type='button'
+                variant='secondary'
+                size='sm'
+                className='h-7 flex-1 px-2 text-xs'
+                onClick={() => applyPreset('month')}
+              >
+                {t('This month')}
+              </Button>
+            )}
           </div>
 
           <div className='flex justify-end'>
-            <Button size='sm' className='h-8' onClick={applyDraft}>
+            <Button
+              size='sm'
+              className='h-8'
+              disabled={draftInvalid}
+              onClick={applyDraft}
+            >
               {t('Confirm')}
             </Button>
           </div>

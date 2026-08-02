@@ -14,31 +14,51 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type redemptionPageData struct {
+	Page       int                 `json:"page"`
+	PageSize   int                 `json:"page_size"`
+	Total      int64               `json:"total"`
+	TotalQuota int64               `json:"total_quota"`
+	Items      []*model.Redemption `json:"items"`
+}
+
+func buildRedemptionPageData(pageInfo *common.PageInfo, redemptions []*model.Redemption, total int64, totalQuota int64) redemptionPageData {
+	return redemptionPageData{
+		Page:       pageInfo.GetPage(),
+		PageSize:   pageInfo.GetPageSize(),
+		Total:      total,
+		TotalQuota: totalQuota,
+		Items:      redemptions,
+	}
+}
+
 func GetAllRedemptions(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
-	redemptions, total, err := model.GetAllRedemptions(pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	redemptions, total, totalQuota, err := model.GetAllRedemptions(pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(redemptions)
-	common.ApiSuccess(c, pageInfo)
+	common.ApiSuccess(c, buildRedemptionPageData(pageInfo, redemptions, total, totalQuota))
 	return
 }
 
 func SearchRedemptions(c *gin.Context) {
 	keyword := c.Query("keyword")
 	status := c.Query("status")
+	redeemedStart, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	redeemedEnd, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	if redeemedStart > 0 && redeemedEnd > 0 && redeemedEnd < redeemedStart {
+		common.ApiErrorMsg(c, "invalid redemption time range")
+		return
+	}
 	pageInfo := common.GetPageQuery(c)
-	redemptions, total, err := model.SearchRedemptions(keyword, status, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	redemptions, total, totalQuota, err := model.SearchRedemptions(keyword, status, redeemedStart, redeemedEnd, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(redemptions)
-	common.ApiSuccess(c, pageInfo)
+	common.ApiSuccess(c, buildRedemptionPageData(pageInfo, redemptions, total, totalQuota))
 	return
 }
 

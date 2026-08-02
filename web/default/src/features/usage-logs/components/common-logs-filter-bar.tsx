@@ -23,6 +23,7 @@ import { Eye, EyeOff } from 'lucide-react'
 import { useState, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { DateTimeRangePicker } from '@/components/date-time-range-picker'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -43,7 +44,6 @@ import { buildSearchParams } from '../lib/filter'
 import { getDefaultTimeRange } from '../lib/utils'
 import type { CommonLogFilters } from '../types'
 import { CommonLogsStats } from './common-logs-stats'
-import { CompactDateTimeRangePicker } from './compact-date-time-range-picker'
 import {
   LogsFilterField,
   LogsFilterInput,
@@ -291,7 +291,7 @@ export function CommonLogsFilterBar<TData>(
 
   const dateRangeFilter = (
     <LogsFilterField wide>
-      <CompactDateTimeRangePicker
+      <DateTimeRangePicker
         start={filters.startTime}
         end={filters.endTime}
         onChange={({ start, end }) => {
