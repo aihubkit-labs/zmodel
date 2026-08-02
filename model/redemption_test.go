@@ -19,11 +19,12 @@ func TestSearchRedemptionsFiltersAndPaginates(t *testing.T) {
 
 	now := common.GetTimestamp()
 	redemptions := []Redemption{
-		{Id: 1, Name: "alpha-active", Key: "00000000000000000000000000000001", Status: common.RedemptionCodeStatusEnabled, ExpiredTime: 0},
-		{Id: 2, Name: "alpha-future", Key: "00000000000000000000000000000002", Status: common.RedemptionCodeStatusEnabled, ExpiredTime: now + 3600},
-		{Id: 3, Name: "alpha-expired", Key: "00000000000000000000000000000003", Status: common.RedemptionCodeStatusEnabled, ExpiredTime: now - 10},
-		{Id: 4, Name: "beta-disabled", Key: "00000000000000000000000000000004", Status: common.RedemptionCodeStatusDisabled, ExpiredTime: 0},
-		{Id: 5, Name: "beta-used", Key: "00000000000000000000000000000005", Status: common.RedemptionCodeStatusUsed, ExpiredTime: 0},
+		{Id: 1, Name: "alpha-active", Key: "00000000000000000000000000000001", Status: common.RedemptionCodeStatusEnabled, Quota: 100, ExpiredTime: 0},
+		{Id: 2, Name: "alpha-future", Key: "00000000000000000000000000000002", Status: common.RedemptionCodeStatusEnabled, Quota: 200, ExpiredTime: now + 3600},
+		{Id: 3, Name: "alpha-expired", Key: "00000000000000000000000000000003", Status: common.RedemptionCodeStatusEnabled, Quota: 300, ExpiredTime: now - 10},
+		{Id: 4, Name: "beta-disabled", Key: "00000000000000000000000000000004", Status: common.RedemptionCodeStatusDisabled, Quota: 400, ExpiredTime: 0},
+		{Id: 5, Name: "beta-used", Key: "00000000000000000000000000000005", Status: common.RedemptionCodeStatusUsed, Quota: 500, RedeemedTime: now - 1800, ExpiredTime: 0},
+		{Id: 6, Name: "alpha-used-old", Key: "00000000000000000000000000000006", Status: common.RedemptionCodeStatusUsed, Quota: 600, RedeemedTime: now - 7200, ExpiredTime: 0},
 	}
 	require.NoError(t, DB.Create(&redemptions).Error)
 
@@ -31,29 +32,35 @@ func TestSearchRedemptionsFiltersAndPaginates(t *testing.T) {
 		name      string
 		keyword   string
 		status    string
+		startTime int64
+		endTime   int64
 		startIdx  int
 		num       int
 		wantTotal int64
+		wantQuota int64
 		wantIds   []int
 	}{
 		{
 			name:      "no filters returns all rows",
 			num:       10,
-			wantTotal: 5,
-			wantIds:   []int{5, 4, 3, 2, 1},
+			wantTotal: 6,
+			wantQuota: 2100,
+			wantIds:   []int{6, 5, 4, 3, 2, 1},
 		},
 		{
 			name:      "keyword filters by name prefix",
 			keyword:   "alpha",
 			num:       10,
-			wantTotal: 3,
-			wantIds:   []int{3, 2, 1},
+			wantTotal: 4,
+			wantQuota: 1200,
+			wantIds:   []int{6, 3, 2, 1},
 		},
 		{
 			name:      "enabled status excludes expired rows",
 			status:    "1",
 			num:       10,
 			wantTotal: 2,
+			wantQuota: 300,
 			wantIds:   []int{2, 1},
 		},
 		{
@@ -61,6 +68,7 @@ func TestSearchRedemptionsFiltersAndPaginates(t *testing.T) {
 			status:    "expired",
 			num:       10,
 			wantTotal: 1,
+			wantQuota: 300,
 			wantIds:   []int{3},
 		},
 		{
@@ -68,29 +76,65 @@ func TestSearchRedemptionsFiltersAndPaginates(t *testing.T) {
 			status:    "2",
 			num:       10,
 			wantTotal: 1,
+			wantQuota: 400,
 			wantIds:   []int{4},
 		},
 		{
 			name:      "used status",
 			status:    "3",
 			num:       10,
+			wantTotal: 2,
+			wantQuota: 1100,
+			wantIds:   []int{6, 5},
+		},
+		{
+			name:      "redeemed time range is inclusive",
+			startTime: now - 1800,
+			endTime:   now,
+			num:       10,
 			wantTotal: 1,
+			wantQuota: 500,
 			wantIds:   []int{5},
+		},
+		{
+			name:      "redeemed start time supports an open end",
+			startTime: now - 1800,
+			num:       10,
+			wantTotal: 1,
+			wantQuota: 500,
+			wantIds:   []int{5},
+		},
+		{
+			name:      "redeemed end time supports an open start",
+			endTime:   now - 1800,
+			num:       10,
+			wantTotal: 2,
+			wantQuota: 1100,
+			wantIds:   []int{6, 5},
+		},
+		{
+			name:      "redeemed time range without matches returns zero totals",
+			startTime: now + 3600,
+			endTime:   now + 7200,
+			num:       10,
+			wantIds:   []int{},
 		},
 		{
 			name:      "pagination keeps unpaged total",
 			startIdx:  1,
 			num:       2,
-			wantTotal: 5,
-			wantIds:   []int{4, 3},
+			wantTotal: 6,
+			wantQuota: 2100,
+			wantIds:   []int{5, 4},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rows, total, err := SearchRedemptions(tt.keyword, tt.status, tt.startIdx, tt.num)
+			rows, total, totalQuota, err := SearchRedemptions(tt.keyword, tt.status, tt.startTime, tt.endTime, tt.startIdx, tt.num)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantTotal, total)
+			assert.Equal(t, tt.wantQuota, totalQuota)
 			gotIds := make([]int, 0, len(rows))
 			for _, row := range rows {
 				gotIds = append(gotIds, row.Id)

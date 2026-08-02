@@ -58,6 +58,7 @@ export interface GetRedemptionsResponse {
   data?: {
     items: Redemption[]
     total: number
+    total_quota: number
     page: number
     page_size: number
   }
@@ -66,6 +67,8 @@ export interface GetRedemptionsResponse {
 export interface SearchRedemptionsParams {
   keyword?: string
   status?: string
+  start_timestamp?: number
+  end_timestamp?: number
   p?: number
   page_size?: number
 }

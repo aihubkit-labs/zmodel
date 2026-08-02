@@ -4184,6 +4184,7 @@
     "Select locations": "ロケーションを選択",
     "Select Model": "モデルを選択",
     "Select model {{model}}": "モデル {{model}} を選択",
+    "Select month": "月を選択",
     "Select models (empty for allow all)": "モデルを選択 (すべて許可する場合は空)",
     "Select models and apply to channel models list.": "モデルを選択し、チャネルモデルリストに適用します。",
     "Select models or add custom ones": "モデルを選択するか、カスタムモデルを追加",

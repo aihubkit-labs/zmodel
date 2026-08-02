@@ -22,13 +22,13 @@ import type { Table } from '@tanstack/react-table'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { DateTimeRangePicker } from '@/components/date-time-range-picker'
 import { Combobox } from '@/components/ui/combobox'
 
 import { buildSearchParams } from '../lib/filter'
 import { getTaskFilterOptions } from '../lib/task-filter-options'
 import { getDefaultTimeRange } from '../lib/utils'
 import type { DrawingLogFilters, LogCategory, TaskLogFilters } from '../types'
-import { CompactDateTimeRangePicker } from './compact-date-time-range-picker'
 import {
   LogsFilterField,
   LogsFilterInput,
@@ -222,7 +222,7 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
     !!taskFilters?.model
   const dateRangeFilter = (
     <LogsFilterField wide>
-      <CompactDateTimeRangePicker
+      <DateTimeRangePicker
         start={filters.startTime}
         end={filters.endTime}
         onChange={({ start, end }) => {

@@ -26,44 +26,14 @@ type Redemption struct {
 	ExpiredTime  int64          `json:"expired_time" gorm:"bigint"` // 过期时间，0 表示不过期
 }
 
-func GetAllRedemptions(startIdx int, num int) (redemptions []*Redemption, total int64, err error) {
-	// 开始事务
-	tx := DB.Begin()
-	if tx.Error != nil {
-		return nil, 0, tx.Error
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
-
-	// 获取总数
-	err = tx.Model(&Redemption{}).Count(&total).Error
-	if err != nil {
-		tx.Rollback()
-		return nil, 0, err
-	}
-
-	// 获取分页数据
-	err = tx.Order("id desc").Limit(num).Offset(startIdx).Find(&redemptions).Error
-	if err != nil {
-		tx.Rollback()
-		return nil, 0, err
-	}
-
-	// 提交事务
-	if err = tx.Commit().Error; err != nil {
-		return nil, 0, err
-	}
-
-	return redemptions, total, nil
+func GetAllRedemptions(startIdx int, num int) (redemptions []*Redemption, total int64, totalQuota int64, err error) {
+	return SearchRedemptions("", "", 0, 0, startIdx, num)
 }
 
-func SearchRedemptions(keyword string, status string, startIdx int, num int) (redemptions []*Redemption, total int64, err error) {
+func SearchRedemptions(keyword string, status string, redeemedStart int64, redeemedEnd int64, startIdx int, num int) (redemptions []*Redemption, total int64, totalQuota int64, err error) {
 	tx := DB.Begin()
 	if tx.Error != nil {
-		return nil, 0, tx.Error
+		return nil, 0, 0, tx.Error
 	}
 	defer func() {
 		if r := recover(); r != nil {
@@ -103,25 +73,41 @@ func SearchRedemptions(keyword string, status string, startIdx int, num int) (re
 		}
 	}
 
+	if redeemedStart > 0 {
+		query = query.Where("redeemed_time >= ?", redeemedStart)
+	}
+	if redeemedEnd > 0 {
+		query = query.Where("redeemed_time <= ?", redeemedEnd)
+	}
+	if redeemedStart > 0 || redeemedEnd > 0 {
+		query = query.Where("redeemed_time > 0")
+	}
+
 	// Get total count
 	err = query.Count(&total).Error
 	if err != nil {
 		tx.Rollback()
-		return nil, 0, err
+		return nil, 0, 0, err
+	}
+
+	err = query.Select("COALESCE(SUM(quota), 0)").Scan(&totalQuota).Error
+	if err != nil {
+		tx.Rollback()
+		return nil, 0, 0, err
 	}
 
 	// Get paginated data
-	err = query.Order("id desc").Limit(num).Offset(startIdx).Find(&redemptions).Error
+	err = query.Select("*").Order("id desc").Limit(num).Offset(startIdx).Find(&redemptions).Error
 	if err != nil {
 		tx.Rollback()
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 
 	if err = tx.Commit().Error; err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 
-	return redemptions, total, nil
+	return redemptions, total, totalQuota, nil
 }
 
 func GetRedemptionById(id int) (*Redemption, error) {

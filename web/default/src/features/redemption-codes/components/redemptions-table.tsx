@@ -28,8 +28,11 @@ import {
   DataTablePage,
   useDataTable,
 } from '@/components/data-table'
+import { DateTimeRangePicker } from '@/components/date-time-range-picker'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
+import { formatQuota } from '@/lib/format'
 
 import { getRedemptions, searchRedemptions } from '../api'
 import {
@@ -58,6 +61,8 @@ export function RedemptionsTable() {
   const columns = useRedemptionsColumns()
   const { refreshTrigger } = useRedemptions()
   const isMobile = useMediaQuery('(max-width: 640px)')
+  const search = route.useSearch()
+  const navigate = route.useNavigate()
 
   const {
     globalFilter,
@@ -68,8 +73,8 @@ export function RedemptionsTable() {
     onPaginationChange,
     ensurePageInRange,
   } = useTableUrlState({
-    search: route.useSearch(),
-    navigate: route.useNavigate(),
+    search,
+    navigate,
     pagination: { defaultPage: 1, defaultPageSize: isMobile ? 10 : 20 },
     globalFilter: { enabled: true, key: 'filter' },
     columnFilters: [{ columnId: 'status', searchKey: 'status', type: 'array' }],
@@ -79,49 +84,62 @@ export function RedemptionsTable() {
       | string[]
       | undefined) ?? []
   const statusFilterValue = statusFilter[0] ?? ''
+  const redeemedStart = search.startTime
+    ? new Date(search.startTime * 1000)
+    : undefined
+  const redeemedEnd = search.endTime
+    ? new Date(search.endTime * 1000)
+    : undefined
+  const hasRedeemedTimeFilter = Boolean(search.startTime || search.endTime)
 
   // Fetch data with React Query
-  const { data, isLoading, isFetching } = useQuery({
+  const { data, isLoading, isFetching, isPlaceholderData } = useQuery({
     queryKey: [
       'redemptions',
       pagination.pageIndex + 1,
       pagination.pageSize,
       globalFilter,
       statusFilterValue,
+      search.startTime,
+      search.endTime,
       refreshTrigger,
     ],
     queryFn: async () => {
       const hasFilter = globalFilter?.trim()
       const hasStatusFilter = statusFilterValue !== ''
+      const hasSearchFilters =
+        hasFilter || hasStatusFilter || hasRedeemedTimeFilter
       const params = {
         p: pagination.pageIndex + 1,
         page_size: pagination.pageSize,
       }
 
-      const result =
-        hasFilter || hasStatusFilter
-          ? await searchRedemptions({
-              ...params,
-              keyword: globalFilter,
-              status: statusFilterValue,
-            })
-          : await getRedemptions(params)
+      const result = hasSearchFilters
+        ? await searchRedemptions({
+            ...params,
+            keyword: globalFilter,
+            status: statusFilterValue,
+            start_timestamp: search.startTime,
+            end_timestamp: search.endTime,
+          })
+        : await getRedemptions(params)
 
       if (!result.success) {
         toast.error(
           result.message ||
             t(
-              hasFilter || hasStatusFilter
+              hasSearchFilters
                 ? ERROR_MESSAGES.SEARCH_FAILED
                 : ERROR_MESSAGES.LOAD_FAILED
             )
         )
-        return { items: [], total: 0 }
+        return { items: [], total: 0, totalQuota: 0 }
       }
 
       return {
         items: result.data?.items || [],
         total: result.data?.total || 0,
+        totalQuota: result.data?.total_quota || 0,
       }
     },
     placeholderData: (previousData) => previousData,
@@ -157,6 +175,19 @@ export function RedemptionsTable() {
     [t]
   )
 
+  const handleRedeemedTimeChange = (range: { start?: Date; end?: Date }) => {
+    navigate({
+      search: (previous) => ({
+        ...previous,
+        page: undefined,
+        startTime: range.start
+          ? Math.floor(range.start.getTime() / 1000)
+          : undefined,
+        endTime: range.end ? Math.floor(range.end.getTime() / 1000) : undefined,
+      }),
+    })
+  }
+
   return (
     <DataTablePage
       table={table}
@@ -171,6 +202,26 @@ export function RedemptionsTable() {
       applyHeaderSize
       toolbarProps={{
         searchPlaceholder: t('Filter by name or ID...'),
+        additionalSearch: (
+          <DateTimeRangePicker
+            start={redeemedStart}
+            end={redeemedEnd}
+            onChange={handleRedeemedTimeChange}
+            monthOptionsCount={36}
+            className='sm:w-[300px]'
+          />
+        ),
+        hasAdditionalFilters: hasRedeemedTimeFilter,
+        onReset: () => {
+          navigate({
+            search: (previous) => ({
+              ...previous,
+              page: undefined,
+              startTime: undefined,
+              endTime: undefined,
+            }),
+          })
+        },
         filters: [
           {
             columnId: 'status',
@@ -179,6 +230,20 @@ export function RedemptionsTable() {
             singleSelect: true,
           },
         ],
+        leftActions: (
+          <div className='flex min-h-8 items-baseline gap-2'>
+            <span className='text-muted-foreground text-sm'>
+              {t('Total Quota')}
+            </span>
+            {isLoading || isPlaceholderData ? (
+              <Skeleton className='h-6 w-24' />
+            ) : (
+              <span className='text-lg font-semibold tabular-nums'>
+                {formatQuota(data?.totalQuota ?? 0)}
+              </span>
+            )}
+          </div>
+        ),
       }}
       mobile={<RedemptionsMobileList table={table} isLoading={isLoading} />}
       getRowClassName={(row, { isMobile }) => {
