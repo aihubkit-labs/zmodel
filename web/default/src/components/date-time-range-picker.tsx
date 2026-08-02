@@ -43,6 +43,7 @@ interface DateTimeRangePickerProps {
   start?: Date
   end?: Date
   onChange: (range: { start?: Date; end?: Date }) => void
+  ariaLabel?: string
   className?: string
   monthOptionsCount?: number
 }
@@ -171,6 +172,9 @@ export function DateTimeRangePicker(props: DateTimeRangePickerProps) {
           <Button
             type='button'
             variant='outline'
+            aria-label={
+              props.ariaLabel ? `${props.ariaLabel}: ${label}` : undefined
+            }
             className={cn(
               'w-full justify-start gap-2 px-2.5 text-sm leading-5 font-normal tabular-nums',
               !props.start && !props.end && 'text-muted-foreground',
