@@ -1087,6 +1087,7 @@ Object.assign(newKeys.vi, {
 Object.assign(newKeys.en, {
   'Agnes Video V2': 'Agnes Video V2',
   'OpenAI Video / Sora Compatible': 'OpenAI Video / Sora Compatible',
+  'Redemption time': 'Redemption time',
   'Seedance Compatible': 'Seedance Compatible',
   'Select video protocol': 'Select video protocol',
   'Video Protocol': 'Video Protocol',
@@ -1094,6 +1095,7 @@ Object.assign(newKeys.en, {
 Object.assign(newKeys.zh, {
   'Agnes Video V2': 'Agnes Video V2',
   'OpenAI Video / Sora Compatible': 'OpenAI Video / Sora 兼容',
+  'Redemption time': '兑换时间',
   'Seedance Compatible': 'Seedance 兼容',
   'Select video protocol': '选择视频协议',
   'Video Protocol': '视频协议',
@@ -1101,6 +1103,7 @@ Object.assign(newKeys.zh, {
 Object.assign(newKeys['zh-TW'], {
   'Agnes Video V2': 'Agnes Video V2',
   'OpenAI Video / Sora Compatible': 'OpenAI Video / Sora 相容',
+  'Redemption time': '兌換時間',
   'Seedance Compatible': 'Seedance 相容',
   'Select video protocol': '選擇影片協議',
   'Video Protocol': '影片協議',
@@ -1108,6 +1111,7 @@ Object.assign(newKeys['zh-TW'], {
 Object.assign(newKeys.fr, {
   'Agnes Video V2': 'Agnes Video V2',
   'OpenAI Video / Sora Compatible': 'Compatible OpenAI Video / Sora',
+  'Redemption time': "Date d'échange",
   'Seedance Compatible': 'Compatible Seedance',
   'Select video protocol': 'Sélectionner le protocole vidéo',
   'Video Protocol': 'Protocole vidéo',
@@ -1115,6 +1119,7 @@ Object.assign(newKeys.fr, {
 Object.assign(newKeys.ja, {
   'Agnes Video V2': 'Agnes Video V2',
   'OpenAI Video / Sora Compatible': 'OpenAI Video / Sora 互換',
+  'Redemption time': '引き換え日時',
   'Seedance Compatible': 'Seedance 互換',
   'Select video protocol': '動画プロトコルを選択',
   'Video Protocol': '動画プロトコル',
@@ -1122,6 +1127,7 @@ Object.assign(newKeys.ja, {
 Object.assign(newKeys.ru, {
   'Agnes Video V2': 'Agnes Video V2',
   'OpenAI Video / Sora Compatible': 'Совместимый с OpenAI Video / Sora',
+  'Redemption time': 'Время активации',
   'Seedance Compatible': 'Совместимый с Seedance',
   'Select video protocol': 'Выберите видеопротокол',
   'Video Protocol': 'Видеопротокол',
@@ -1129,6 +1135,7 @@ Object.assign(newKeys.ru, {
 Object.assign(newKeys.vi, {
   'Agnes Video V2': 'Agnes Video V2',
   'OpenAI Video / Sora Compatible': 'Tương thích OpenAI Video / Sora',
+  'Redemption time': 'Thời gian đổi mã',
   'Seedance Compatible': 'Tương thích Seedance',
   'Select video protocol': 'Chọn giao thức video',
   'Video Protocol': 'Giao thức video',

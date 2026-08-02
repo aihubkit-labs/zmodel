@@ -203,13 +203,19 @@ export function RedemptionsTable() {
       toolbarProps={{
         searchPlaceholder: t('Filter by name or ID...'),
         additionalSearch: (
-          <DateTimeRangePicker
-            start={redeemedStart}
-            end={redeemedEnd}
-            onChange={handleRedeemedTimeChange}
-            monthOptionsCount={36}
-            className='sm:w-[300px]'
-          />
+          <div className='flex min-w-0 flex-1 items-center gap-2 sm:flex-none'>
+            <span className='text-muted-foreground shrink-0 text-sm'>
+              {t('Redemption time')}
+            </span>
+            <DateTimeRangePicker
+              start={redeemedStart}
+              end={redeemedEnd}
+              onChange={handleRedeemedTimeChange}
+              ariaLabel={t('Redemption time')}
+              monthOptionsCount={36}
+              className='min-w-0 flex-1 sm:w-[300px] sm:flex-none'
+            />
+          </div>
         ),
         hasAdditionalFilters: hasRedeemedTimeFilter,
         onReset: () => {
