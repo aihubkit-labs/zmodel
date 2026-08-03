@@ -49,14 +49,19 @@ func TestSeedanceValidationAndBillingDimensions(t *testing.T) {
 		{model: "videos-fast", resolution: "720p"},
 		{model: "videos-standard", resolution: "480p"},
 		{model: "videos-standard", resolution: "720p"},
-		{model: "videos-standard", resolution: "1080p"},
-		{model: "videos-standard", resolution: "4K"},
 		{model: "videos-4-mini", resolution: "480p"},
 		{model: "videos-4-mini", resolution: "720p"},
 		{model: "videos-4-fast", resolution: "480p"},
 		{model: "videos-4-fast", resolution: "720p"},
 		{model: "videos-4", resolution: "480p"},
 		{model: "videos-4", resolution: "720p"},
+		{model: "tvideos", resolution: "480p"},
+		{model: "tvideos", resolution: "720p"},
+		{model: "tvideos", resolution: "1080p"},
+		{model: "tvideos", resolution: "4K"},
+		{model: "tvideos-fast-480p", resolution: "480p"},
+		{model: "tvideos-mini", resolution: "480p"},
+		{model: "tvideos-mini", resolution: "720p"},
 	}
 
 	for _, test := range tests {
@@ -78,11 +83,24 @@ func TestSeedanceValidationAndBillingDimensions(t *testing.T) {
 }
 
 func TestSeedanceRejectsUnsupportedResolution(t *testing.T) {
-	for _, modelName := range []string{"videos-fast", "videos-4-mini", "videos-4-fast", "videos-4"} {
-		t.Run(modelName, func(t *testing.T) {
+	tests := []struct {
+		model      string
+		resolution string
+	}{
+		{model: "videos-fast", resolution: "1080p"},
+		{model: "videos-4-mini", resolution: "1080p"},
+		{model: "videos-4-fast", resolution: "1080p"},
+		{model: "videos-4", resolution: "1080p"},
+		{model: "videos-standard", resolution: "1080p"},
+		{model: "videos-standard", resolution: "4K"},
+		{model: "tvideos-fast-480p", resolution: "720p"},
+		{model: "tvideos-mini", resolution: "1080p"},
+	}
+	for _, test := range tests {
+		t.Run(test.model+"_"+test.resolution, func(t *testing.T) {
 			ctx, info := newSeedanceTestContext(t, fmt.Sprintf(
-				`{"model":%q,"prompt":"demo","duration":5,"resolution":"1080p"}`,
-				modelName,
+				`{"model":%q,"prompt":"demo","duration":5,"resolution":%q}`,
+				test.model, test.resolution,
 			))
 			taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
 			require.NotNil(t, taskErr)
@@ -106,10 +124,10 @@ func TestSeedanceRejectsMissingDuration(t *testing.T) {
 }
 
 func TestSeedanceBuildRequestBodyUsesNormalizedParameters(t *testing.T) {
-	ctx, info := newSeedanceTestContext(t, `{"model":"videos-standard","prompt":"demo","duration":"15","resolution":"4K"}`)
+	ctx, info := newSeedanceTestContext(t, `{"model":"tvideos","prompt":"demo","duration":"15","resolution":"4K"}`)
 	adaptor := &TaskAdaptor{}
 	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
-	info.UpstreamModelName = "videos-standard"
+	info.UpstreamModelName = "tvideos"
 
 	body, err := adaptor.BuildRequestBody(ctx, info)
 	require.NoError(t, err)
@@ -183,7 +201,7 @@ func TestSeedanceProtocolUsesMappedUpstreamModelCapabilities(t *testing.T) {
 		"resolution":"1080P"
 	}`)
 	info.ChannelSetting.VideoProtocol = dto.VideoProtocolSeedance
-	info.UpstreamModelName = "videos-standard"
+	info.UpstreamModelName = "tvideos"
 	adaptor := &TaskAdaptor{}
 	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
 
@@ -198,9 +216,94 @@ func TestSeedanceProtocolUsesMappedUpstreamModelCapabilities(t *testing.T) {
 	require.NoError(t, err)
 	var upstream map[string]any
 	require.NoError(t, common.Unmarshal(data, &upstream))
-	assert.Equal(t, "videos-standard", upstream["model"])
+	assert.Equal(t, "tvideos", upstream["model"])
 	assert.Equal(t, float64(15), upstream["duration"])
 	assert.Equal(t, "1080p", upstream["resolution"])
+}
+
+func TestSeedanceChannelCapabilityOverridesBuiltInProfile(t *testing.T) {
+	ctx, info := newSeedanceTestContext(t, `{
+		"model":"videos-standard",
+		"prompt":"demo",
+		"duration":5,
+		"resolution":"720p"
+	}`)
+	info.ChannelSetting = dto.ChannelSettings{
+		VideoProtocol: dto.VideoProtocolSeedance,
+		VideoModelCapabilities: map[string]dto.VideoModelCapability{
+			"videos-standard": {Resolutions: []string{"480p"}},
+		},
+	}
+
+	adaptor := &TaskAdaptor{}
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+	info.UpstreamModelName = "videos-standard"
+	_, err := adaptor.EstimateBillingDimensions(ctx, info)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "invalid resolution")
+}
+
+func TestSeedanceCapabilityValidationUsesMappedModelAfterRequestValidation(t *testing.T) {
+	ctx, info := newSeedanceTestContext(t, `{
+		"model":"videos-standard",
+		"prompt":"demo",
+		"duration":10,
+		"resolution":"4k"
+	}`)
+	info.ChannelSetting = dto.ChannelSettings{
+		VideoProtocol: dto.VideoProtocolSeedance,
+		VideoModelCapabilities: map[string]dto.VideoModelCapability{
+			"tvideos": {Resolutions: []string{"480p", "720p", "1080p", "4k"}},
+		},
+	}
+	adaptor := &TaskAdaptor{}
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+
+	info.UpstreamModelName = "tvideos"
+	dimensions, err := adaptor.EstimateBillingDimensions(ctx, info)
+	require.NoError(t, err)
+	assert.Equal(t, "4k", dimensions.ResolutionTier)
+	assert.Equal(t, []string{"480p", "720p", "1080p", "4k"}, info.VideoAllowedResolutions)
+}
+
+func TestSeedanceConfiguredUnknownMappedModelSetsSettlementSnapshot(t *testing.T) {
+	ctx, info := newSeedanceTestContext(t, `{
+		"model":"public-seedance-alias",
+		"prompt":"demo",
+		"duration":10,
+		"resolution":"1080p"
+	}`)
+	info.ChannelSetting = dto.ChannelSettings{
+		VideoProtocol: dto.VideoProtocolSeedance,
+		VideoModelCapabilities: map[string]dto.VideoModelCapability{
+			"new-upstream-seedance": {Resolutions: []string{"720p", "1080p"}},
+		},
+	}
+	adaptor := &TaskAdaptor{}
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+
+	info.UpstreamModelName = "new-upstream-seedance"
+	dimensions, err := adaptor.EstimateBillingDimensions(ctx, info)
+	require.NoError(t, err)
+	assert.Equal(t, "1080p", dimensions.ResolutionTier)
+	assert.Equal(t, []string{"720p", "1080p"}, info.VideoAllowedResolutions)
+}
+
+func TestSeedanceConfiguredUnknownModelFailsClosedWithoutCapability(t *testing.T) {
+	ctx, info := newSeedanceTestContext(t, `{
+		"model":"public-seedance-alias",
+		"prompt":"demo",
+		"duration":10,
+		"resolution":"720p"
+	}`)
+	info.ChannelSetting.VideoProtocol = dto.VideoProtocolSeedance
+	adaptor := &TaskAdaptor{}
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+
+	info.UpstreamModelName = "unknown-upstream-model"
+	_, err := adaptor.EstimateBillingDimensions(ctx, info)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "invalid resolution")
 }
 
 func TestOpenAIVideoProtocolDoesNotApplySeedanceModelProfile(t *testing.T) {
@@ -741,7 +844,10 @@ func TestSeedanceCompletionIgnoresUnknownResolution(t *testing.T) {
 }
 
 func TestSeedanceCompletionRejectsResolutionUnsupportedByOriginalModel(t *testing.T) {
-	for _, modelName := range []string{"videos-mini", "videos-fast", "videos-4-mini", "videos-4-fast", "videos-4"} {
+	for _, modelName := range []string{
+		"videos-mini", "videos-fast", "videos-standard", "videos-4-mini", "videos-4-fast", "videos-4",
+		"tvideos-fast-480p", "tvideos-mini",
+	} {
 		t.Run(modelName, func(t *testing.T) {
 			task := &model.Task{Properties: model.Properties{OriginModelName: modelName}}
 			dimensions := (&TaskAdaptor{}).AdjustBillingDimensionsOnComplete(task, &relaycommon.TaskInfo{
@@ -790,5 +896,31 @@ func TestSeedanceCompletionUsesMappedUpstreamModelCapabilities(t *testing.T) {
 	})
 	require.NotNil(t, dimensions)
 	assert.Equal(t, float64(10), dimensions.Seconds)
+	assert.Empty(t, dimensions.ResolutionTier)
+}
+
+func TestSeedanceCompletionUsesFrozenConfiguredCapabilities(t *testing.T) {
+	task := &model.Task{
+		Properties: model.Properties{UpstreamModelName: "new-upstream-seedance"},
+		PrivateData: model.TaskPrivateData{
+			BillingContext: &model.TaskBillingContext{
+				VideoProtocol:           dto.VideoProtocolSeedance,
+				VideoAllowedResolutions: []string{"720p", "1080p"},
+			},
+		},
+	}
+
+	dimensions := (&TaskAdaptor{}).AdjustBillingDimensionsOnComplete(task, &relaycommon.TaskInfo{
+		Duration:   10,
+		Resolution: "1080p",
+	})
+	require.NotNil(t, dimensions)
+	assert.Equal(t, "1080p", dimensions.ResolutionTier)
+
+	dimensions = (&TaskAdaptor{}).AdjustBillingDimensionsOnComplete(task, &relaycommon.TaskInfo{
+		Duration:   10,
+		Resolution: "4k",
+	})
+	require.NotNil(t, dimensions)
 	assert.Empty(t, dimensions.ResolutionTier)
 }

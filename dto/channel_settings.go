@@ -11,14 +11,19 @@ import (
 )
 
 type ChannelSettings struct {
-	ForceFormat              bool          `json:"force_format,omitempty"`
-	ThinkingToContent        bool          `json:"thinking_to_content,omitempty"`
-	Proxy                    string        `json:"proxy"`
-	VideoContentProxyEnabled bool          `json:"video_content_proxy_enabled,omitempty"`
-	VideoProtocol            VideoProtocol `json:"video_protocol,omitempty"`
-	PassThroughBodyEnabled   bool          `json:"pass_through_body_enabled,omitempty"`
-	SystemPrompt             string        `json:"system_prompt,omitempty"`
-	SystemPromptOverride     bool          `json:"system_prompt_override,omitempty"`
+	ForceFormat              bool                            `json:"force_format,omitempty"`
+	ThinkingToContent        bool                            `json:"thinking_to_content,omitempty"`
+	Proxy                    string                          `json:"proxy"`
+	VideoContentProxyEnabled bool                            `json:"video_content_proxy_enabled,omitempty"`
+	VideoProtocol            VideoProtocol                   `json:"video_protocol,omitempty"`
+	VideoModelCapabilities   map[string]VideoModelCapability `json:"video_model_capabilities,omitempty"`
+	PassThroughBodyEnabled   bool                            `json:"pass_through_body_enabled,omitempty"`
+	SystemPrompt             string                          `json:"system_prompt,omitempty"`
+	SystemPromptOverride     bool                            `json:"system_prompt_override,omitempty"`
+}
+
+type VideoModelCapability struct {
+	Resolutions []string `json:"resolutions"`
 }
 
 type VideoProtocol string
@@ -32,10 +37,57 @@ const (
 func (s ChannelSettings) ValidateVideoRequestSettings() error {
 	switch s.VideoProtocol {
 	case "", VideoProtocolOpenAI, VideoProtocolSeedance, VideoProtocolAgnesVideoV2:
-		return nil
 	default:
 		return fmt.Errorf("unsupported video_protocol %q", s.VideoProtocol)
 	}
+
+	normalizedModels := make(map[string]struct{}, len(s.VideoModelCapabilities))
+	for modelName, capability := range s.VideoModelCapabilities {
+		normalizedModel := strings.ToLower(strings.TrimSpace(modelName))
+		if normalizedModel == "" {
+			return fmt.Errorf("video_model_capabilities contains an empty model ID")
+		}
+		if len(normalizedModel) > 128 {
+			return fmt.Errorf("video model ID %q exceeds 128 characters", modelName)
+		}
+		if _, exists := normalizedModels[normalizedModel]; exists {
+			return fmt.Errorf("video_model_capabilities contains duplicate model ID %q", modelName)
+		}
+		normalizedModels[normalizedModel] = struct{}{}
+
+		if len(capability.Resolutions) == 0 {
+			return fmt.Errorf("video model %q must configure at least one resolution", modelName)
+		}
+		seenResolutions := make(map[string]struct{}, len(capability.Resolutions))
+		for _, resolution := range capability.Resolutions {
+			normalizedResolution := strings.ToLower(strings.TrimSpace(resolution))
+			switch normalizedResolution {
+			case "480p", "720p", "1080p", "4k":
+			default:
+				return fmt.Errorf("video model %q has unsupported resolution %q", modelName, resolution)
+			}
+			if _, exists := seenResolutions[normalizedResolution]; exists {
+				return fmt.Errorf("video model %q contains duplicate resolution %q", modelName, resolution)
+			}
+			seenResolutions[normalizedResolution] = struct{}{}
+		}
+	}
+	return nil
+}
+
+func (s ChannelSettings) GetVideoModelCapability(modelName string) (VideoModelCapability, bool) {
+	normalizedModel := strings.ToLower(strings.TrimSpace(modelName))
+	for configuredModel, capability := range s.VideoModelCapabilities {
+		if strings.ToLower(strings.TrimSpace(configuredModel)) != normalizedModel {
+			continue
+		}
+		resolutions := make([]string, 0, len(capability.Resolutions))
+		for _, resolution := range capability.Resolutions {
+			resolutions = append(resolutions, strings.ToLower(strings.TrimSpace(resolution)))
+		}
+		return VideoModelCapability{Resolutions: resolutions}, true
+	}
+	return VideoModelCapability{}, false
 }
 
 type VertexKeyType string

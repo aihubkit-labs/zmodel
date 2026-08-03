@@ -85,12 +85,18 @@ export interface ChannelSettings {
   proxy?: string
   video_content_proxy_enabled?: boolean
   video_protocol?: VideoProtocol
+  video_model_capabilities?: Record<string, VideoModelCapability>
   pass_through_body_enabled?: boolean
   system_prompt?: string
   system_prompt_override?: boolean
 }
 
+export interface VideoModelCapability {
+  resolutions: VideoResolution[]
+}
+
 export type VideoProtocol = '' | 'openai_video' | 'seedance' | 'agnes_video_v2'
+export type VideoResolution = '480p' | '720p' | '1080p' | '4k'
 
 export interface ChannelOtherSettings {
   azure_responses_version?: string

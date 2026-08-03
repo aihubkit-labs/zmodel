@@ -585,13 +585,14 @@ func RelayTask(c *gin.Context) {
 		task.PrivateData.TokenId = relayInfo.TokenId
 		task.PrivateData.NodeName = common.NodeName
 		task.PrivateData.BillingContext = &model.TaskBillingContext{
-			ModelPrice:      relayInfo.PriceData.ModelPrice,
-			GroupRatio:      relayInfo.PriceData.GroupRatioInfo.GroupRatio,
-			ModelRatio:      relayInfo.PriceData.ModelRatio,
-			OtherRatios:     relayInfo.PriceData.OtherRatios(),
-			OriginModelName: relayInfo.OriginModelName,
-			VideoProtocol:   relayInfo.ChannelSetting.VideoProtocol,
-			PerCallBilling:  relayInfo.TieredBillingSnapshot == nil && (common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice),
+			ModelPrice:              relayInfo.PriceData.ModelPrice,
+			GroupRatio:              relayInfo.PriceData.GroupRatioInfo.GroupRatio,
+			ModelRatio:              relayInfo.PriceData.ModelRatio,
+			OtherRatios:             relayInfo.PriceData.OtherRatios(),
+			OriginModelName:         relayInfo.OriginModelName,
+			VideoProtocol:           relayInfo.ChannelSetting.VideoProtocol,
+			VideoAllowedResolutions: append([]string(nil), relayInfo.VideoAllowedResolutions...),
+			PerCallBilling:          relayInfo.TieredBillingSnapshot == nil && (common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice),
 		}
 		if snap := relayInfo.TieredBillingSnapshot; snap != nil {
 			task.PrivateData.BillingContext.BillingMode = snap.BillingMode
