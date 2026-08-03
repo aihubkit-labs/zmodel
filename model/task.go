@@ -113,25 +113,26 @@ type TaskPrivateData struct {
 
 // TaskBillingContext 记录任务提交时的计费参数，以便轮询阶段可以重新计算额度。
 type TaskBillingContext struct {
-	ModelPrice          float64                       `json:"model_price,omitempty"`       // 模型单价
-	GroupRatio          float64                       `json:"group_ratio,omitempty"`       // 分组倍率
-	ModelRatio          float64                       `json:"model_ratio,omitempty"`       // 模型倍率
-	OtherRatios         map[string]float64            `json:"other_ratios,omitempty"`      // 附加倍率（时长、分辨率等）
-	OriginModelName     string                        `json:"origin_model_name,omitempty"` // 模型名称，必须为OriginModelName
-	VideoProtocol       dto.VideoProtocol             `json:"video_protocol,omitempty"`
-	PerCallBilling      bool                          `json:"per_call_billing,omitempty"` // 按次计费：跳过轮询阶段的差额结算
-	BillingMode         string                        `json:"billing_mode,omitempty"`
-	ExprString          string                        `json:"expr_string,omitempty"`
-	ExprHash            string                        `json:"expr_hash,omitempty"`
-	ExprVersion         int                           `json:"expr_version,omitempty"`
-	EstimatedDimensions billingexpr.BillingDimensions `json:"estimated_dimensions,omitempty"`
-	EstimatedTier       string                        `json:"estimated_tier,omitempty"`
-	EstimatedQuota      int                           `json:"estimated_quota,omitempty"`
-	QuotaPerUnit        float64                       `json:"quota_per_unit,omitempty"`
-	ActualDimensions    billingexpr.BillingDimensions `json:"actual_dimensions,omitempty"`
-	ActualTier          string                        `json:"actual_tier,omitempty"`
-	ActualQuota         int                           `json:"actual_quota,omitempty"`
-	RequestInput        billingexpr.RequestInput      `json:"request_input,omitempty"`
+	ModelPrice              float64                       `json:"model_price,omitempty"`       // 模型单价
+	GroupRatio              float64                       `json:"group_ratio,omitempty"`       // 分组倍率
+	ModelRatio              float64                       `json:"model_ratio,omitempty"`       // 模型倍率
+	OtherRatios             map[string]float64            `json:"other_ratios,omitempty"`      // 附加倍率（时长、分辨率等）
+	OriginModelName         string                        `json:"origin_model_name,omitempty"` // 模型名称，必须为OriginModelName
+	VideoProtocol           dto.VideoProtocol             `json:"video_protocol,omitempty"`
+	VideoAllowedResolutions []string                      `json:"video_allowed_resolutions,omitempty"`
+	PerCallBilling          bool                          `json:"per_call_billing,omitempty"` // 按次计费：跳过轮询阶段的差额结算
+	BillingMode             string                        `json:"billing_mode,omitempty"`
+	ExprString              string                        `json:"expr_string,omitempty"`
+	ExprHash                string                        `json:"expr_hash,omitempty"`
+	ExprVersion             int                           `json:"expr_version,omitempty"`
+	EstimatedDimensions     billingexpr.BillingDimensions `json:"estimated_dimensions,omitempty"`
+	EstimatedTier           string                        `json:"estimated_tier,omitempty"`
+	EstimatedQuota          int                           `json:"estimated_quota,omitempty"`
+	QuotaPerUnit            float64                       `json:"quota_per_unit,omitempty"`
+	ActualDimensions        billingexpr.BillingDimensions `json:"actual_dimensions,omitempty"`
+	ActualTier              string                        `json:"actual_tier,omitempty"`
+	ActualQuota             int                           `json:"actual_quota,omitempty"`
+	RequestInput            billingexpr.RequestInput      `json:"request_input,omitempty"`
 }
 
 // GetUpstreamTaskID 获取上游真实 task ID（用于与 provider 通信）

@@ -131,8 +131,11 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	if resolution == "" {
 		return service.TaskErrorWrapperLocal(fmt.Errorf("resolution is required"), "invalid_resolution", http.StatusBadRequest)
 	}
-	if !seedanceResolutionSupported(capabilityModel, resolution) {
-		return service.TaskErrorWrapperLocal(fmt.Errorf("model %s does not support resolution %s", capabilityModel, resolution), "invalid_resolution", http.StatusBadRequest)
+	if info == nil || info.ChannelSetting.VideoProtocol != dto.VideoProtocolSeedance {
+		capability, capabilityFound := seedanceModelCapability(info, capabilityModel)
+		if capabilityFound && !seedanceResolutionSupported(capability, resolution) {
+			return service.TaskErrorWrapperLocal(fmt.Errorf("model %s does not support resolution %s", capabilityModel, resolution), "invalid_resolution", http.StatusBadRequest)
+		}
 	}
 	duration := req.Duration
 	if duration == 0 && req.Seconds != "" {
@@ -165,24 +168,44 @@ func seedanceCapabilityModel(info *relaycommon.RelayInfo, requestModel string) s
 	return requestModel
 }
 
-func isSeedanceCompatibleModel(modelName string) bool {
-	switch strings.ToLower(strings.TrimSpace(modelName)) {
-	case "videos-mini", "videos-fast", "videos-standard", "videos-4-mini", "videos-4-fast", "videos-4":
-		return true
-	default:
-		return false
-	}
+var seedanceDefaultModelCapabilities = map[string]dto.VideoModelCapability{
+	"videos-mini":       {Resolutions: []string{"480p", "720p"}},
+	"videos-fast":       {Resolutions: []string{"480p", "720p"}},
+	"videos-standard":   {Resolutions: []string{"480p", "720p"}},
+	"videos-4-mini":     {Resolutions: []string{"480p", "720p"}},
+	"videos-4-fast":     {Resolutions: []string{"480p", "720p"}},
+	"videos-4":          {Resolutions: []string{"480p", "720p"}},
+	"tvideos":           {Resolutions: []string{"480p", "720p", "1080p", "4k"}},
+	"tvideos-fast-480p": {Resolutions: []string{"480p"}},
+	"tvideos-mini":      {Resolutions: []string{"480p", "720p"}},
 }
 
-func seedanceResolutionSupported(modelName, resolution string) bool {
-	switch strings.ToLower(strings.TrimSpace(modelName)) {
-	case "videos-mini", "videos-fast", "videos-4-mini", "videos-4-fast", "videos-4":
-		return resolution == "480p" || resolution == "720p"
-	case "videos-standard":
-		return resolution == "480p" || resolution == "720p" || resolution == "1080p" || resolution == "4k"
-	default:
-		return false
+func isSeedanceCompatibleModel(modelName string) bool {
+	_, ok := seedanceDefaultModelCapabilities[strings.ToLower(strings.TrimSpace(modelName))]
+	return ok
+}
+
+func seedanceModelCapability(info *relaycommon.RelayInfo, modelName string) (dto.VideoModelCapability, bool) {
+	if info != nil {
+		if capability, ok := info.ChannelSetting.GetVideoModelCapability(modelName); ok {
+			return capability, true
+		}
 	}
+	capability, ok := seedanceDefaultModelCapabilities[strings.ToLower(strings.TrimSpace(modelName))]
+	if !ok {
+		return dto.VideoModelCapability{}, false
+	}
+	return dto.VideoModelCapability{Resolutions: append([]string(nil), capability.Resolutions...)}, true
+}
+
+func seedanceResolutionSupported(capability dto.VideoModelCapability, resolution string) bool {
+	resolution = strings.ToLower(strings.TrimSpace(resolution))
+	for _, supportedResolution := range capability.Resolutions {
+		if strings.ToLower(strings.TrimSpace(supportedResolution)) == resolution {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *TaskAdaptor) EstimateBillingDimensions(c *gin.Context, info *relaycommon.RelayInfo) (billingexpr.BillingDimensions, error) {
@@ -200,9 +223,11 @@ func (a *TaskAdaptor) EstimateBillingDimensions(c *gin.Context, info *relaycommo
 		if seconds < 4 || seconds > 15 {
 			return billingexpr.BillingDimensions{}, fmt.Errorf("duration is required and must be between 4 and 15 seconds for tiered billing")
 		}
-		if !seedanceResolutionSupported(capabilityModel, resolution) {
+		capability, capabilityFound := seedanceModelCapability(info, capabilityModel)
+		if !capabilityFound || !seedanceResolutionSupported(capability, resolution) {
 			return billingexpr.BillingDimensions{}, fmt.Errorf("invalid resolution %s for model %s", resolution, capabilityModel)
 		}
+		info.VideoAllowedResolutions = append([]string(nil), capability.Resolutions...)
 	}
 	if seconds <= 0 {
 		return billingexpr.BillingDimensions{}, nil
@@ -647,7 +672,15 @@ func (a *TaskAdaptor) AdjustBillingDimensionsOnComplete(task *model.Task, taskRe
 		if protocol == dto.VideoProtocolAgnesVideoV2 {
 			validResolution = resolution != "4k"
 		} else if protocol == dto.VideoProtocolSeedance || (protocol == "" && isSeedanceCompatibleModel(modelName)) {
-			validResolution = seedanceResolutionSupported(modelName, resolution)
+			if task != nil && task.PrivateData.BillingContext != nil && len(task.PrivateData.BillingContext.VideoAllowedResolutions) > 0 {
+				validResolution = seedanceResolutionSupported(dto.VideoModelCapability{
+					Resolutions: task.PrivateData.BillingContext.VideoAllowedResolutions,
+				}, resolution)
+			} else if capability, ok := seedanceModelCapability(nil, modelName); ok {
+				validResolution = seedanceResolutionSupported(capability, resolution)
+			} else {
+				validResolution = false
+			}
 		}
 		if validResolution {
 			dimensions.ResolutionTier = resolution

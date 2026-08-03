@@ -181,6 +181,7 @@ import {
 import { ParamOverrideEditorDialog } from '../dialogs/param-override-editor-dialog'
 import { StatusCodeRiskDialog } from '../dialogs/status-code-risk-dialog'
 import { ModelMappingEditor } from '../model-mapping-editor'
+import { SeedanceModelCapabilitiesField } from '../seedance-model-capabilities-field'
 import {
   ChannelAdvancedSection,
   ChannelApiAccessSection,
@@ -4220,6 +4221,13 @@ export function ChannelMutateDrawer({
                                       <FormMessage />
                                     </FormItem>
                                   )}
+                                />
+                              ) : null}
+
+                              {[1, 55].includes(currentType) &&
+                              currentVideoProtocol === 'seedance' ? (
+                                <SeedanceModelCapabilitiesField
+                                  control={form.control}
                                 />
                               ) : null}
                             </div>

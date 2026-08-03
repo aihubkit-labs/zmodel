@@ -56,12 +56,33 @@ metadata.url
 | --- | --- | --- |
 | `videos-mini` | `480p`、`720p` | 4–15 秒 |
 | `videos-fast` | `480p`、`720p` | 4–15 秒 |
-| `videos-standard` | `480p`、`720p`、`1080p`、`4K` | 4–15 秒 |
+| `videos-standard` | `480p`、`720p` | 4–15 秒 |
 | `videos-4-mini` | `480p`、`720p` | 4–15 秒 |
 | `videos-4-fast` | `480p`、`720p` | 4–15 秒 |
 | `videos-4` | `480p`、`720p` | 4–15 秒 |
+| `tvideos` | `480p`、`720p`、`1080p`、`4K` | 4–15 秒 |
+| `tvideos-fast-480p` | `480p` | 4–15 秒 |
+| `tvideos-mini` | `480p`、`720p` | 4–15 秒 |
 
-其中 `videos-4*` 由 MegabyAI 提供。模型能力按模型 ID 定义，不通过供应商域名分支实现。
+其中 `videos-4*` 由 MegabyAI 提供。所有模型复用同一套 Seedance 兼容协议，模型能力按模型 ID 定义，不通过供应商域名分支实现。
+
+上表也是未配置渠道覆盖时的内置默认值。管理员可以在渠道高级设置中选择 `Seedance Compatible`，再按上游模型 ID 配置支持的分辨率。运行时优先使用当前渠道的 `video_model_capabilities`，未配置的已知模型回退到上表，既无渠道配置也无内置默认值的模型会被拒绝。模型映射场景按映射后的上游模型 ID 查询能力。
+
+对应的渠道 `setting` 数据结构如下，管理后台会以模型行和分辨率多选控件维护该结构：
+
+```json
+{
+  "video_protocol": "seedance",
+  "video_model_capabilities": {
+    "videos-standard": { "resolutions": ["480p", "720p"] },
+    "tvideos": { "resolutions": ["480p", "720p", "1080p", "4k"] },
+    "tvideos-fast-480p": { "resolutions": ["480p"] },
+    "tvideos-mini": { "resolutions": ["480p", "720p"] }
+  }
+}
+```
+
+可配置的分辨率限定为现有计费档位 `480p`、`720p`、`1080p`、`4k`。任务提交时会冻结最终命中的分辨率能力，后续渠道配置变更不会改变进行中任务的结算规则。
 
 两个供应商均支持以下 JSON 素材字段，zmodel 保持字段名、数组顺序和 URL 原样透传，由上游执行数量、格式、时长和内容策略校验：
 

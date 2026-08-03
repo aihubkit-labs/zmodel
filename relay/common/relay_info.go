@@ -174,6 +174,7 @@ type RelayInfo struct {
 	TieredBillingSnapshot   *billingexpr.BillingSnapshot
 	BillingRequestInput     *billingexpr.RequestInput
 	ActualBillingDimensions *billingexpr.BillingDimensions
+	VideoAllowedResolutions []string
 
 	Request dto.Request
 
@@ -196,6 +197,7 @@ type RelayInfo struct {
 }
 
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
+	info.VideoAllowedResolutions = nil
 	channelType := common.GetContextKeyInt(c, constant.ContextKeyChannelType)
 	paramOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelParamOverride)
 	headerOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelHeaderOverride)

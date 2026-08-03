@@ -39,6 +39,7 @@ const ADVANCED_SETTINGS_FIELDS = new Set<FieldPath<ChannelFormValues>>([
   'thinking_to_content',
   'video_content_proxy_enabled',
   'video_protocol',
+  'video_model_capabilities',
   'pass_through_body_enabled',
   'proxy',
   'system_prompt',

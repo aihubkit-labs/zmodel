@@ -128,6 +128,47 @@ function addRequiredIssue(
   })
 }
 
+export const VIDEO_RESOLUTIONS = ['480p', '720p', '1080p', '4k'] as const
+
+const videoResolutionSchema = z.enum(VIDEO_RESOLUTIONS)
+const videoModelCapabilitySchema = z.object({
+  model: z.string(),
+  resolutions: z
+    .array(videoResolutionSchema)
+    .min(1, 'Select at least one resolution'),
+})
+
+export type VideoResolution = z.infer<typeof videoResolutionSchema>
+export type VideoModelCapabilityFormValue = z.infer<
+  typeof videoModelCapabilitySchema
+>
+
+function parseVideoModelCapabilities(
+  value: unknown
+): VideoModelCapabilityFormValue[] {
+  if (!isJsonObjectValue(value)) return []
+
+  const capabilities: VideoModelCapabilityFormValue[] = []
+  for (const [model, rawCapability] of Object.entries(value)) {
+    if (!isJsonObjectValue(rawCapability)) continue
+    if (!Array.isArray(rawCapability.resolutions)) continue
+
+    const resolutions = rawCapability.resolutions
+      .map((resolution) => String(resolution).trim().toLowerCase())
+      .filter((resolution): resolution is VideoResolution =>
+        VIDEO_RESOLUTIONS.includes(resolution as VideoResolution)
+      )
+    const uniqueResolutions = [...new Set(resolutions)]
+    if (!model.trim() || uniqueResolutions.length === 0) continue
+
+    capabilities.push({
+      model: model.trim(),
+      resolutions: uniqueResolutions,
+    })
+  }
+  return capabilities
+}
+
 export const channelFormSchema = z
   .object({
     name: z.string().min(1, ERROR_MESSAGES.REQUIRED_NAME),
@@ -192,6 +233,7 @@ export const channelFormSchema = z
     video_protocol: z
       .enum(['', 'openai_video', 'seedance', 'agnes_video_v2'])
       .optional(),
+    video_model_capabilities: z.array(videoModelCapabilitySchema).optional(),
     pass_through_body_enabled: z.boolean().optional(),
     system_prompt: z.string().optional(),
     system_prompt_override: z.boolean().optional(),
@@ -294,6 +336,29 @@ export const channelFormSchema = z
         'Vertex AI API Key mode does not support batch creation'
       )
     }
+
+    const configuredModels = new Set<string>()
+    for (const [index, capability] of (
+      data.video_model_capabilities || []
+    ).entries()) {
+      const normalizedModel = capability.model.trim().toLowerCase()
+      if (!normalizedModel) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['video_model_capabilities', index, 'model'],
+          message: 'Model ID is required',
+        })
+        continue
+      }
+      if (configuredModels.has(normalizedModel)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['video_model_capabilities', index, 'model'],
+          message: 'Model IDs must be unique',
+        })
+      }
+      configuredModels.add(normalizedModel)
+    }
   })
 
 export type ChannelFormValues = z.infer<typeof channelFormSchema>
@@ -334,6 +399,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   proxy: '',
   video_content_proxy_enabled: false,
   video_protocol: '',
+  video_model_capabilities: [],
   pass_through_body_enabled: false,
   system_prompt: '',
   system_prompt_override: false,
@@ -374,6 +440,7 @@ export function transformChannelToFormDefaults(
     proxy: '',
     video_content_proxy_enabled: false,
     video_protocol: '' as const,
+    video_model_capabilities: [] as VideoModelCapabilityFormValue[],
     pass_through_body_enabled: false,
     system_prompt: '',
     system_prompt_override: false,
@@ -396,6 +463,9 @@ export function transformChannelToFormDefaults(
         video_content_proxy_enabled:
           parsed.video_content_proxy_enabled || false,
         video_protocol: videoProtocol,
+        video_model_capabilities: parseVideoModelCapabilities(
+          parsed.video_model_capabilities
+        ),
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
         system_prompt: parsed.system_prompt || '',
         system_prompt_override: parsed.system_prompt_override || false,
@@ -509,12 +579,25 @@ export function transformChannelToFormDefaults(
  * Build the setting JSON string from form extra settings
  */
 function buildSettingJSON(formData: ChannelFormValues): string {
+  const videoModelCapabilities = Object.fromEntries(
+    (formData.video_model_capabilities || [])
+      .filter((capability) => capability.model.trim())
+      .map((capability) => [
+        capability.model.trim(),
+        {
+          resolutions: capability.resolutions.map((resolution) =>
+            resolution.toLowerCase()
+          ),
+        },
+      ])
+  )
   const settingObj = {
     force_format: formData.force_format || false,
     thinking_to_content: formData.thinking_to_content || false,
     proxy: formData.proxy || '',
     video_content_proxy_enabled: formData.video_content_proxy_enabled || false,
     video_protocol: formData.video_protocol || '',
+    video_model_capabilities: videoModelCapabilities,
     pass_through_body_enabled: formData.pass_through_body_enabled || false,
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,
