@@ -190,6 +190,8 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.PUT("/", controller.UpdateOption)
 			optionRoute.GET("/object-storage", controller.GetObjectStorageSettings)
 			optionRoute.PUT("/object-storage", controller.UpdateObjectStorageSettings)
+			optionRoute.GET("/object-storage/video", controller.GetVideoObjectStorageSettings)
+			optionRoute.PUT("/object-storage/video", controller.UpdateVideoObjectStorageSettings)
 			optionRoute.POST("/payment_compliance", controller.ConfirmPaymentCompliance)
 			optionRoute.GET("/channel_affinity_cache", controller.GetChannelAffinityCacheStats)
 			optionRoute.DELETE("/channel_affinity_cache", controller.ClearChannelAffinityCache)
@@ -330,6 +332,8 @@ func SetApiRouter(router *gin.Engine) {
 			taskRoute.GET("/self", middleware.UserAuth(), controller.GetUserTask)
 			taskRoute.GET("/filter-options", middleware.AdminAuth(), controller.GetAllTaskFilterOptions)
 			taskRoute.GET("/", middleware.AdminAuth(), controller.GetAllTask)
+			taskRoute.POST("/batch-video-upload", middleware.AdminAuth(), controller.BatchVideoStorageUpload)
+			taskRoute.POST("/:task_id/retry-video-upload", middleware.AdminAuth(), controller.RetryVideoStorageUpload)
 		}
 
 		asyncImageTaskRoute := apiRouter.Group("/async-image-task")

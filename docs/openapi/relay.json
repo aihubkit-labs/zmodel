@@ -690,7 +690,7 @@
       "get": {
         "summary": "获取视频任务状态 ",
         "deprecated": false,
-        "description": "OpenAI 兼容的视频任务状态查询接口。\n\n返回视频任务的详细状态信息。\n",
+        "description": "OpenAI 兼容的视频任务状态查询接口。\n\n返回视频任务的详细状态信息。任务完成后，所有视频地址统一返回平台 `/v1/videos/{task_id}/content` 接口；S3 优先、平台流式代理或重定向到上游地址的动态选择仅在访问该内容接口时执行。\n",
         "operationId": "getVideo",
         "tags": [
           "视频生成/Sora兼容格式"
@@ -735,6 +735,16 @@
                     },
                     "seconds": {
                       "type": "string"
+                    },
+                    "url": {
+                      "type": "string",
+                      "format": "uri",
+                      "description": "平台视频内容接口地址，固定为 /v1/videos/{task_id}/content"
+                    },
+                    "video_url": {
+                      "type": "string",
+                      "format": "uri",
+                      "description": "兼容字段；存在时与 url 指向同一个平台视频内容接口"
                     }
                   },
                   "required": [
@@ -783,7 +793,7 @@
       "get": {
         "summary": "获取视频内容",
         "deprecated": false,
-        "description": "获取已完成视频任务的视频文件内容。\n\n此接口会代理返回视频文件流。\n",
+        "description": "获取已完成视频任务的视频内容。任务查询返回的视频地址、客户端复制的视频地址、播放器地址和下载入口均应使用本平台接口；重定向时返回的 S3 签名地址或上游地址只是临时传输目标，不应作为业务字段保存、展示或复制。每次访问都会读取渠道当前配置：S3 优先且对象可用时重定向到 S3 签名地址；否则开启代理视频内容时由平台流式返回上游视频；关闭代理时重定向到上游 HTTPS 地址。上游结果为 data URI 时由平台直接输出。\n",
         "operationId": "getVideoContent",
         "tags": [
           "视频生成/Sora兼容格式"
@@ -798,11 +808,40 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "download_name",
+            "in": "query",
+            "description": "可选下载文件名，仅在 S3 签名地址或平台流式代理分支生效；跳转到上游地址时忽略",
+            "required": false,
+            "example": "result.mp4",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Range",
+            "in": "header",
+            "description": "代理视频内容时转发给上游的字节范围",
+            "required": false,
+            "example": "bytes=0-1023",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Range",
+            "in": "header",
+            "description": "代理视频内容时转发给上游的条件范围请求头",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "成功获取视频内容",
+            "description": "平台成功返回完整视频内容，包括无法重定向的 data URI",
             "content": {
               "video/mp4": {
                 "schema": {
@@ -813,8 +852,63 @@
             },
             "headers": {}
           },
+          "206": {
+            "description": "平台成功返回部分视频内容",
+            "content": {
+              "video/mp4": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "headers": {
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Range": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "307": {
+            "description": "根据渠道当前配置临时重定向到 S3 签名地址或上游 HTTPS 视频地址",
+            "headers": {
+              "Location": {
+                "description": "S3 签名地址或上游视频地址",
+                "schema": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "任务尚未完成或请求参数无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "视频地址被 URL 或 SSRF 安全策略拦截",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
-            "description": "视频不存在或未完成",
+            "description": "视频任务不存在",
             "content": {
               "application/json": {
                 "schema": {
@@ -823,6 +917,26 @@
               }
             },
             "headers": {}
+          },
+          "500": {
+            "description": "读取任务或渠道配置失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "无法从上游解析或获取视频内容",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [

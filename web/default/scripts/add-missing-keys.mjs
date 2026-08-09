@@ -1,3 +1,21 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
@@ -9,6 +27,27 @@ function stableStringify(obj) {
 
 const newKeys = {
   en: {
+    'Archive completed videos to the configured video object storage and return presigned URLs':
+      'Archive completed videos to the configured video object storage and return presigned URLs',
+    'Archived videos remain private and are delivered with temporary signed URLs.':
+      'Archived videos remain private and are delivered with temporary signed URLs.',
+    'Async images': 'Async images',
+    'Business ID': 'Business ID',
+    'Business ID is required': 'Business ID is required',
+    'Failed to save video object storage settings':
+      'Failed to save video object storage settings',
+    'Keep using the upstream video content URL':
+      'Keep using the upstream video content URL',
+    'Object storage type': 'Object storage type',
+    'Store video files in S3': 'Store video files in S3',
+    'The root prefix before user-files.': 'The root prefix before user-files.',
+    'Use one path segment without slashes or spaces':
+      'Use one path segment without slashes or spaces',
+    'Used as the business path segment and object namespace.':
+      'Used as the business path segment and object namespace.',
+    'Video object storage settings saved':
+      'Video object storage settings saved',
+    'Video S3 connection': 'Video S3 connection',
     'Upload status': 'Upload status',
     Uploaded: 'Uploaded',
     'Human verification is loading': 'Human verification is loading',
@@ -89,6 +128,24 @@ const newKeys = {
     'Video resolution tier': 'Video resolution tier',
   },
   zh: {
+    'Archive completed videos to the configured video object storage and return presigned URLs':
+      '将已完成的视频归档到配置的视频对象存储，并返回签名 URL',
+    'Archived videos remain private and are delivered with temporary signed URLs.':
+      '归档后的视频保持私有，并通过临时签名 URL 提供访问。',
+    'Async images': '异步图片',
+    'Business ID': '业务 ID',
+    'Business ID is required': '业务 ID 不能为空',
+    'Failed to save video object storage settings': '保存视频对象存储设置失败',
+    'Keep using the upstream video content URL': '继续使用上游视频内容地址',
+    'Object storage type': '对象存储类型',
+    'Store video files in S3': '将视频文件存储到 S3',
+    'The root prefix before user-files.': 'user-files 之前的根前缀。',
+    'Use one path segment without slashes or spaces':
+      '请使用不含斜杠和空格的单个路径段',
+    'Used as the business path segment and object namespace.':
+      '用作业务路径段和对象命名空间。',
+    'Video object storage settings saved': '视频对象存储设置已保存',
+    'Video S3 connection': '视频 S3 连接',
     'Upload status': '上传状态',
     Uploaded: '已上传',
     'Human verification is loading': '人机验证加载中',
@@ -166,6 +223,24 @@ const newKeys = {
     'Video resolution tier': '视频分辨率档位',
   },
   'zh-TW': {
+    'Archive completed videos to the configured video object storage and return presigned URLs':
+      '將已完成的影片封存到設定的影片物件儲存，並傳回簽名 URL',
+    'Archived videos remain private and are delivered with temporary signed URLs.':
+      '封存後的影片保持私有，並透過臨時簽名 URL 提供存取。',
+    'Async images': '非同步圖片',
+    'Business ID': '業務 ID',
+    'Business ID is required': '業務 ID 為必填',
+    'Failed to save video object storage settings': '儲存影片物件儲存設定失敗',
+    'Keep using the upstream video content URL': '繼續使用上游影片內容位址',
+    'Object storage type': '物件儲存類型',
+    'Store video files in S3': '將影片檔案儲存到 S3',
+    'The root prefix before user-files.': 'user-files 之前的根前綴。',
+    'Use one path segment without slashes or spaces':
+      '請使用不含斜線和空格的單一路徑段',
+    'Used as the business path segment and object namespace.':
+      '用作業務路徑段和物件命名空間。',
+    'Video object storage settings saved': '影片物件儲存設定已儲存',
+    'Video S3 connection': '影片 S3 連線',
     'Upload status': '上傳狀態',
     Uploaded: '已上傳',
     'Human verification is loading': '人機驗證載入中',
@@ -243,6 +318,28 @@ const newKeys = {
     'Video resolution tier': '影片解析度級別',
   },
   fr: {
+    'Archive completed videos to the configured video object storage and return presigned URLs':
+      'Archiver les vidéos terminées dans le stockage configuré et renvoyer des URL présignées',
+    'Archived videos remain private and are delivered with temporary signed URLs.':
+      'Les vidéos archivées restent privées et sont accessibles par des URL signées temporaires.',
+    'Async images': 'Images asynchrones',
+    'Business ID': 'ID métier',
+    'Business ID is required': 'L’ID métier est requis',
+    'Failed to save video object storage settings':
+      'Échec de l’enregistrement du stockage vidéo',
+    'Keep using the upstream video content URL':
+      'Continuer à utiliser l’URL vidéo du fournisseur',
+    'Object storage type': 'Type de stockage objet',
+    'Store video files in S3': 'Stocker les vidéos dans S3',
+    'The root prefix before user-files.':
+      'Préfixe racine placé avant user-files.',
+    'Use one path segment without slashes or spaces':
+      'Utilisez un seul segment sans barre oblique ni espace',
+    'Used as the business path segment and object namespace.':
+      'Utilisé comme segment métier et espace de noms des objets.',
+    'Video object storage settings saved':
+      'Paramètres du stockage vidéo enregistrés',
+    'Video S3 connection': 'Connexion S3 vidéo',
     'Upload status': 'État du téléversement',
     Uploaded: 'Téléversé',
     'Human verification is loading':
@@ -324,6 +421,28 @@ const newKeys = {
     'Video resolution tier': 'Palier de résolution vidéo',
   },
   ja: {
+    'Archive completed videos to the configured video object storage and return presigned URLs':
+      '完了した動画を設定済みの動画オブジェクトストレージに保存し、署名付き URL を返します',
+    'Archived videos remain private and are delivered with temporary signed URLs.':
+      '保存された動画は非公開のまま、一時的な署名付き URL で配信されます。',
+    'Async images': '非同期画像',
+    'Business ID': 'ビジネス ID',
+    'Business ID is required': 'ビジネス ID は必須です',
+    'Failed to save video object storage settings':
+      '動画オブジェクトストレージ設定を保存できませんでした',
+    'Keep using the upstream video content URL':
+      'アップストリームの動画 URL を引き続き使用します',
+    'Object storage type': 'オブジェクトストレージの種類',
+    'Store video files in S3': '動画ファイルを S3 に保存',
+    'The root prefix before user-files.':
+      'user-files より前に付けるルートプレフィックスです。',
+    'Use one path segment without slashes or spaces':
+      'スラッシュや空白を含まない単一のパスセグメントを使用してください',
+    'Used as the business path segment and object namespace.':
+      'ビジネス用パスセグメントとオブジェクト名前空間として使用します。',
+    'Video object storage settings saved':
+      '動画オブジェクトストレージ設定を保存しました',
+    'Video S3 connection': '動画 S3 接続',
     'Upload status': 'アップロード状態',
     Uploaded: 'アップロード済み',
     'Human verification is loading': '人間による確認を読み込み中です',
@@ -403,6 +522,27 @@ const newKeys = {
     'Video resolution tier': '動画解像度階層',
   },
   ru: {
+    'Archive completed videos to the configured video object storage and return presigned URLs':
+      'Архивировать готовые видео в настроенное объектное хранилище и возвращать подписанные URL',
+    'Archived videos remain private and are delivered with temporary signed URLs.':
+      'Архивные видео остаются закрытыми и доступны по временным подписанным URL.',
+    'Async images': 'Асинхронные изображения',
+    'Business ID': 'Идентификатор бизнеса',
+    'Business ID is required': 'Требуется идентификатор бизнеса',
+    'Failed to save video object storage settings':
+      'Не удалось сохранить настройки хранилища видео',
+    'Keep using the upstream video content URL':
+      'Продолжать использовать URL видео поставщика',
+    'Object storage type': 'Тип объектного хранилища',
+    'Store video files in S3': 'Хранить видеофайлы в S3',
+    'The root prefix before user-files.': 'Корневой префикс перед user-files.',
+    'Use one path segment without slashes or spaces':
+      'Используйте один сегмент пути без косых черт и пробелов',
+    'Used as the business path segment and object namespace.':
+      'Используется как сегмент бизнес-пути и пространство имён объектов.',
+    'Video object storage settings saved':
+      'Настройки хранилища видео сохранены',
+    'Video S3 connection': 'Подключение S3 для видео',
     'Upload status': 'Статус загрузки',
     Uploaded: 'Загружено',
     'Human verification is loading': 'Проверка на человека загружается',
@@ -484,6 +624,26 @@ const newKeys = {
     'Video resolution tier': 'Уровень разрешения видео',
   },
   vi: {
+    'Archive completed videos to the configured video object storage and return presigned URLs':
+      'Lưu trữ video đã hoàn tất vào kho đối tượng video đã cấu hình và trả về URL đã ký',
+    'Archived videos remain private and are delivered with temporary signed URLs.':
+      'Video đã lưu trữ vẫn ở chế độ riêng tư và được cung cấp qua URL đã ký tạm thời.',
+    'Async images': 'Hình ảnh bất đồng bộ',
+    'Business ID': 'ID nghiệp vụ',
+    'Business ID is required': 'Bắt buộc có ID nghiệp vụ',
+    'Failed to save video object storage settings':
+      'Không thể lưu cài đặt kho đối tượng video',
+    'Keep using the upstream video content URL':
+      'Tiếp tục dùng URL nội dung video từ nhà cung cấp',
+    'Object storage type': 'Loại kho đối tượng',
+    'Store video files in S3': 'Lưu tệp video vào S3',
+    'The root prefix before user-files.': 'Tiền tố gốc đứng trước user-files.',
+    'Use one path segment without slashes or spaces':
+      'Dùng một đoạn đường dẫn không có dấu gạch chéo hoặc khoảng trắng',
+    'Used as the business path segment and object namespace.':
+      'Được dùng làm đoạn đường dẫn nghiệp vụ và không gian tên đối tượng.',
+    'Video object storage settings saved': 'Đã lưu cài đặt kho đối tượng video',
+    'Video S3 connection': 'Kết nối S3 cho video',
     'Upload status': 'Trạng thái tải lên',
     Uploaded: 'Đã tải lên',
     'Human verification is loading': 'Đang tải bước xác minh người dùng',
@@ -1088,7 +1248,7 @@ Object.assign(newKeys.en, {
   'Agnes Video V2': 'Agnes Video V2',
   'OpenAI Video / Sora Compatible': 'OpenAI Video / Sora Compatible',
   'Redemption time': 'Redemption time',
-  'Seedance Compatible': 'Seedance Compatible',
+  'seedance(megabyai)': 'seedance(megabyai)',
   'Select video protocol': 'Select video protocol',
   'Video Protocol': 'Video Protocol',
 })
@@ -1096,7 +1256,7 @@ Object.assign(newKeys.zh, {
   'Agnes Video V2': 'Agnes Video V2',
   'OpenAI Video / Sora Compatible': 'OpenAI Video / Sora 兼容',
   'Redemption time': '兑换时间',
-  'Seedance Compatible': 'Seedance 兼容',
+  'seedance(megabyai)': 'seedance(megabyai)',
   'Select video protocol': '选择视频协议',
   'Video Protocol': '视频协议',
 })
@@ -1104,7 +1264,7 @@ Object.assign(newKeys['zh-TW'], {
   'Agnes Video V2': 'Agnes Video V2',
   'OpenAI Video / Sora Compatible': 'OpenAI Video / Sora 相容',
   'Redemption time': '兌換時間',
-  'Seedance Compatible': 'Seedance 相容',
+  'seedance(megabyai)': 'seedance(megabyai)',
   'Select video protocol': '選擇影片協議',
   'Video Protocol': '影片協議',
 })
@@ -1112,7 +1272,7 @@ Object.assign(newKeys.fr, {
   'Agnes Video V2': 'Agnes Video V2',
   'OpenAI Video / Sora Compatible': 'Compatible OpenAI Video / Sora',
   'Redemption time': "Date d'échange",
-  'Seedance Compatible': 'Compatible Seedance',
+  'seedance(megabyai)': 'seedance(megabyai)',
   'Select video protocol': 'Sélectionner le protocole vidéo',
   'Video Protocol': 'Protocole vidéo',
 })
@@ -1120,7 +1280,7 @@ Object.assign(newKeys.ja, {
   'Agnes Video V2': 'Agnes Video V2',
   'OpenAI Video / Sora Compatible': 'OpenAI Video / Sora 互換',
   'Redemption time': '引き換え日時',
-  'Seedance Compatible': 'Seedance 互換',
+  'seedance(megabyai)': 'seedance(megabyai)',
   'Select video protocol': '動画プロトコルを選択',
   'Video Protocol': '動画プロトコル',
 })
@@ -1128,7 +1288,7 @@ Object.assign(newKeys.ru, {
   'Agnes Video V2': 'Agnes Video V2',
   'OpenAI Video / Sora Compatible': 'Совместимый с OpenAI Video / Sora',
   'Redemption time': 'Время активации',
-  'Seedance Compatible': 'Совместимый с Seedance',
+  'seedance(megabyai)': 'seedance(megabyai)',
   'Select video protocol': 'Выберите видеопротокол',
   'Video Protocol': 'Видеопротокол',
 })
@@ -1136,9 +1296,389 @@ Object.assign(newKeys.vi, {
   'Agnes Video V2': 'Agnes Video V2',
   'OpenAI Video / Sora Compatible': 'Tương thích OpenAI Video / Sora',
   'Redemption time': 'Thời gian đổi mã',
-  'Seedance Compatible': 'Tương thích Seedance',
+  'seedance(megabyai)': 'seedance(megabyai)',
   'Select video protocol': 'Chọn giao thức video',
   'Video Protocol': 'Giao thức video',
+})
+
+Object.assign(newKeys.en, {
+  'Add a resolution, for example 720p': 'Add a resolution, for example 720p',
+  'Configure each upstream video model and its reference media limits':
+    'Configure each upstream video model and its reference media limits',
+  'Configure at least one resolution': 'Configure at least one resolution',
+  'Configure at least one video model': 'Configure at least one video model',
+  'Duration must be a whole number': 'Duration must be a whole number',
+  'Duration must be between 1 and 3600 seconds':
+    'Duration must be between 1 and 3600 seconds',
+  'Fetch or add channel models before configuring video models':
+    'Fetch or add channel models before configuring video models',
+  'Max reference audios': 'Max reference audios',
+  'Max reference images': 'Max reference images',
+  'Max reference videos': 'Max reference videos',
+  'Maximum duration (seconds)': 'Maximum duration (seconds)',
+  'Maximum duration is required': 'Maximum duration is required',
+  'Minimum duration (seconds)': 'Minimum duration (seconds)',
+  'Minimum duration cannot exceed maximum duration':
+    'Minimum duration cannot exceed maximum duration',
+  'Minimum duration is required': 'Minimum duration is required',
+  'No video model capabilities configured':
+    'No video model capabilities configured',
+  'Press Enter or comma to add resolutions':
+    'Press Enter or comma to add resolutions',
+  'Select upstream model ID': 'Select upstream model ID',
+  'Video model capabilities': 'Video model capabilities',
+})
+Object.assign(newKeys.zh, {
+  'Add a resolution, for example 720p': '添加分辨率，例如 720p',
+  'Configure each upstream video model and its reference media limits':
+    '配置每个上游视频模型及其参考素材数量上限',
+  'Configure at least one resolution': '至少配置一个分辨率',
+  'Configure at least one video model': '至少配置一个视频模型',
+  'Duration must be a whole number': '时长必须为整数',
+  'Duration must be between 1 and 3600 seconds': '时长必须在 1 到 3600 秒之间',
+  'Fetch or add channel models before configuring video models':
+    '请先获取或添加渠道模型，再配置视频模型',
+  'Max reference audios': '参考音频上限',
+  'Max reference images': '参考图片上限',
+  'Max reference videos': '参考视频上限',
+  'Maximum duration (seconds)': '最大时长（秒）',
+  'Maximum duration is required': '必须配置最大时长',
+  'Minimum duration (seconds)': '最小时长（秒）',
+  'Minimum duration cannot exceed maximum duration': '最小时长不能大于最大时长',
+  'Minimum duration is required': '必须配置最小时长',
+  'No video model capabilities configured': '尚未配置视频模型能力',
+  'Press Enter or comma to add resolutions': '按回车键或逗号添加分辨率',
+  'Select upstream model ID': '选择上游模型 ID',
+  'Video model capabilities': '视频模型能力',
+})
+Object.assign(newKeys['zh-TW'], {
+  'Add a resolution, for example 720p': '新增解析度，例如 720p',
+  'Configure each upstream video model and its reference media limits':
+    '設定每個上游影片模型及其參考素材數量上限',
+  'Configure at least one resolution': '至少設定一個解析度',
+  'Configure at least one video model': '至少設定一個影片模型',
+  'Duration must be a whole number': '時長必須為整數',
+  'Duration must be between 1 and 3600 seconds':
+    '時長必須介於 1 到 3600 秒之間',
+  'Fetch or add channel models before configuring video models':
+    '請先取得或新增渠道模型，再設定影片模型',
+  'Max reference audios': '參考音訊上限',
+  'Max reference images': '參考圖片上限',
+  'Max reference videos': '參考影片上限',
+  'Maximum duration (seconds)': '最長時長（秒）',
+  'Maximum duration is required': '必須設定最長時長',
+  'Minimum duration (seconds)': '最短時長（秒）',
+  'Minimum duration cannot exceed maximum duration': '最短時長不能大於最長時長',
+  'Minimum duration is required': '必須設定最短時長',
+  'No video model capabilities configured': '尚未設定影片模型能力',
+  'Press Enter or comma to add resolutions': '按 Enter 或逗號新增解析度',
+  'Select upstream model ID': '選擇上游模型 ID',
+  'Video model capabilities': '影片模型能力',
+})
+Object.assign(newKeys.fr, {
+  'Add a resolution, for example 720p': 'Ajouter une résolution, par ex. 720p',
+  'Configure each upstream video model and its reference media limits':
+    'Configurer chaque modèle vidéo en amont et ses limites de médias de référence',
+  'Configure at least one resolution': 'Configurez au moins une résolution',
+  'Configure at least one video model': 'Configurez au moins un modèle vidéo',
+  'Duration must be a whole number': 'La durée doit être un nombre entier',
+  'Duration must be between 1 and 3600 seconds':
+    'La durée doit être comprise entre 1 et 3 600 secondes',
+  'Fetch or add channel models before configuring video models':
+    'Récupérez ou ajoutez les modèles du canal avant de configurer les modèles vidéo',
+  'Max reference audios': 'Audios de référence max.',
+  'Max reference images': 'Images de référence max.',
+  'Max reference videos': 'Vidéos de référence max.',
+  'Maximum duration (seconds)': 'Durée maximale (secondes)',
+  'Maximum duration is required': 'La durée maximale est requise',
+  'Minimum duration (seconds)': 'Durée minimale (secondes)',
+  'Minimum duration cannot exceed maximum duration':
+    'La durée minimale ne peut pas dépasser la durée maximale',
+  'Minimum duration is required': 'La durée minimale est requise',
+  'No video model capabilities configured':
+    'Aucune capacité de modèle vidéo configurée',
+  'Press Enter or comma to add resolutions':
+    'Appuyez sur Entrée ou une virgule pour ajouter des résolutions',
+  'Select upstream model ID': "Sélectionner l'ID du modèle en amont",
+  'Video model capabilities': 'Capacités des modèles vidéo',
+})
+Object.assign(newKeys.ja, {
+  'Add a resolution, for example 720p': '解像度を追加（例: 720p）',
+  'Configure each upstream video model and its reference media limits':
+    '上流動画モデルごとに参照メディアの上限を設定します',
+  'Configure at least one resolution': '解像度を1つ以上設定してください',
+  'Configure at least one video model': '動画モデルを1つ以上設定してください',
+  'Duration must be a whole number': '時間は整数で指定してください',
+  'Duration must be between 1 and 3600 seconds':
+    '時間は1〜3600秒の範囲で指定してください',
+  'Fetch or add channel models before configuring video models':
+    '動画モデルを設定する前にチャネルモデルを取得または追加してください',
+  'Max reference audios': '参照音声の上限',
+  'Max reference images': '参照画像の上限',
+  'Max reference videos': '参照動画の上限',
+  'Maximum duration (seconds)': '最大時間（秒）',
+  'Maximum duration is required': '最大時間を設定してください',
+  'Minimum duration (seconds)': '最小時間（秒）',
+  'Minimum duration cannot exceed maximum duration':
+    '最小時間は最大時間以下にしてください',
+  'Minimum duration is required': '最小時間を設定してください',
+  'No video model capabilities configured': '動画モデル機能が未設定です',
+  'Press Enter or comma to add resolutions':
+    'Enter またはカンマで解像度を追加します',
+  'Select upstream model ID': '上流モデル ID を選択',
+  'Video model capabilities': '動画モデル機能',
+})
+Object.assign(newKeys.ru, {
+  'Add a resolution, for example 720p': 'Добавьте разрешение, например 720p',
+  'Configure each upstream video model and its reference media limits':
+    'Настройте каждую вышестоящую видеомодель и лимиты референсных материалов',
+  'Configure at least one resolution': 'Настройте хотя бы одно разрешение',
+  'Configure at least one video model': 'Настройте хотя бы одну видеомодель',
+  'Duration must be a whole number': 'Длительность должна быть целым числом',
+  'Duration must be between 1 and 3600 seconds':
+    'Длительность должна быть от 1 до 3600 секунд',
+  'Fetch or add channel models before configuring video models':
+    'Получите или добавьте модели канала перед настройкой видеомоделей',
+  'Max reference audios': 'Макс. референсных аудио',
+  'Max reference images': 'Макс. референсных изображений',
+  'Max reference videos': 'Макс. референсных видео',
+  'Maximum duration (seconds)': 'Максимальная длительность (сек.)',
+  'Maximum duration is required': 'Укажите максимальную длительность',
+  'Minimum duration (seconds)': 'Минимальная длительность (сек.)',
+  'Minimum duration cannot exceed maximum duration':
+    'Минимальная длительность не может превышать максимальную',
+  'Minimum duration is required': 'Укажите минимальную длительность',
+  'No video model capabilities configured':
+    'Возможности видеомоделей не настроены',
+  'Press Enter or comma to add resolutions':
+    'Нажмите Enter или запятую, чтобы добавить разрешение',
+  'Select upstream model ID': 'Выберите ID вышестоящей модели',
+  'Video model capabilities': 'Возможности видеомоделей',
+})
+Object.assign(newKeys.vi, {
+  'Add a resolution, for example 720p': 'Thêm độ phân giải, ví dụ 720p',
+  'Configure each upstream video model and its reference media limits':
+    'Cấu hình từng mô hình video thượng nguồn và giới hạn nội dung tham chiếu',
+  'Configure at least one resolution': 'Cấu hình ít nhất một độ phân giải',
+  'Configure at least one video model': 'Cấu hình ít nhất một mô hình video',
+  'Duration must be a whole number': 'Thời lượng phải là số nguyên',
+  'Duration must be between 1 and 3600 seconds':
+    'Thời lượng phải từ 1 đến 3600 giây',
+  'Fetch or add channel models before configuring video models':
+    'Tải hoặc thêm mô hình kênh trước khi cấu hình mô hình video',
+  'Max reference audios': 'Âm thanh tham chiếu tối đa',
+  'Max reference images': 'Ảnh tham chiếu tối đa',
+  'Max reference videos': 'Video tham chiếu tối đa',
+  'Maximum duration (seconds)': 'Thời lượng tối đa (giây)',
+  'Maximum duration is required': 'Bắt buộc cấu hình thời lượng tối đa',
+  'Minimum duration (seconds)': 'Thời lượng tối thiểu (giây)',
+  'Minimum duration cannot exceed maximum duration':
+    'Thời lượng tối thiểu không được lớn hơn thời lượng tối đa',
+  'Minimum duration is required': 'Bắt buộc cấu hình thời lượng tối thiểu',
+  'No video model capabilities configured':
+    'Chưa cấu hình khả năng mô hình video',
+  'Press Enter or comma to add resolutions':
+    'Nhấn Enter hoặc dấu phẩy để thêm độ phân giải',
+  'Select upstream model ID': 'Chọn ID mô hình thượng nguồn',
+  'Video model capabilities': 'Khả năng mô hình video',
+})
+
+Object.assign(newKeys.en, {
+  'Failed to retry video upload': 'Failed to retry video upload',
+  'Retry video upload': 'Retry video upload',
+  'Storage error': 'Storage error',
+  Uploading: 'Uploading',
+  'Video delivery priority': 'Video delivery priority',
+  'Video upload retry started': 'Video upload retry started',
+})
+Object.assign(newKeys.zh, {
+  'Failed to retry video upload': '视频上传重试失败',
+  'Retry video upload': '重试视频上传',
+  'Storage error': '存储错误',
+  Uploading: '上传中',
+  'Video delivery priority': '视频交付优先级',
+  'Video upload retry started': '已开始重试视频上传',
+})
+Object.assign(newKeys['zh-TW'], {
+  'Failed to retry video upload': '影片上傳重試失敗',
+  'Retry video upload': '重試影片上傳',
+  'Storage error': '儲存錯誤',
+  Uploading: '上傳中',
+  'Video delivery priority': '影片交付優先順序',
+  'Video upload retry started': '已開始重試影片上傳',
+})
+Object.assign(newKeys.fr, {
+  'Failed to retry video upload':
+    'Échec de la nouvelle tentative de téléversement vidéo',
+  'Retry video upload': 'Réessayer le téléversement',
+  'Storage error': 'Erreur de stockage',
+  Uploading: 'Téléversement en cours',
+  'Video delivery priority': 'Priorité de livraison vidéo',
+  'Video upload retry started': 'Nouvelle tentative de téléversement lancée',
+})
+Object.assign(newKeys.ja, {
+  'Failed to retry video upload': '動画アップロードの再試行に失敗しました',
+  'Retry video upload': '動画アップロードを再試行',
+  'Storage error': 'ストレージエラー',
+  Uploading: 'アップロード中',
+  'Video delivery priority': '動画配信の優先順位',
+  'Video upload retry started': '動画アップロードの再試行を開始しました',
+})
+Object.assign(newKeys.ru, {
+  'Failed to retry video upload': 'Не удалось повторить загрузку видео',
+  'Retry video upload': 'Повторить загрузку видео',
+  'Storage error': 'Ошибка хранилища',
+  Uploading: 'Загрузка',
+  'Video delivery priority': 'Приоритет доставки видео',
+  'Video upload retry started': 'Повторная загрузка видео запущена',
+})
+Object.assign(newKeys.vi, {
+  'Failed to retry video upload': 'Không thể thử lại việc tải video lên',
+  'Retry video upload': 'Thử tải lại video',
+  'Storage error': 'Lỗi lưu trữ',
+  Uploading: 'Đang tải lên',
+  'Video delivery priority': 'Ưu tiên phân phối video',
+  'Video upload retry started': 'Đã bắt đầu thử tải lại video',
+})
+
+Object.assign(newKeys.en, {
+  'S3 Preferred': 'S3 Preferred',
+  'Select all uploadable video tasks': 'Select all uploadable video tasks',
+  'Select video task': 'Select video task',
+  'Upload to S3': 'Upload to S3',
+  'Video upload started': 'Video upload started',
+  'Video uploads started': 'Video uploads started',
+  'Failed to upload video to S3': 'Failed to upload video to S3',
+  'Failed to upload videos to S3': 'Failed to upload videos to S3',
+  'Not uploaded': 'Not uploaded',
+  '{{count}} task(s) were skipped': '{{count}} task(s) were skipped',
+})
+Object.assign(newKeys.zh, {
+  'S3 Preferred': 'S3 优先',
+  'Select all uploadable video tasks': '选择全部可上传的视频任务',
+  'Select video task': '选择视频任务',
+  'Upload to S3': '上传到 S3',
+  'Video upload started': '已开始上传视频',
+  'Video uploads started': '已开始批量上传视频',
+  'Failed to upload video to S3': '视频上传到 S3 失败',
+  'Failed to upload videos to S3': '批量上传视频到 S3 失败',
+  'Not uploaded': '未上传',
+  '{{count}} task(s) were skipped': '已跳过 {{count}} 个任务',
+})
+Object.assign(newKeys['zh-TW'], {
+  'S3 Preferred': 'S3 優先',
+  'Select all uploadable video tasks': '選擇全部可上傳的影片任務',
+  'Select video task': '選擇影片任務',
+  'Upload to S3': '上傳到 S3',
+  'Video upload started': '已開始上傳影片',
+  'Video uploads started': '已開始批次上傳影片',
+  'Failed to upload video to S3': '影片上傳到 S3 失敗',
+  'Failed to upload videos to S3': '批次上傳影片到 S3 失敗',
+  'Not uploaded': '未上傳',
+  '{{count}} task(s) were skipped': '已略過 {{count}} 個任務',
+})
+Object.assign(newKeys.fr, {
+  'S3 Preferred': 'S3 prioritaire',
+  'Select all uploadable video tasks':
+    'Sélectionner toutes les tâches vidéo téléversables',
+  'Select video task': 'Sélectionner la tâche vidéo',
+  'Upload to S3': 'Téléverser vers S3',
+  'Video upload started': 'Téléversement vidéo lancé',
+  'Video uploads started': 'Téléversements vidéo lancés',
+  'Failed to upload video to S3': 'Échec du téléversement vidéo vers S3',
+  'Failed to upload videos to S3': 'Échec du téléversement des vidéos vers S3',
+  'Not uploaded': 'Non téléversé',
+  '{{count}} task(s) were skipped': '{{count}} tâche(s) ignorée(s)',
+})
+Object.assign(newKeys.ja, {
+  'S3 Preferred': 'S3 を優先',
+  'Select all uploadable video tasks':
+    'アップロード可能な動画タスクをすべて選択',
+  'Select video task': '動画タスクを選択',
+  'Upload to S3': 'S3 にアップロード',
+  'Video upload started': '動画のアップロードを開始しました',
+  'Video uploads started': '動画の一括アップロードを開始しました',
+  'Failed to upload video to S3': '動画を S3 にアップロードできませんでした',
+  'Failed to upload videos to S3':
+    '動画を S3 に一括アップロードできませんでした',
+  'Not uploaded': '未アップロード',
+  '{{count}} task(s) were skipped': '{{count}} 件のタスクをスキップしました',
+})
+Object.assign(newKeys.ru, {
+  'S3 Preferred': 'Предпочитать S3',
+  'Select all uploadable video tasks':
+    'Выбрать все доступные для загрузки видеозадачи',
+  'Select video task': 'Выбрать видеозадачу',
+  'Upload to S3': 'Загрузить в S3',
+  'Video upload started': 'Загрузка видео начата',
+  'Video uploads started': 'Загрузка видео начата',
+  'Failed to upload video to S3': 'Не удалось загрузить видео в S3',
+  'Failed to upload videos to S3': 'Не удалось загрузить видео в S3',
+  'Not uploaded': 'Не загружено',
+  '{{count}} task(s) were skipped': 'Пропущено задач: {{count}}',
+})
+Object.assign(newKeys.vi, {
+  'S3 Preferred': 'Ưu tiên S3',
+  'Select all uploadable video tasks':
+    'Chọn tất cả tác vụ video có thể tải lên',
+  'Select video task': 'Chọn tác vụ video',
+  'Upload to S3': 'Tải lên S3',
+  'Video upload started': 'Đã bắt đầu tải video lên',
+  'Video uploads started': 'Đã bắt đầu tải các video lên',
+  'Failed to upload video to S3': 'Không thể tải video lên S3',
+  'Failed to upload videos to S3': 'Không thể tải các video lên S3',
+  'Not uploaded': 'Chưa tải lên',
+  '{{count}} task(s) were skipped': 'Đã bỏ qua {{count}} tác vụ',
+})
+
+Object.assign(newKeys.en, {
+  'Upstream HTTP diagnostics': 'Upstream HTTP diagnostics',
+  'Task submission': 'Task submission',
+  'Failed task polling': 'Failed task polling',
+  'Content truncated at 64 KiB': 'Content truncated at 64 KiB',
+  'Transport error': 'Transport error',
+})
+Object.assign(newKeys.zh, {
+  'Upstream HTTP diagnostics': '上游 HTTP 诊断',
+  'Task submission': '提交任务',
+  'Failed task polling': '失败任务轮询',
+  'Content truncated at 64 KiB': '内容已在 64 KiB 处截断',
+  'Transport error': '传输错误',
+})
+Object.assign(newKeys['zh-TW'], {
+  'Upstream HTTP diagnostics': '上游 HTTP 診斷',
+  'Task submission': '提交任務',
+  'Failed task polling': '失敗任務輪詢',
+  'Content truncated at 64 KiB': '內容已在 64 KiB 處截斷',
+  'Transport error': '傳輸錯誤',
+})
+Object.assign(newKeys.fr, {
+  'Upstream HTTP diagnostics': 'Diagnostic HTTP en amont',
+  'Task submission': 'Envoi de la tâche',
+  'Failed task polling': 'Interrogation de la tâche échouée',
+  'Content truncated at 64 KiB': 'Contenu tronqué à 64 Kio',
+  'Transport error': 'Erreur de transport',
+})
+Object.assign(newKeys.ja, {
+  'Upstream HTTP diagnostics': '上流 HTTP 診断',
+  'Task submission': 'タスク送信',
+  'Failed task polling': '失敗タスクのポーリング',
+  'Content truncated at 64 KiB': 'コンテンツは 64 KiB で切り詰められました',
+  'Transport error': '通信エラー',
+})
+Object.assign(newKeys.ru, {
+  'Upstream HTTP diagnostics': 'Диагностика HTTP вышестоящего сервиса',
+  'Task submission': 'Отправка задачи',
+  'Failed task polling': 'Опрос завершившейся с ошибкой задачи',
+  'Content truncated at 64 KiB': 'Содержимое обрезано до 64 КиБ',
+  'Transport error': 'Ошибка передачи',
+})
+Object.assign(newKeys.vi, {
+  'Upstream HTTP diagnostics': 'Chẩn đoán HTTP thượng nguồn',
+  'Task submission': 'Gửi tác vụ',
+  'Failed task polling': 'Truy vấn tác vụ thất bại',
+  'Content truncated at 64 KiB': 'Nội dung đã bị cắt tại 64 KiB',
+  'Transport error': 'Lỗi truyền tải',
 })
 
 async function main() {

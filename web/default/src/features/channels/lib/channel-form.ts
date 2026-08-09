@@ -128,14 +128,30 @@ function addRequiredIssue(
   })
 }
 
-export const VIDEO_RESOLUTIONS = ['480p', '720p', '1080p', '4k'] as const
+export const MAX_VIDEO_REFERENCE_COUNT = 64
+export const MAX_VIDEO_MODEL_RESOLUTIONS = 32
+export const MAX_VIDEO_DURATION_SECONDS = 3600
 
-const videoResolutionSchema = z.enum(VIDEO_RESOLUTIONS)
+const videoResolutionSchema = z.string().trim().min(1).max(64)
+const videoDurationSchema = z
+  .number()
+  .int('Duration must be a whole number')
+  .min(1, 'Duration must be between 1 and 3600 seconds')
+  .max(
+    MAX_VIDEO_DURATION_SECONDS,
+    'Duration must be between 1 and 3600 seconds'
+  )
 const videoModelCapabilitySchema = z.object({
   model: z.string(),
   resolutions: z
     .array(videoResolutionSchema)
-    .min(1, 'Select at least one resolution'),
+    .min(1, 'Configure at least one resolution')
+    .max(MAX_VIDEO_MODEL_RESOLUTIONS),
+  max_reference_images: z.number().int().min(0).max(MAX_VIDEO_REFERENCE_COUNT),
+  max_reference_videos: z.number().int().min(0).max(MAX_VIDEO_REFERENCE_COUNT),
+  max_reference_audios: z.number().int().min(0).max(MAX_VIDEO_REFERENCE_COUNT),
+  min_duration_seconds: videoDurationSchema.optional(),
+  max_duration_seconds: videoDurationSchema.optional(),
 })
 
 export type VideoResolution = z.infer<typeof videoResolutionSchema>
@@ -153,17 +169,51 @@ function parseVideoModelCapabilities(
     if (!isJsonObjectValue(rawCapability)) continue
     if (!Array.isArray(rawCapability.resolutions)) continue
 
+    const normalizedResolutions = new Set<string>()
     const resolutions = rawCapability.resolutions
       .map((resolution) => String(resolution).trim().toLowerCase())
-      .filter((resolution): resolution is VideoResolution =>
-        VIDEO_RESOLUTIONS.includes(resolution as VideoResolution)
-      )
-    const uniqueResolutions = [...new Set(resolutions)]
-    if (!model.trim() || uniqueResolutions.length === 0) continue
+      .filter((resolution) => {
+        if (!resolution || resolution.length > 64) return false
+        if (normalizedResolutions.has(resolution)) return false
+        normalizedResolutions.add(resolution)
+        return true
+      })
+      .slice(0, MAX_VIDEO_MODEL_RESOLUTIONS)
+    if (!model.trim() || resolutions.length === 0) continue
 
     capabilities.push({
       model: model.trim(),
-      resolutions: uniqueResolutions,
+      resolutions,
+      max_reference_images:
+        Number.isInteger(rawCapability.max_reference_images) &&
+        Number(rawCapability.max_reference_images) >= 0 &&
+        Number(rawCapability.max_reference_images) <= MAX_VIDEO_REFERENCE_COUNT
+          ? Number(rawCapability.max_reference_images)
+          : 0,
+      max_reference_videos:
+        Number.isInteger(rawCapability.max_reference_videos) &&
+        Number(rawCapability.max_reference_videos) >= 0 &&
+        Number(rawCapability.max_reference_videos) <= MAX_VIDEO_REFERENCE_COUNT
+          ? Number(rawCapability.max_reference_videos)
+          : 0,
+      max_reference_audios:
+        Number.isInteger(rawCapability.max_reference_audios) &&
+        Number(rawCapability.max_reference_audios) >= 0 &&
+        Number(rawCapability.max_reference_audios) <= MAX_VIDEO_REFERENCE_COUNT
+          ? Number(rawCapability.max_reference_audios)
+          : 0,
+      min_duration_seconds:
+        Number.isInteger(rawCapability.min_duration_seconds) &&
+        Number(rawCapability.min_duration_seconds) >= 1 &&
+        Number(rawCapability.min_duration_seconds) <= MAX_VIDEO_DURATION_SECONDS
+          ? Number(rawCapability.min_duration_seconds)
+          : undefined,
+      max_duration_seconds:
+        Number.isInteger(rawCapability.max_duration_seconds) &&
+        Number(rawCapability.max_duration_seconds) >= 1 &&
+        Number(rawCapability.max_duration_seconds) <= MAX_VIDEO_DURATION_SECONDS
+          ? Number(rawCapability.max_duration_seconds)
+          : undefined,
     })
   }
   return capabilities
@@ -230,8 +280,10 @@ export const channelFormSchema = z
     thinking_to_content: z.boolean().optional(),
     proxy: z.string().optional(),
     video_content_proxy_enabled: z.boolean().optional(),
+    video_s3_storage_enabled: z.boolean().optional(),
+    video_s3_preferred: z.boolean().optional(),
     video_protocol: z
-      .enum(['', 'openai_video', 'seedance', 'agnes_video_v2'])
+      .enum(['', 'openai_video', 'seedance(megabyai)', 'agnes_video_v2'])
       .optional(),
     video_model_capabilities: z.array(videoModelCapabilitySchema).optional(),
     pass_through_body_enabled: z.boolean().optional(),
@@ -338,6 +390,13 @@ export const channelFormSchema = z
     }
 
     const configuredModels = new Set<string>()
+    if (data.video_protocol && !data.video_model_capabilities?.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['video_model_capabilities'],
+        message: 'Configure at least one video model',
+      })
+    }
     for (const [index, capability] of (
       data.video_model_capabilities || []
     ).entries()) {
@@ -358,6 +417,34 @@ export const channelFormSchema = z
         })
       }
       configuredModels.add(normalizedModel)
+
+      if (data.video_protocol === 'seedance(megabyai)') {
+        if (capability.min_duration_seconds === undefined) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['video_model_capabilities', index, 'min_duration_seconds'],
+            message: 'Minimum duration is required',
+          })
+        }
+        if (capability.max_duration_seconds === undefined) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['video_model_capabilities', index, 'max_duration_seconds'],
+            message: 'Maximum duration is required',
+          })
+        }
+        if (
+          capability.min_duration_seconds !== undefined &&
+          capability.max_duration_seconds !== undefined &&
+          capability.min_duration_seconds > capability.max_duration_seconds
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['video_model_capabilities', index, 'max_duration_seconds'],
+            message: 'Minimum duration cannot exceed maximum duration',
+          })
+        }
+      }
     }
   })
 
@@ -398,6 +485,8 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   thinking_to_content: false,
   proxy: '',
   video_content_proxy_enabled: false,
+  video_s3_storage_enabled: false,
+  video_s3_preferred: false,
   video_protocol: '',
   video_model_capabilities: [],
   pass_through_body_enabled: false,
@@ -439,6 +528,8 @@ export function transformChannelToFormDefaults(
     thinking_to_content: false,
     proxy: '',
     video_content_proxy_enabled: false,
+    video_s3_storage_enabled: false,
+    video_s3_preferred: false,
     video_protocol: '' as const,
     video_model_capabilities: [] as VideoModelCapabilityFormValue[],
     pass_through_body_enabled: false,
@@ -451,7 +542,7 @@ export function transformChannelToFormDefaults(
       const parsed = JSON.parse(channel.setting)
       const videoProtocol = [
         'openai_video',
-        'seedance',
+        'seedance(megabyai)',
         'agnes_video_v2',
       ].includes(parsed.video_protocol)
         ? parsed.video_protocol
@@ -462,6 +553,8 @@ export function transformChannelToFormDefaults(
         proxy: parsed.proxy || '',
         video_content_proxy_enabled:
           parsed.video_content_proxy_enabled || false,
+        video_s3_storage_enabled: parsed.video_s3_storage_enabled || false,
+        video_s3_preferred: parsed.video_s3_preferred || false,
         video_protocol: videoProtocol,
         video_model_capabilities: parseVideoModelCapabilities(
           parsed.video_model_capabilities
@@ -588,6 +681,15 @@ function buildSettingJSON(formData: ChannelFormValues): string {
           resolutions: capability.resolutions.map((resolution) =>
             resolution.toLowerCase()
           ),
+          max_reference_images: capability.max_reference_images,
+          max_reference_videos: capability.max_reference_videos,
+          max_reference_audios: capability.max_reference_audios,
+          ...(formData.video_protocol === 'seedance(megabyai)'
+            ? {
+                min_duration_seconds: capability.min_duration_seconds,
+                max_duration_seconds: capability.max_duration_seconds,
+              }
+            : {}),
         },
       ])
   )
@@ -596,6 +698,8 @@ function buildSettingJSON(formData: ChannelFormValues): string {
     thinking_to_content: formData.thinking_to_content || false,
     proxy: formData.proxy || '',
     video_content_proxy_enabled: formData.video_content_proxy_enabled || false,
+    video_s3_storage_enabled: formData.video_s3_storage_enabled || false,
+    video_s3_preferred: formData.video_s3_preferred || false,
     video_protocol: formData.video_protocol || '',
     video_model_capabilities: videoModelCapabilities,
     pass_through_body_enabled: formData.pass_through_body_enabled || false,

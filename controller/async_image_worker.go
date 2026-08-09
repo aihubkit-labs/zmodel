@@ -36,7 +36,6 @@ const (
 	asyncImageLeaseDuration     = 5 * time.Minute
 	asyncImageLeaseRenewal      = time.Minute
 	asyncImageProcessBatchSize  = 16
-	asyncImageObjectNamespace   = "user-files/zmodel@async-images"
 )
 
 type asyncImageProcessHandler struct{}
@@ -265,8 +264,8 @@ func generateAsyncImageTask(ctx context.Context, task *model.AsyncImageTask, own
 	objects := make([]model.StorageObject, 0, len(manifest))
 	for _, item := range manifest {
 		objects = append(objects, model.StorageObject{
-			ObjectIndex: item.Index, Endpoint: settings.Endpoint, Region: settings.Region, Bucket: settings.Bucket,
-			ObjectKey: asyncImageObjectKey(settings.S3KeyPrefix, task.TaskID, item), MimeType: item.MimeType,
+			BusinessID: settings.BusinessID, ObjectIndex: item.Index, Endpoint: settings.Endpoint, Region: settings.Region, Bucket: settings.Bucket,
+			ObjectKey: asyncImageObjectKey(settings.S3KeyPrefix, settings.BusinessID, task.UserID, task.TaskID, item), MimeType: item.MimeType,
 			Extension: item.Extension, SizeBytes: item.SizeBytes, StagingRelativePath: item.StagingRelativePath,
 			StagingSizeBytes: item.SizeBytes, StagingSHA256: item.SHA256, StagedAt: common.GetTimestamp(),
 		})
@@ -392,17 +391,18 @@ func asyncImageRelayRequestPath(task *model.AsyncImageTask) string {
 	return "/v1/images/generations"
 }
 
-func asyncImageObjectRoot(s3KeyPrefix string) string {
-	return s3KeyPrefix + "/" + asyncImageObjectNamespace
+func asyncImageObjectRoot(s3KeyPrefix string, businessID string) string {
+	return s3KeyPrefix + "/user-files/" + businessID
 }
 
-func asyncImageObjectKey(s3KeyPrefix string, taskID string, item service.AsyncImageManifestItem) string {
+func asyncImageObjectKey(s3KeyPrefix string, businessID string, userID int, taskID string, item service.AsyncImageManifestItem) string {
 	parts := strings.Split(filepathSlash(item.StagingRelativePath), "/")
 	year, month, day := time.Now().UTC().Format("2006"), time.Now().UTC().Format("01"), time.Now().UTC().Format("02")
 	if len(parts) >= 5 {
 		year, month, day = parts[1], parts[2], parts[3]
 	}
-	return fmt.Sprintf("%s/%s/%s/%s/%s/%d.%s", asyncImageObjectRoot(s3KeyPrefix), year, month, day, taskID, item.Index, item.Extension)
+	fileID := fmt.Sprintf("%s-%d", taskID, item.Index)
+	return fmt.Sprintf("%s/%d/%s/%s/%s/%s/original.%s", asyncImageObjectRoot(s3KeyPrefix, businessID), userID, year, month, day, fileID, item.Extension)
 }
 
 func filepathSlash(value string) string { return strings.ReplaceAll(value, "\\", "/") }
@@ -441,7 +441,7 @@ func archiveAsyncImageTask(parent context.Context, task *model.AsyncImageTask, o
 			return retryAsyncImageArchive(task, owner, err)
 		}
 		head, headErr := storage.HeadObject(ctx, objectstorage.HeadObjectInput{Bucket: objects[index].Bucket, Key: objects[index].ObjectKey})
-		if headErr == nil && asyncImageHeadMatches(head, task.TaskID, item) {
+		if headErr == nil && asyncImageHeadMatches(head, objects[index].BusinessID, task.TaskID, item) {
 			uploadedAt := head.LastModified.Unix()
 			expiresAt := uploadedAt + task.RetentionSeconds
 			if uploadedAt > 0 && expiresAt > common.GetTimestamp() {
@@ -461,7 +461,7 @@ func archiveAsyncImageTask(parent context.Context, task *model.AsyncImageTask, o
 		put, err := storage.PutObject(ctx, objectstorage.PutObjectInput{
 			Bucket: objects[index].Bucket, Key: objects[index].ObjectKey, Body: file, ContentType: item.MimeType,
 			Metadata: map[string]string{
-				"sha256": item.SHA256, "business-id": model.StorageObjectBusinessAsyncImages,
+				"sha256": item.SHA256, "business-id": objects[index].BusinessID,
 				"resource-id": task.TaskID, "object-index": strconv.Itoa(item.Index),
 			},
 		})
@@ -497,7 +497,7 @@ func archiveAsyncImageTask(parent context.Context, task *model.AsyncImageTask, o
 	return nil
 }
 
-func asyncImageHeadMatches(head objectstorage.HeadObjectResult, taskID string, item service.AsyncImageManifestItem) bool {
+func asyncImageHeadMatches(head objectstorage.HeadObjectResult, businessID string, taskID string, item service.AsyncImageManifestItem) bool {
 	if !head.Exists || head.ContentLength != item.SizeBytes || head.ContentType != item.MimeType || head.LastModified.IsZero() {
 		return false
 	}
@@ -506,7 +506,7 @@ func asyncImageHeadMatches(head objectstorage.HeadObjectResult, taskID string, i
 		metadata[strings.ToLower(key)] = value
 	}
 	return metadata["sha256"] == item.SHA256 &&
-		metadata["business-id"] == model.StorageObjectBusinessAsyncImages &&
+		metadata["business-id"] == businessID &&
 		metadata["resource-id"] == taskID && metadata["object-index"] == strconv.Itoa(item.Index)
 }
 

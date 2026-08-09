@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -72,12 +73,22 @@ func VideoProxy(c *gin.Context) {
 		videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to retrieve channel information")
 		return
 	}
+	channelSetting := channel.GetSetting()
+	if channelSetting.VideoS3Preferred {
+		signedURL, err := service.PresignVideoObject(c.Request.Context(), task.TaskID, downloadName)
+		if err != nil {
+			logger.LogWarn(c.Request.Context(), fmt.Sprintf("Stored video is unavailable for task %s, falling back to upstream delivery: %v", taskID, err))
+		} else {
+			c.Redirect(http.StatusTemporaryRedirect, signedURL)
+			return
+		}
+	}
+
 	baseURL := channel.GetBaseURL()
 	if baseURL == "" {
 		baseURL = "https://api.openai.com"
 	}
 
-	channelSetting := channel.GetSetting()
 	var videoURL string
 	var videoAPIKey string
 	proxy := channelSetting.Proxy
@@ -173,10 +184,8 @@ func VideoProxy(c *gin.Context) {
 			videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to resolve final video URL")
 			return
 		}
-		if downloadName == "" {
-			c.Redirect(http.StatusTemporaryRedirect, videoURL)
-			return
-		}
+		c.Redirect(http.StatusTemporaryRedirect, videoURL)
+		return
 	}
 
 	if err := validateVideoFetchURL(videoURL, proxy); err != nil {
@@ -243,11 +252,15 @@ func VideoProxy(c *gin.Context) {
 }
 
 func fetchOpenAIVideoTaskURL(c *gin.Context, client *http.Client, baseURL, upstreamTaskID, key, proxy string) (string, error) {
+	return fetchOpenAIVideoTaskURLContext(c.Request.Context(), client, baseURL, upstreamTaskID, key, proxy)
+}
+
+func fetchOpenAIVideoTaskURLContext(ctx context.Context, client *http.Client, baseURL, upstreamTaskID, key, proxy string) (string, error) {
 	taskDetailURL := fmt.Sprintf("%s/v1/videos/%s", strings.TrimRight(baseURL, "/"), url.PathEscape(upstreamTaskID))
 	if err := validateVideoFetchURL(taskDetailURL, proxy); err != nil {
 		return "", fmt.Errorf("task detail request blocked: %w", err)
 	}
-	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, taskDetailURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, taskDetailURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create task detail request: %w", err)
 	}

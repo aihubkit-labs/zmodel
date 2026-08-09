@@ -47,12 +47,13 @@ func SanitizeURLForLog(rawURL string) string {
 		return rawURL
 	}
 
-	query := parsedURL.Query()
-	if len(query) == 0 {
-		return rawURL
+	changed := false
+	if parsedURL.User != nil {
+		parsedURL.User = url.UserPassword("[REDACTED]", "[REDACTED]")
+		changed = true
 	}
 
-	changed := false
+	query := parsedURL.Query()
 	for key := range query {
 		if isSensitiveURLQueryKey(key) {
 			query.Set(key, "***masked***")
@@ -95,7 +96,8 @@ func isSensitiveURLQueryKey(key string) bool {
 	}
 	return strings.Contains(normalized, "token") ||
 		strings.Contains(normalized, "secret") ||
-		strings.Contains(normalized, "signature")
+		strings.Contains(normalized, "signature") ||
+		strings.Contains(normalized, "credential")
 }
 
 func GetAPIVersion(c *gin.Context) string {
@@ -143,7 +145,7 @@ func validatePrompt(prompt string) *dto.TaskError {
 // MaxTaskDurationSeconds caps user-supplied video duration. Duration is used
 // as a billing multiplier (OtherRatio "seconds"); an unbounded value could
 // overflow quota calculation into a negative charge.
-const MaxTaskDurationSeconds = 3600
+const MaxTaskDurationSeconds = dto.MaxVideoDurationSeconds
 
 func validateTaskDurationBounds(req TaskSubmitReq) *dto.TaskError {
 	seconds := req.Duration

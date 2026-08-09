@@ -56,6 +56,22 @@ func TestSanitizeURLForLogKeepsURLWithoutSensitiveQuery(t *testing.T) {
 	assert.Equal(t, rawURL, got)
 }
 
+func TestSanitizeURLForLogMasksUserInfo(t *testing.T) {
+	rawURL := "https://api-user:api-password@example.test/v1/videos"
+
+	got := SanitizeURLForLog(rawURL)
+
+	assert.NotContains(t, got, "api-user")
+	assert.NotContains(t, got, "api-password")
+	parsedURL, err := url.Parse(got)
+	require.NoError(t, err)
+	username := parsedURL.User.Username()
+	password, hasPassword := parsedURL.User.Password()
+	assert.Equal(t, "[REDACTED]", username)
+	assert.True(t, hasPassword)
+	assert.Equal(t, "[REDACTED]", password)
+}
+
 func TestValidateMultipartDirectNormalizesImageField(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := strings.NewReader(`{"model":"wan2.7-i2v","prompt":"animate","image":" https://example.com/first.png "}`)

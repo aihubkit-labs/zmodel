@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/url"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/stretchr/testify/assert"
@@ -25,10 +27,12 @@ type taskPollingFetchAdaptor struct {
 	fetched      chan string
 	status       model.TaskStatus
 	progress     string
+	resultURL    string
 	blockTaskID  string
 	blockStarted chan struct{}
 	releaseBlock chan struct{}
 	blockOnce    sync.Once
+	fetchErr     error
 }
 
 func (a *taskPollingFetchAdaptor) Init(_ *relaycommon.RelayInfo) {}
@@ -53,6 +57,9 @@ func (a *taskPollingFetchAdaptor) FetchTask(_ string, _ string, body map[string]
 		default:
 		}
 	}
+	if a.fetchErr != nil {
+		return nil, a.fetchErr
+	}
 
 	status := a.status
 	if status == "" {
@@ -65,9 +72,10 @@ func (a *taskPollingFetchAdaptor) FetchTask(_ string, _ string, body map[string]
 	response := dto.TaskResponse[model.Task]{
 		Code: dto.TaskSuccessCode,
 		Data: model.Task{
-			TaskID:   taskID,
-			Status:   status,
-			Progress: progress,
+			TaskID:     taskID,
+			Status:     status,
+			Progress:   progress,
+			FailReason: a.resultURL,
 		},
 	}
 	responseBody, err := common.Marshal(response)
@@ -77,6 +85,13 @@ func (a *taskPollingFetchAdaptor) FetchTask(_ string, _ string, body map[string]
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Body:       io.NopCloser(bytes.NewReader(responseBody)),
+		Request: &http.Request{
+			Method: http.MethodGet,
+			URL: &url.URL{
+				Scheme: "https", Host: "upstream.example", Path: "/tasks/" + taskID, RawQuery: "token=poll-secret",
+			},
+			Header: http.Header{"Authorization": {"Bearer poll-secret"}},
+		},
 	}, nil
 }
 
@@ -220,6 +235,133 @@ func TestUpdateVideoTaskForcesTerminalProgressToComplete(t *testing.T) {
 	require.NoError(t, model.DB.First(&stored, task.ID).Error)
 	assert.Equal(t, model.TaskStatus(model.TaskStatusSuccess), stored.Status)
 	assert.Equal(t, "100%", stored.Progress)
+}
+
+func TestUpdateVideoTaskStoresSanitizedHTTPTraceOnFailure(t *testing.T) {
+	truncate(t)
+
+	const channelID = 105
+	seedTaskPollingChannel(t, channelID, true)
+	task := seedPollingTask(t, channelID, "task_public_failure_trace", "upstream_failure_trace")
+	task.PrivateData.UpstreamHTTPTrace = &dto.TaskUpstreamHTTPTrace{
+		SubmitRequest: &dto.TaskHTTPMessage{Method: http.MethodPost, URL: "https://upstream.example/v1/videos"},
+	}
+	require.NoError(t, model.DB.Model(task).Update("private_data", task.PrivateData).Error)
+	adaptor := &taskPollingFetchAdaptor{
+		status:    model.TaskStatusFailure,
+		resultURL: "upstream rejected the request",
+	}
+
+	err := updateVideoSingleTask(context.Background(), adaptor, &model.Channel{
+		Id: channelID, Type: constant.ChannelTypeKling, Key: "sk-test", Status: common.ChannelStatusEnabled,
+	}, task.GetUpstreamTaskID(), map[string]*model.Task{task.GetUpstreamTaskID(): task})
+	require.NoError(t, err)
+
+	var stored model.Task
+	require.NoError(t, model.DB.First(&stored, task.ID).Error)
+	require.NotNil(t, stored.PrivateData.UpstreamHTTPTrace)
+	assert.Equal(t, http.MethodPost, stored.PrivateData.UpstreamHTTPTrace.SubmitRequest.Method)
+	require.NotNil(t, stored.PrivateData.UpstreamHTTPTrace.PollRequest)
+	assert.NotContains(t, stored.PrivateData.UpstreamHTTPTrace.PollRequest.URL, "poll-secret")
+	assert.Equal(t, "[REDACTED]", stored.PrivateData.UpstreamHTTPTrace.PollRequest.Headers["Authorization"])
+	require.NotNil(t, stored.PrivateData.UpstreamHTTPTrace.PollResponse)
+	assert.Equal(t, http.StatusOK, stored.PrivateData.UpstreamHTTPTrace.PollResponse.StatusCode)
+	assert.Contains(t, stored.PrivateData.UpstreamHTTPTrace.PollResponse.Body, "upstream rejected the request")
+}
+
+func TestUpdateVideoTaskClearsHTTPTraceOnSuccess(t *testing.T) {
+	truncate(t)
+
+	const channelID = 106
+	seedTaskPollingChannel(t, channelID, true)
+	task := seedPollingTask(t, channelID, "task_public_success_trace", "upstream_success_trace")
+	task.PrivateData.UpstreamHTTPTrace = &dto.TaskUpstreamHTTPTrace{
+		SubmitRequest: &dto.TaskHTTPMessage{Method: http.MethodPost},
+	}
+	require.NoError(t, model.DB.Model(task).Update("private_data", task.PrivateData).Error)
+	adaptor := &taskPollingFetchAdaptor{status: model.TaskStatusSuccess}
+
+	err := updateVideoSingleTask(context.Background(), adaptor, &model.Channel{
+		Id: channelID, Type: constant.ChannelTypeKling, Key: "sk-test", Status: common.ChannelStatusEnabled,
+	}, task.GetUpstreamTaskID(), map[string]*model.Task{task.GetUpstreamTaskID(): task})
+	require.NoError(t, err)
+
+	var stored model.Task
+	require.NoError(t, model.DB.First(&stored, task.ID).Error)
+	assert.Nil(t, stored.PrivateData.UpstreamHTTPTrace)
+}
+
+func TestUpdateVideoTaskStoresTransportErrorWithoutFailingImmediately(t *testing.T) {
+	truncate(t)
+
+	const channelID = 107
+	seedTaskPollingChannel(t, channelID, true)
+	task := seedPollingTask(t, channelID, "task_public_transport_error", "upstream_transport_error")
+	request := &http.Request{
+		Method: http.MethodGet,
+		URL: &url.URL{
+			Scheme: "https", Host: "upstream.example", Path: "/v1/videos/upstream_transport_error", RawQuery: "token=poll-secret",
+		},
+		Header: http.Header{"Authorization": {"Bearer poll-secret"}},
+	}
+	adaptor := &taskPollingFetchAdaptor{
+		fetchErr: &relaycommon.UpstreamRequestError{Request: request, Err: context.DeadlineExceeded},
+	}
+
+	err := updateVideoSingleTask(context.Background(), adaptor, &model.Channel{
+		Id: channelID, Type: constant.ChannelTypeKling, Key: "sk-test", Status: common.ChannelStatusEnabled,
+	}, task.GetUpstreamTaskID(), map[string]*model.Task{task.GetUpstreamTaskID(): task})
+	require.Error(t, err)
+
+	var stored model.Task
+	require.NoError(t, model.DB.First(&stored, task.ID).Error)
+	assert.Equal(t, model.TaskStatus(model.TaskStatusInProgress), stored.Status)
+	require.NotNil(t, stored.PrivateData.UpstreamHTTPTrace)
+	require.NotNil(t, stored.PrivateData.UpstreamHTTPTrace.PollRequest)
+	assert.NotContains(t, stored.PrivateData.UpstreamHTTPTrace.PollRequest.URL, "poll-secret")
+	assert.Equal(t, "[REDACTED]", stored.PrivateData.UpstreamHTTPTrace.PollRequest.Headers["Authorization"])
+	require.NotNil(t, stored.PrivateData.UpstreamHTTPTrace.PollResponse)
+	assert.Contains(t, stored.PrivateData.UpstreamHTTPTrace.PollResponse.Error, context.DeadlineExceeded.Error())
+	assert.NotContains(t, stored.PrivateData.UpstreamHTTPTrace.PollResponse.Error, "poll-secret")
+}
+
+func TestS3EnabledVideoTaskSettlesWhenArchiveFails(t *testing.T) {
+	truncate(t)
+
+	const channelID = 104
+	seedTaskPollingChannel(t, channelID, true)
+	task := seedPollingTask(t, channelID, "task_public_s3", "upstream_s3")
+	task.PrivateData.VideoS3StorageEnabled = true
+	require.NoError(t, model.DB.Model(task).Update("private_data", task.PrivateData).Error)
+	adaptor := &taskPollingFetchAdaptor{
+		status:    model.TaskStatusSuccess,
+		resultURL: "https://video.example/result.mp4",
+	}
+
+	originalArchive := ArchiveVideoTaskFunc
+	archiveCalls := 0
+	ArchiveVideoTaskFunc = func(_ context.Context, archivedTask *model.Task, _ *model.Channel, source VideoArchiveSource) error {
+		archiveCalls++
+		assert.Equal(t, task.TaskID, archivedTask.TaskID)
+		assert.Equal(t, "https://video.example/result.mp4", source.URL)
+		return assert.AnError
+	}
+	t.Cleanup(func() { ArchiveVideoTaskFunc = originalArchive })
+	channel := &model.Channel{
+		Id: channelID, Type: constant.ChannelTypeKling, Key: "sk-test",
+		Status: common.ChannelStatusEnabled,
+	}
+
+	err := updateVideoSingleTask(context.Background(), adaptor, channel, task.GetUpstreamTaskID(), map[string]*model.Task{
+		task.GetUpstreamTaskID(): task,
+	})
+	require.NoError(t, err)
+	var stored model.Task
+	require.NoError(t, model.DB.First(&stored, task.ID).Error)
+	assert.Equal(t, model.TaskStatus(model.TaskStatusSuccess), stored.Status)
+	assert.Equal(t, taskcommon.ProgressComplete, stored.Progress)
+	assert.Equal(t, "https://video.example/result.mp4", stored.GetResultURL())
+	assert.Equal(t, 1, archiveCalls)
 }
 
 func TestUpdateVideoTasksDefaultSleepDoesNotBlockOtherChannels(t *testing.T) {

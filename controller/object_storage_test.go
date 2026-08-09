@@ -61,6 +61,7 @@ func TestObjectStorageSettingsAPIsNeverReturnSecret(t *testing.T) {
 		storage_setting.OptionS3AccessKey:               "test-access-key",
 		storage_setting.OptionS3SecretAccessKey:         secret,
 		storage_setting.OptionS3KeyPrefix:               "dev",
+		storage_setting.OptionBusinessID:                "test@async-images",
 		storage_setting.OptionStagingDirectory:          stagingDirectory,
 		storage_setting.OptionRetentionSeconds:          "86400",
 		storage_setting.OptionPresignSeconds:            "600",
@@ -105,6 +106,54 @@ func TestObjectStorageSettingsAPIsNeverReturnSecret(t *testing.T) {
 	assert.NotContains(t, recorder.Body.String(), storage_setting.OptionS3SecretAccessKey)
 }
 
+func TestVideoObjectStorageSettingsAPINeverReturnsSecret(t *testing.T) {
+	const secret = "video-secret-that-must-never-be-returned"
+	stagingDirectory := t.TempDir()
+	common.OptionMapRWMutex.Lock()
+	original := common.OptionMap
+	common.OptionMap = map[string]string{
+		storage_setting.OptionVideoS3Endpoint:         "https://s3.example.com",
+		storage_setting.OptionVideoS3Region:           "test-region",
+		storage_setting.OptionVideoS3Bucket:           "test-bucket",
+		storage_setting.OptionVideoS3AccessKey:        "test-access-key",
+		storage_setting.OptionVideoS3SecretAccessKey:  secret,
+		storage_setting.OptionVideoS3KeyPrefix:        "dev",
+		storage_setting.OptionVideoBusinessID:         "test@videos",
+		storage_setting.OptionVideoStagingDirectory:   stagingDirectory,
+		storage_setting.OptionVideoArchiveMaxAttempts: "5",
+		storage_setting.OptionVideoArchiveRetryWindowSeconds: "7200",
+	}
+	common.OptionMapRWMutex.Unlock()
+	t.Cleanup(func() {
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap = original
+		common.OptionMapRWMutex.Unlock()
+	})
+
+	recorder := httptest.NewRecorder()
+	ginContext, _ := gin.CreateTestContext(recorder)
+	GetVideoObjectStorageSettings(ginContext)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	assert.NotContains(t, recorder.Body.String(), secret)
+	var response struct {
+		Success bool `json:"success"`
+		Data    struct {
+			BusinessID                string `json:"business_id"`
+			SecretConfigured          bool   `json:"secret_configured"`
+			StagingDirectory          string `json:"staging_directory"`
+			ArchiveMaxAttempts        int    `json:"archive_max_attempts"`
+			ArchiveRetryWindowSeconds int64  `json:"archive_retry_window_seconds"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.True(t, response.Success)
+	assert.True(t, response.Data.SecretConfigured)
+	assert.Equal(t, "test@videos", response.Data.BusinessID)
+	assert.Equal(t, stagingDirectory, response.Data.StagingDirectory)
+	assert.Equal(t, 5, response.Data.ArchiveMaxAttempts)
+	assert.Equal(t, int64(7200), response.Data.ArchiveRetryWindowSeconds)
+}
+
 func TestObjectStorageProbeUsesAuthorizedAsyncImagePrefixAndCleansUp(t *testing.T) {
 	storage := &objectStorageProbeTestStorage{}
 	originalFactory := objectstorage.NewStorage
@@ -113,10 +162,10 @@ func TestObjectStorageProbeUsesAuthorizedAsyncImagePrefixAndCleansUp(t *testing.
 	}
 	t.Cleanup(func() { objectstorage.NewStorage = originalFactory })
 
-	err := probeObjectStorage(context.Background(), storage_setting.Settings{Bucket: "test-bucket", S3KeyPrefix: "dev"})
+	err := probeObjectStorage(context.Background(), storage_setting.Settings{Bucket: "test-bucket", S3KeyPrefix: "dev", BusinessID: "test@async-images"})
 	require.NoError(t, err)
 	require.Equal(t, []string{"put", "head", "delete"}, storage.calls)
-	assert.True(t, strings.HasPrefix(storage.putInput.Key, "dev/user-files/zmodel@async-images/.probe/"))
+	assert.True(t, strings.HasPrefix(storage.putInput.Key, "dev/user-files/test@async-images/.probe/"))
 	assert.Equal(t, storage.putInput.Key, storage.headInput.Key)
 	assert.Equal(t, storage.putInput.Key, storage.deleteInput.Key)
 	assert.Equal(t, "test-bucket", storage.putInput.Bucket)
@@ -131,10 +180,28 @@ func TestObjectStorageProbeRequiresCleanupPermission(t *testing.T) {
 	}
 	t.Cleanup(func() { objectstorage.NewStorage = originalFactory })
 
-	err := probeObjectStorage(context.Background(), storage_setting.Settings{Bucket: "test-bucket", S3KeyPrefix: "prod"})
+	err := probeObjectStorage(context.Background(), storage_setting.Settings{Bucket: "test-bucket", S3KeyPrefix: "prod", BusinessID: "test@async-images"})
 	require.Error(t, err)
 	assert.Equal(t, i18n.MsgObjectStorageProbeCleanupFailed, objectStorageProbeErrorMessageKey(err))
 	assert.Equal(t, []string{"put", "head", "delete"}, storage.calls)
+}
+
+func TestVideoObjectStorageProbeUsesConfiguredBusinessPrefix(t *testing.T) {
+	storage := &objectStorageProbeTestStorage{}
+	originalFactory := objectstorage.NewStorage
+	objectstorage.NewStorage = func(context.Context, objectstorage.Config) (objectstorage.Storage, error) {
+		return storage, nil
+	}
+	t.Cleanup(func() { objectstorage.NewStorage = originalFactory })
+
+	err := probeVideoObjectStorage(context.Background(), storage_setting.VideoSettings{
+		Bucket: "test-bucket", S3KeyPrefix: "dev", BusinessID: "test@videos",
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"put", "head", "delete"}, storage.calls)
+	assert.True(t, strings.HasPrefix(storage.putInput.Key, "dev/user-files/test@videos/.probe/"))
+	assert.Equal(t, storage.putInput.Key, storage.headInput.Key)
+	assert.Equal(t, storage.putInput.Key, storage.deleteInput.Key)
 }
 
 func TestUpdateObjectStorageSettingsDoesNotExposeProviderProbeError(t *testing.T) {
@@ -148,6 +215,7 @@ func TestUpdateObjectStorageSettingsDoesNotExposeProviderProbeError(t *testing.T
 		storage_setting.OptionS3AccessKey:               "test-access-key",
 		storage_setting.OptionS3SecretAccessKey:         "test-secret",
 		storage_setting.OptionS3KeyPrefix:               "dev",
+		storage_setting.OptionBusinessID:                "test@async-images",
 		storage_setting.OptionStagingDirectory:          stagingDirectory,
 		storage_setting.OptionRetentionSeconds:          "86400",
 		storage_setting.OptionPresignSeconds:            "600",
@@ -177,6 +245,8 @@ func TestUpdateObjectStorageSettingsDoesNotExposeProviderProbeError(t *testing.T
 		Region:                    "test-region",
 		Bucket:                    "test-bucket",
 		AccessKey:                 "test-access-key",
+		S3KeyPrefix:               common.GetPointer("dev"),
+		BusinessID:                "test@async-images",
 		StagingDirectory:          stagingDirectory,
 		RetentionSeconds:          86400,
 		PresignSeconds:            600,
@@ -205,5 +275,5 @@ func TestUpdateObjectStorageSettingsDoesNotExposeProviderProbeError(t *testing.T
 	assert.NotContains(t, recorder.Body.String(), "RequestID")
 	assert.NotContains(t, recorder.Body.String(), "HostID")
 	assert.NotContains(t, recorder.Body.String(), "arn:aws")
-	assert.True(t, strings.HasPrefix(storage.putInput.Key, "dev/user-files/zmodel@async-images/.probe/"))
+	assert.True(t, strings.HasPrefix(storage.putInput.Key, "dev/user-files/test@async-images/.probe/"))
 }

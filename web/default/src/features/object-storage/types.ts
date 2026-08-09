@@ -23,6 +23,7 @@ export type ObjectStorageSettings = {
   access_key: string
   secret_configured: boolean
   s3_key_prefix: string
+  business_id: string
   staging_directory: string
   retention_seconds: number
   presign_seconds: number
@@ -34,6 +35,30 @@ export type ObjectStorageSettings = {
 
 export type UpdateObjectStorageSettings = Omit<
   ObjectStorageSettings,
+  'secret_configured'
+> & {
+  secret_access_key: string
+}
+
+export type VideoObjectStorageSettings = {
+  endpoint: string
+  region: string
+  bucket: string
+  access_key: string
+  secret_configured: boolean
+  s3_key_prefix: string
+  business_id: string
+  staging_directory: string
+  retention_seconds: number
+  presign_seconds: number
+  archive_timeout_seconds: number
+  archive_max_attempts: number
+  archive_retry_window_seconds: number
+  cleanup_interval_seconds: number
+}
+
+export type UpdateVideoObjectStorageSettings = Omit<
+  VideoObjectStorageSettings,
   'secret_configured'
 > & {
   secret_access_key: string

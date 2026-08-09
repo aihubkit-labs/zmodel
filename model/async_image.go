@@ -27,7 +27,6 @@ const (
 	AsyncImageBillingSettled  = "settled"
 	AsyncImageBillingRefunded = "refunded"
 
-	StorageObjectBusinessAsyncImages = "zmodel@async-images"
 	StorageObjectProviderS3          = "s3"
 	StorageObjectStatusUploading     = "uploading"
 	StorageObjectStatusAvailable     = "available"
@@ -94,33 +93,37 @@ type AsyncImageTask struct {
 }
 
 type StorageObject struct {
-	ID                  int64  `json:"id" gorm:"primaryKey"`
-	BusinessID          string `json:"business_id" gorm:"type:varchar(64);uniqueIndex:idx_storage_object_identity"`
-	ResourceID          string `json:"resource_id" gorm:"type:varchar(64);uniqueIndex:idx_storage_object_identity"`
-	ObjectIndex         int    `json:"object_index" gorm:"uniqueIndex:idx_storage_object_identity"`
-	Provider            string `json:"provider" gorm:"type:varchar(32)"`
-	Status              string `json:"status" gorm:"type:varchar(32);index"`
-	Endpoint            string `json:"endpoint" gorm:"type:varchar(512)"`
-	Region              string `json:"region" gorm:"type:varchar(128)"`
-	Bucket              string `json:"bucket" gorm:"type:varchar(255)"`
-	ObjectKey           string `json:"object_key" gorm:"type:varchar(768)"`
-	MimeType            string `json:"mime_type" gorm:"type:varchar(128)"`
-	Extension           string `json:"extension" gorm:"type:varchar(32)"`
-	SizeBytes           int64  `json:"size_bytes"`
-	ETag                string `json:"etag" gorm:"column:etag;type:varchar(255)"`
-	UploadedAt          int64  `json:"uploaded_at"`
-	ExpiresAt           int64  `json:"expires_at" gorm:"index"`
-	DeletedAt           int64  `json:"deleted_at"`
-	DeleteAttempts      int    `json:"delete_attempts"`
-	LastError           string `json:"last_error,omitempty" gorm:"type:text"`
-	StagingRelativePath string `json:"-" gorm:"type:varchar(768)"`
-	StagingStatus       string `json:"staging_status" gorm:"type:varchar(32);index"`
-	StagingSizeBytes    int64  `json:"staging_size_bytes"`
-	StagingSHA256       string `json:"staging_sha256" gorm:"type:varchar(64)"`
-	StagedAt            int64  `json:"staged_at"`
-	StagingDeletedAt    int64  `json:"staging_deleted_at"`
-	CreatedAt           int64  `json:"created_at" gorm:"index"`
-	UpdatedAt           int64  `json:"updated_at" gorm:"index"`
+	ID                     int64  `json:"id" gorm:"primaryKey"`
+	BusinessID             string `json:"business_id" gorm:"type:varchar(64);uniqueIndex:idx_storage_object_identity"`
+	ResourceID             string `json:"resource_id" gorm:"type:varchar(64);uniqueIndex:idx_storage_object_identity"`
+	ObjectIndex            int    `json:"object_index" gorm:"uniqueIndex:idx_storage_object_identity"`
+	Provider               string `json:"provider" gorm:"type:varchar(32)"`
+	Status                 string `json:"status" gorm:"type:varchar(32);index"`
+	Endpoint               string `json:"endpoint" gorm:"type:varchar(512)"`
+	Region                 string `json:"region" gorm:"type:varchar(128)"`
+	Bucket                 string `json:"bucket" gorm:"type:varchar(255)"`
+	ObjectKey              string `json:"object_key" gorm:"type:varchar(768)"`
+	MimeType               string `json:"mime_type" gorm:"type:varchar(128)"`
+	Extension              string `json:"extension" gorm:"type:varchar(32)"`
+	SizeBytes              int64  `json:"size_bytes"`
+	ETag                   string `json:"etag" gorm:"column:etag;type:varchar(255)"`
+	UploadedAt             int64  `json:"uploaded_at"`
+	ExpiresAt              int64  `json:"expires_at" gorm:"index"`
+	DeletedAt              int64  `json:"deleted_at"`
+	DeleteAttempts         int    `json:"delete_attempts"`
+	LastError              string `json:"last_error,omitempty" gorm:"type:text"`
+	StagingRelativePath    string `json:"-" gorm:"type:varchar(768)"`
+	StagingStatus          string `json:"staging_status" gorm:"type:varchar(32);index"`
+	StagingSizeBytes       int64  `json:"staging_size_bytes"`
+	StagingSHA256          string `json:"staging_sha256" gorm:"type:varchar(64)"`
+	StagedAt               int64  `json:"staged_at"`
+	StagingDeletedAt       int64  `json:"staging_deleted_at"`
+	ArchiveMaxAttempts     int    `json:"archive_max_attempts"`
+	ArchiveAttempts        int    `json:"archive_attempts"`
+	ArchiveRetryDeadlineAt int64  `json:"archive_retry_deadline_at"`
+	ArchiveNextAttemptAt   int64  `json:"archive_next_attempt_at" gorm:"index"`
+	CreatedAt              int64  `json:"created_at" gorm:"index"`
+	UpdatedAt              int64  `json:"updated_at" gorm:"index"`
 }
 
 func (task *AsyncImageTask) BeforeCreate(_ *gorm.DB) error {
@@ -357,7 +360,9 @@ func CompleteAsyncImageGeneration(taskID string, owner string, actualQuota int, 
 
 		now := common.GetTimestamp()
 		for index := range objects {
-			objects[index].BusinessID = StorageObjectBusinessAsyncImages
+			if strings.TrimSpace(objects[index].BusinessID) == "" {
+				return errors.New("storage object business ID is required")
+			}
 			objects[index].ResourceID = task.TaskID
 			objects[index].Provider = StorageObjectProviderS3
 			objects[index].Status = StorageObjectStatusUploading
@@ -568,15 +573,29 @@ func ReleaseAsyncImageTaskLease(taskID string, owner string) error {
 
 func ListStorageObjects(resourceID string) ([]StorageObject, error) {
 	var objects []StorageObject
-	err := DB.Where("business_id = ? AND resource_id = ?", StorageObjectBusinessAsyncImages, resourceID).
+	err := DB.Where("resource_id = ?", resourceID).Order("object_index asc").Find(&objects).Error
+	return objects, err
+}
+
+func ListStorageObjectsByBusinessID(businessID string, resourceID string) ([]StorageObject, error) {
+	var objects []StorageObject
+	err := DB.Where("business_id = ? AND resource_id = ?", businessID, resourceID).
 		Order("object_index asc").Find(&objects).Error
 	return objects, err
 }
 
-func CountActiveStorageObjects() (int64, error) {
+func CountActiveStorageObjectsByBusinessID(businessID string) (int64, error) {
 	var count int64
 	err := DB.Model(&StorageObject{}).
-		Where("status IN ?", []string{StorageObjectStatusUploading, StorageObjectStatusAvailable, StorageObjectStatusDeletePending}).
+		Where("business_id = ? AND status IN ?", businessID, []string{StorageObjectStatusUploading, StorageObjectStatusAvailable, StorageObjectStatusDeletePending}).
+		Count(&count).Error
+	return count, err
+}
+
+func CountUndeletedStorageObjectsByBusinessID(businessID string) (int64, error) {
+	var count int64
+	err := DB.Model(&StorageObject{}).
+		Where("business_id = ? AND status <> ?", businessID, StorageObjectStatusDeleted).
 		Count(&count).Error
 	return count, err
 }
@@ -590,7 +609,7 @@ func CountAsyncImageStagingInUse() (int64, error) {
 	}
 	var objectCount int64
 	if err := DB.Model(&StorageObject{}).
-		Where("business_id = ? AND staging_status IN ?", StorageObjectBusinessAsyncImages, []string{
+		Where("staging_status IN ?", []string{
 			StorageStagingPending,
 			StorageStagingAvailable,
 			StorageStagingFailed,
@@ -641,7 +660,7 @@ func UpdateObjectStorageOptionsWithRebind(values map[string]string, taskIDs []st
 			}
 			var objects []StorageObject
 			if err := lockForUpdate(tx).
-				Where("business_id = ? AND resource_id = ?", StorageObjectBusinessAsyncImages, taskID).
+				Where("resource_id = ?", taskID).
 				Order("object_index asc").Find(&objects).Error; err != nil {
 				return err
 			}
@@ -654,7 +673,7 @@ func UpdateObjectStorageOptionsWithRebind(values map[string]string, taskIDs []st
 				}
 			}
 			if err := tx.Model(&StorageObject{}).
-				Where("business_id = ? AND resource_id = ?", StorageObjectBusinessAsyncImages, taskID).
+				Where("resource_id = ?", taskID).
 				Updates(map[string]any{
 					"endpoint":        endpoint,
 					"region":          region,
@@ -746,22 +765,56 @@ func MarkAsyncImageTaskRunning(taskID string, owner string) error {
 
 func GetStorageObject(resourceID string, objectIndex int) (*StorageObject, error) {
 	var object StorageObject
-	if err := DB.Where("business_id = ? AND resource_id = ? AND object_index = ?", StorageObjectBusinessAsyncImages, resourceID, objectIndex).First(&object).Error; err != nil {
+	if err := DB.Where("resource_id = ? AND object_index = ?", resourceID, objectIndex).First(&object).Error; err != nil {
 		return nil, err
 	}
 	return &object, nil
+}
+
+func GetStorageObjectByBusinessID(businessID string, resourceID string, objectIndex int) (*StorageObject, error) {
+	var object StorageObject
+	if err := DB.Where("business_id = ? AND resource_id = ? AND object_index = ?", businessID, resourceID, objectIndex).First(&object).Error; err != nil {
+		return nil, err
+	}
+	return &object, nil
+}
+
+func GetStorageObjectsByBusinessIDAndResourceIDs(businessID string, resourceIDs []string) (map[string]*StorageObject, error) {
+	objectsByResourceID := make(map[string]*StorageObject, len(resourceIDs))
+	if businessID == "" || len(resourceIDs) == 0 {
+		return objectsByResourceID, nil
+	}
+	var objects []*StorageObject
+	if err := DB.Where("business_id = ? AND resource_id IN ? AND object_index = ?", businessID, resourceIDs, 0).
+		Find(&objects).Error; err != nil {
+		return nil, err
+	}
+	for _, object := range objects {
+		objectsByResourceID[object.ResourceID] = object
+	}
+	return objectsByResourceID, nil
+}
+
+func GetOrCreateStorageObject(object *StorageObject) error {
+	if object == nil || object.BusinessID == "" || object.ResourceID == "" {
+		return errors.New("invalid storage object")
+	}
+	return DB.Where("business_id = ? AND resource_id = ? AND object_index = ?", object.BusinessID, object.ResourceID, object.ObjectIndex).
+		Attrs(*object).
+		FirstOrCreate(object).Error
 }
 
 func MarkStorageObjectAvailable(id int64, expectedStatus string, etag string, uploadedAt int64, expiresAt int64) error {
 	result := DB.Model(&StorageObject{}).
 		Where("id = ? AND status = ?", id, expectedStatus).
 		Updates(map[string]any{
-			"status":      StorageObjectStatusAvailable,
-			"etag":        etag,
-			"uploaded_at": uploadedAt,
-			"expires_at":  expiresAt,
-			"last_error":  "",
-			"updated_at":  common.GetTimestamp(),
+			"status":                  StorageObjectStatusAvailable,
+			"etag":                    etag,
+			"uploaded_at":             uploadedAt,
+			"expires_at":              expiresAt,
+			"last_error":              "",
+			"archive_next_attempt_at": 0,
+			"updated_at":              common.GetTimestamp(),
 		})
 	if result.Error != nil {
 		return result.Error
@@ -1035,13 +1088,13 @@ func MaxAsyncImageTaskID() (int64, error) {
 	return maxID, err
 }
 
-func ClaimExpiredStorageObjects(limit int) ([]StorageObject, error) {
+func ClaimExpiredStorageObjectsByBusinessID(businessID string, limit int) ([]StorageObject, error) {
 	if limit <= 0 {
 		limit = 100
 	}
 	now := common.GetTimestamp()
 	var candidates []StorageObject
-	if err := DB.Where("business_id = ? AND ((status = ? AND expires_at > 0 AND expires_at <= ?) OR status = ?)", StorageObjectBusinessAsyncImages, StorageObjectStatusAvailable, now, StorageObjectStatusDeletePending).
+	if err := DB.Where("business_id = ? AND ((status = ? AND expires_at > 0 AND expires_at <= ?) OR status = ?)", businessID, StorageObjectStatusAvailable, now, StorageObjectStatusDeletePending).
 		Order("id asc").Limit(limit * 2).Find(&candidates).Error; err != nil {
 		return nil, err
 	}
@@ -1094,7 +1147,7 @@ func ListStagingDeletePending(limit int) ([]StorageObject, error) {
 		limit = 100
 	}
 	var objects []StorageObject
-	err := DB.Where("business_id = ? AND staging_status = ?", StorageObjectBusinessAsyncImages, StorageStagingDeletePending).
+	err := DB.Where("staging_status = ?", StorageStagingDeletePending).
 		Order("id asc").Limit(limit).Find(&objects).Error
 	return objects, err
 }
@@ -1102,7 +1155,7 @@ func ListStagingDeletePending(limit int) ([]StorageObject, error) {
 func HasStorageObjectForStagingPath(relativePath string) (bool, error) {
 	var count int64
 	err := DB.Model(&StorageObject{}).
-		Where("business_id = ? AND staging_relative_path = ?", StorageObjectBusinessAsyncImages, relativePath).
+		Where("staging_relative_path = ?", relativePath).
 		Count(&count).Error
 	return count > 0, err
 }

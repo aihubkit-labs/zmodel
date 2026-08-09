@@ -16,22 +16,29 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ClipboardList, ExternalLink, Eye } from 'lucide-react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { ClipboardList, ExternalLink, Eye, Upload } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { Dialog } from '@/components/dialog'
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Spinner } from '@/components/ui/spinner'
 import { formatTimestampToDate } from '@/lib/format'
 
+import { retryVideoUpload } from '../../api'
 import { taskActionMapper, taskStatusMapper } from '../../lib/mappers'
+import { canUploadVideoTaskToS3, isVideoTask } from '../../lib/video-task'
 import type { TaskLog } from '../../types'
+import { UpstreamHTTPTrace } from './upstream-http-trace'
 
 interface TaskDetailsDialogProps {
   log: TaskLog
+  isAdmin: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
 }
@@ -203,6 +210,17 @@ function MediaPreview(props: { item: MediaItem; index: number }) {
 
 export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const uploadMutation = useMutation({
+    mutationFn: () => retryVideoUpload(props.log.task_id),
+    onSuccess: () => {
+      toast.success(t('Video upload started'))
+      queryClient.invalidateQueries({ queryKey: ['logs'] })
+    },
+    onError: () => {
+      toast.error(t('Failed to upload video to S3'))
+    },
+  })
   const model =
     props.log.properties?.origin_model_name ||
     props.log.properties?.upstream_model_name ||
@@ -210,6 +228,26 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
   const request = parseJSONValue(props.log.properties?.input)
   const response = parseJSONValue(props.log.data)
   const mediaItems = getMediaItems(request)
+  const canUploadVideo = props.isAdmin && canUploadVideoTaskToS3(props.log)
+  const showVideoStorage =
+    props.isAdmin &&
+    isVideoTask(props.log) &&
+    Boolean(props.log.video_storage_status || canUploadVideo)
+  const videoStorageStatusLabels: Record<string, string> = {
+    available: t('Available'),
+    uploading: t('Uploading'),
+    failed: t('Failed'),
+    expired: t('Expired'),
+    deleted: t('Deleted'),
+  }
+  let videoStorageVariant: 'success' | 'info' | 'danger' | 'neutral' = 'neutral'
+  if (props.log.video_storage_status === 'available') {
+    videoStorageVariant = 'success'
+  } else if (props.log.video_storage_status === 'uploading') {
+    videoStorageVariant = 'info'
+  } else if (props.log.video_storage_status) {
+    videoStorageVariant = 'danger'
+  }
 
   return (
     <Dialog
@@ -298,6 +336,45 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
                 </span>
               </DetailItem>
             ) : null}
+            {showVideoStorage ? (
+              <DetailItem label={t('Upload status')}>
+                <div className='flex flex-wrap items-center gap-2'>
+                  <StatusBadge
+                    label={
+                      videoStorageStatusLabels[
+                        props.log.video_storage_status || ''
+                      ] || t('Not uploaded')
+                    }
+                    variant={videoStorageVariant}
+                    size='sm'
+                    copyable={false}
+                  />
+                  {canUploadVideo ? (
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='xs'
+                      disabled={uploadMutation.isPending}
+                      onClick={() => uploadMutation.mutate()}
+                    >
+                      {uploadMutation.isPending ? (
+                        <Spinner data-icon='inline-start' />
+                      ) : (
+                        <Upload data-icon='inline-start' />
+                      )}
+                      {t('Upload to S3')}
+                    </Button>
+                  ) : null}
+                </div>
+              </DetailItem>
+            ) : null}
+            {props.isAdmin && props.log.video_storage_error ? (
+              <DetailItem label={t('Storage error')}>
+                <span className='text-destructive whitespace-pre-wrap'>
+                  {props.log.video_storage_error}
+                </span>
+              </DetailItem>
+            ) : null}
           </dl>
 
           {mediaItems.length > 0 ? (
@@ -317,6 +394,11 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
 
           <JSONSection title={t('Request')} value={request} />
           <JSONSection title={t('Response')} value={response} />
+          {props.isAdmin &&
+          props.log.status === 'FAILURE' &&
+          props.log.upstream_http_trace ? (
+            <UpstreamHTTPTrace trace={props.log.upstream_http_trace} />
+          ) : null}
         </div>
       </ScrollArea>
     </Dialog>

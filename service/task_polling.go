@@ -459,11 +459,32 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		"action":  task.Action,
 	}, proxy)
 	if err != nil {
+		var requestErr *relaycommon.UpstreamRequestError
+		if errors.As(err, &requestErr) {
+			if task.PrivateData.UpstreamHTTPTrace == nil {
+				task.PrivateData.UpstreamHTTPTrace = &dto.TaskUpstreamHTTPTrace{}
+			}
+			task.PrivateData.UpstreamHTTPTrace.PollRequest = relaycommon.UpstreamHTTPRequestMetadata(requestErr.Request)
+			task.PrivateData.UpstreamHTTPTrace.PollResponse = relaycommon.UpstreamHTTPTransportError(requestErr)
+			if _, updateErr := task.UpdatePrivateDataWithStatus(task.Status); updateErr != nil {
+				logger.LogError(ctx, fmt.Sprintf("save polling HTTP error for task %s: %v", task.TaskID, updateErr))
+			}
+		}
 		return fmt.Errorf("fetchTask failed for task %s: %w", taskId, err)
 	}
 	defer resp.Body.Close()
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		if task.PrivateData.UpstreamHTTPTrace == nil {
+			task.PrivateData.UpstreamHTTPTrace = &dto.TaskUpstreamHTTPTrace{}
+		}
+		task.PrivateData.UpstreamHTTPTrace.PollRequest = relaycommon.UpstreamHTTPRequestMetadata(resp.Request)
+		pollResponse := relaycommon.UpstreamHTTPResponseFromBody(resp, responseBody)
+		pollResponse.Error = relaycommon.UpstreamHTTPTransportError(err).Error
+		task.PrivateData.UpstreamHTTPTrace.PollResponse = pollResponse
+		if _, updateErr := task.UpdatePrivateDataWithStatus(task.Status); updateErr != nil {
+			logger.LogError(ctx, fmt.Sprintf("save polling response read error for task %s: %v", task.TaskID, updateErr))
+		}
 		return fmt.Errorf("readAll failed for task %s: %w", taskId, err)
 	}
 
@@ -484,6 +505,14 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		taskResult.Reason = t.FailReason
 		task.Data = t.Data
 	} else if taskResult, err = adaptor.ParseTaskResult(responseBody); err != nil {
+		if task.PrivateData.UpstreamHTTPTrace == nil {
+			task.PrivateData.UpstreamHTTPTrace = &dto.TaskUpstreamHTTPTrace{}
+		}
+		task.PrivateData.UpstreamHTTPTrace.PollRequest = relaycommon.UpstreamHTTPRequestMetadata(resp.Request)
+		task.PrivateData.UpstreamHTTPTrace.PollResponse = relaycommon.UpstreamHTTPResponseFromBody(resp, responseBody)
+		if _, updateErr := task.UpdatePrivateDataWithStatus(task.Status); updateErr != nil {
+			logger.LogError(ctx, fmt.Sprintf("save invalid polling response for task %s: %v", task.TaskID, updateErr))
+		}
 		return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
 	}
 
@@ -501,6 +530,14 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 				// 返回规范的 OpenAI 错误格式，提取错误信息，判断错误是否为任务失败
 				if openaiError.Code == "429" {
 					// 429 错误通常表示请求过多或速率限制，暂时不认为是任务失败，保持原状态等待下一轮轮询
+					if task.PrivateData.UpstreamHTTPTrace == nil {
+						task.PrivateData.UpstreamHTTPTrace = &dto.TaskUpstreamHTTPTrace{}
+					}
+					task.PrivateData.UpstreamHTTPTrace.PollRequest = relaycommon.UpstreamHTTPRequestMetadata(resp.Request)
+					task.PrivateData.UpstreamHTTPTrace.PollResponse = relaycommon.UpstreamHTTPResponseFromBody(resp, responseBody)
+					if _, updateErr := task.UpdatePrivateDataWithStatus(task.Status); updateErr != nil {
+						logger.LogError(ctx, fmt.Sprintf("save rate-limited polling response for task %s: %v", task.TaskID, updateErr))
+					}
 					return nil
 				}
 
@@ -530,9 +567,21 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 			task.StartTime = now
 		}
 	case model.TaskStatusSuccess:
+		task.PrivateData.UpstreamHTTPTrace = nil
 		task.Progress = taskcommon.ProgressComplete
 		if task.FinishTime == 0 {
 			task.FinishTime = now
+		}
+		if task.PrivateData.VideoS3StorageEnabled {
+			archiveErr := errors.New("video archive handler is not configured")
+			if ArchiveVideoTaskFunc != nil {
+				archiveErr = ArchiveVideoTaskFunc(ctx, task, ch, VideoArchiveSource{
+					URL: taskResult.Url, RemoteURL: taskResult.RemoteUrl,
+				})
+			}
+			if archiveErr != nil {
+				logger.LogWarn(ctx, fmt.Sprintf("Video archive failed for task %s without affecting task settlement: %v", task.TaskID, archiveErr))
+			}
 		}
 		if strings.HasPrefix(taskResult.Url, "data:") {
 			// data: URI (e.g. Vertex base64 encoded video) — keep in Data, not in ResultURL
@@ -546,6 +595,11 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		}
 		shouldSettle = true
 	case model.TaskStatusFailure:
+		if task.PrivateData.UpstreamHTTPTrace == nil {
+			task.PrivateData.UpstreamHTTPTrace = &dto.TaskUpstreamHTTPTrace{}
+		}
+		task.PrivateData.UpstreamHTTPTrace.PollRequest = relaycommon.UpstreamHTTPRequestMetadata(resp.Request)
+		task.PrivateData.UpstreamHTTPTrace.PollResponse = relaycommon.UpstreamHTTPResponseFromBody(resp, responseBody)
 		logger.LogJson(ctx, fmt.Sprintf("Task %s failed", taskId), task)
 		task.Status = model.TaskStatusFailure
 		task.Progress = taskcommon.ProgressComplete

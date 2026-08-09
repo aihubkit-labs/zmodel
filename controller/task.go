@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
+	"github.com/QuantumNous/new-api/setting/storage_setting"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -86,14 +87,25 @@ func GetUserTaskFilterOptions(c *gin.Context) {
 
 func tasksToDto(tasks []*model.Task, fillUser bool) []*dto.TaskDto {
 	var userIdMap map[int]*model.UserBase
-	var channelNameMap map[int]string
+	channelMap := make(map[int]*model.Channel)
 	if fillUser {
-		userIdMap = make(map[int]*model.UserBase)
-		userIds := types.NewSet[int]()
 		channelIds := types.NewSet[int]()
 		for _, task := range tasks {
-			userIds.Add(task.UserId)
 			channelIds.Add(task.ChannelId)
+		}
+		channels, err := model.GetChannelsByIds(channelIds.Items())
+		if err != nil {
+			common.SysError("get task channels error: " + err.Error())
+		} else {
+			for _, channel := range channels {
+				channelMap[channel.Id] = channel
+			}
+		}
+
+		userIdMap = make(map[int]*model.UserBase)
+		userIds := types.NewSet[int]()
+		for _, task := range tasks {
+			userIds.Add(task.UserId)
 		}
 		for _, userId := range userIds.Items() {
 			cacheUser, err := model.GetUserCache(userId)
@@ -101,26 +113,53 @@ func tasksToDto(tasks []*model.Task, fillUser bool) []*dto.TaskDto {
 				userIdMap[userId] = cacheUser
 			}
 		}
-		channelNameMap = make(map[int]string)
-		channels, err := model.GetChannelsByIds(channelIds.Items())
-		if err != nil {
-			common.SysError("get task channel names error: " + err.Error())
-		} else {
-			for _, channel := range channels {
-				channelNameMap[channel.Id] = channel.Name
+	}
+
+	var videoObjects map[string]*model.StorageObject
+	if fillUser {
+		videoTaskIDs := make([]string, 0)
+		for _, task := range tasks {
+			if model.IsVideoTaskAction(task.Action) {
+				videoTaskIDs = append(videoTaskIDs, task.TaskID)
 			}
+		}
+		var err error
+		videoObjects, err = model.GetStorageObjectsByBusinessIDAndResourceIDs(
+			storage_setting.GetVideoSettings().BusinessID,
+			videoTaskIDs,
+		)
+		if err != nil {
+			common.SysError("get video storage objects error: " + err.Error())
+			videoObjects = nil
 		}
 	}
+
 	result := make([]*dto.TaskDto, len(tasks))
 	for i, task := range tasks {
+		taskForDTO := *task
 		if fillUser {
 			if user, ok := userIdMap[task.UserId]; ok {
-				task.Username = user.Username
+				taskForDTO.Username = user.Username
 			}
 		}
-		result[i] = relay.TaskModel2Dto(task)
+		result[i] = relay.TaskModel2Dto(&taskForDTO)
 		if fillUser {
-			result[i].ChannelName = channelNameMap[task.ChannelId]
+			if channel := channelMap[task.ChannelId]; channel != nil {
+				result[i].ChannelName = channel.Name
+			}
+			if model.IsVideoTaskAction(task.Action) {
+				result[i].VideoS3StorageEnabled = task.PrivateData.VideoS3StorageEnabled
+				if object := videoObjects[task.TaskID]; object != nil {
+					result[i].VideoStorageStatus = object.Status
+					if object.Status == model.StorageObjectStatusAvailable && object.ExpiresAt <= common.GetTimestamp() {
+						result[i].VideoStorageStatus = "expired"
+					}
+					result[i].VideoStorageError = object.LastError
+				}
+			}
+			if task.Status == model.TaskStatusFailure {
+				result[i].UpstreamHTTPTrace = task.PrivateData.UpstreamHTTPTrace
+			}
 		}
 	}
 	return result

@@ -26,6 +26,7 @@ type objectStorageSettingsResponse struct {
 	AccessKey                 string `json:"access_key"`
 	SecretConfigured          bool   `json:"secret_configured"`
 	S3KeyPrefix               string `json:"s3_key_prefix"`
+	BusinessID                string `json:"business_id"`
 	StagingDirectory          string `json:"staging_directory"`
 	RetentionSeconds          int64  `json:"retention_seconds"`
 	PresignSeconds            int64  `json:"presign_seconds"`
@@ -42,6 +43,7 @@ type updateObjectStorageSettingsRequest struct {
 	AccessKey                 string  `json:"access_key"`
 	SecretAccessKey           string  `json:"secret_access_key"`
 	S3KeyPrefix               *string `json:"s3_key_prefix"`
+	BusinessID                string  `json:"business_id"`
 	StagingDirectory          string  `json:"staging_directory"`
 	RetentionSeconds          int64   `json:"retention_seconds"`
 	PresignSeconds            int64   `json:"presign_seconds"`
@@ -86,6 +88,7 @@ func GetObjectStorageSettings(c *gin.Context) {
 		AccessKey:                 settings.AccessKey,
 		SecretConfigured:          strings.TrimSpace(settings.SecretAccessKey) != "",
 		S3KeyPrefix:               settings.S3KeyPrefix,
+		BusinessID:                settings.BusinessID,
 		StagingDirectory:          settings.StagingDirectory,
 		RetentionSeconds:          settings.RetentionSeconds,
 		PresignSeconds:            settings.PresignSeconds,
@@ -118,6 +121,7 @@ func UpdateObjectStorageSettings(c *gin.Context) {
 		AccessKey:                 strings.TrimSpace(request.AccessKey),
 		SecretAccessKey:           secret,
 		S3KeyPrefix:               s3KeyPrefix,
+		BusinessID:                strings.TrimSpace(request.BusinessID),
 		StagingDirectory:          strings.TrimSpace(request.StagingDirectory),
 		RetentionSeconds:          request.RetentionSeconds,
 		PresignSeconds:            request.PresignSeconds,
@@ -147,10 +151,12 @@ func UpdateObjectStorageSettings(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgObjectStorageStagingDirectoryUnavailable)
 		return
 	}
-	physicalLocationChanged := current.Endpoint != candidate.Endpoint || current.Region != candidate.Region || current.Bucket != candidate.Bucket
+	physicalLocationChanged := current.Endpoint != candidate.Endpoint || current.Region != candidate.Region || current.Bucket != candidate.Bucket ||
+		current.S3KeyPrefix != candidate.S3KeyPrefix || current.BusinessID != candidate.BusinessID
+	namespaceChanged := current.S3KeyPrefix != candidate.S3KeyPrefix || current.BusinessID != candidate.BusinessID
 	rebindTaskIDs := []string{}
 	if physicalLocationChanged {
-		activeCount, err := model.CountActiveStorageObjects()
+		activeCount, err := model.CountActiveStorageObjectsByBusinessID(current.BusinessID)
 		if err != nil {
 			common.ApiError(c, err)
 			return
@@ -158,6 +164,17 @@ func UpdateObjectStorageSettings(c *gin.Context) {
 		if activeCount > 0 {
 			common.ApiErrorMsg(c, "cannot change object storage location while active objects exist")
 			return
+		}
+		if namespaceChanged {
+			failedCandidates, err := model.ListAsyncImageStorageRebindCandidates()
+			if err != nil {
+				common.ApiError(c, err)
+				return
+			}
+			if len(failedCandidates) > 0 {
+				common.ApiErrorMsg(c, "cannot change the object storage prefix or business ID while failed archive objects exist")
+				return
+			}
 		}
 		rebindTaskIDs, err = prepareAsyncImageStorageRebind(c.Request.Context(), current)
 		if err != nil {
@@ -177,6 +194,7 @@ func UpdateObjectStorageSettings(c *gin.Context) {
 		storage_setting.OptionS3AccessKey:               candidate.AccessKey,
 		storage_setting.OptionS3SecretAccessKey:         candidate.SecretAccessKey,
 		storage_setting.OptionS3KeyPrefix:               candidate.S3KeyPrefix,
+		storage_setting.OptionBusinessID:                candidate.BusinessID,
 		storage_setting.OptionStagingDirectory:          candidate.StagingDirectory,
 		storage_setting.OptionRetentionSeconds:          fmt.Sprintf("%d", candidate.RetentionSeconds),
 		storage_setting.OptionPresignSeconds:            fmt.Sprintf("%d", candidate.PresignSeconds),
@@ -272,7 +290,7 @@ func probeObjectStorage(parent context.Context, settings storage_setting.Setting
 	if err != nil {
 		return &objectStorageProbeError{operation: "connection", err: err}
 	}
-	key := asyncImageObjectRoot(settings.S3KeyPrefix) + "/.probe/" + random
+	key := asyncImageObjectRoot(settings.S3KeyPrefix, settings.BusinessID) + "/.probe/" + random
 	_, err = storage.PutObject(ctx, objectstorage.PutObjectInput{
 		Bucket:      settings.Bucket,
 		Key:         key,

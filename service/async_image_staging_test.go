@@ -156,7 +156,7 @@ func TestCleanupOrphanedAsyncImageStagingPreservesReferencedFiles(t *testing.T) 
 	require.NoError(t, os.WriteFile(referencedPath, onePixelPNG, 0o600))
 	require.NoError(t, os.Chtimes(referencedPath, oldTime, oldTime))
 	require.NoError(t, model.DB.Create(&model.StorageObject{
-		BusinessID:          model.StorageObjectBusinessAsyncImages,
+		BusinessID:          "test@async-images",
 		ResourceID:          "task_referenced",
 		ObjectIndex:         0,
 		StagingRelativePath: referencedRelative,

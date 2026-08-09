@@ -36,7 +36,9 @@ metadata.url
 3. 客户端使用 zmodel Token 请求上游域名时会被上游拒绝。
 4. 直接公开上游地址还会泄露供应商域名和上游任务 ID。
 
-因此，视频内容必须由 zmodel 代理下载。客户端始终访问 zmodel，由 zmodel 完成用户鉴权，并使用任务提交时实际选中的上游密钥访问上游。
+因此，视频任务响应统一返回 zmodel 的 `/v1/videos/{task_id}/content` 地址。客户端访问该地址时，
+管理员可通过渠道的“代理视频内容”开关决定是由 zmodel 使用任务提交时实际选中的上游密钥代理下载，
+还是重定向到上游视频地址；关闭代理时，管理员需要确认上游地址可由客户端直接访问。
 
 ## 3. 架构决策
 
@@ -50,41 +52,29 @@ metadata.url
 - 不直接实现 Seedance 海外官方协议。
 - 不新增视频提交、查询或内容下载路由。
 
-当前通用 Seedance 模型能力如下：
+所有模型复用所选视频协议，模型差异完全由渠道的 `video_model_capabilities` 定义，不通过模型名称或供应商域名分支实现。启用视频协议后，管理员必须从当前渠道的上游模型列表中选择模型，并配置分辨率及三类参考素材数量上限；Seedance 模型还必须配置最小和最大时长。模型映射场景按映射后的上游模型 ID 查询能力，未配置的模型会被拒绝。
 
-| 模型 | 分辨率 | 时长 |
-| --- | --- | --- |
-| `videos-mini` | `480p`、`720p` | 4–15 秒 |
-| `videos-fast` | `480p`、`720p` | 4–15 秒 |
-| `videos-standard` | `480p`、`720p` | 4–15 秒 |
-| `videos-4-mini` | `480p`、`720p` | 4–15 秒 |
-| `videos-4-fast` | `480p`、`720p` | 4–15 秒 |
-| `videos-4` | `480p`、`720p` | 4–15 秒 |
-| `tvideos` | `480p`、`720p`、`1080p`、`4K` | 4–15 秒 |
-| `tvideos-fast-480p` | `480p` | 4–15 秒 |
-| `tvideos-mini` | `480p`、`720p` | 4–15 秒 |
-
-其中 `videos-4*` 由 MegabyAI 提供。所有模型复用同一套 Seedance 兼容协议，模型能力按模型 ID 定义，不通过供应商域名分支实现。
-
-上表也是未配置渠道覆盖时的内置默认值。管理员可以在渠道高级设置中选择 `Seedance Compatible`，再按上游模型 ID 配置支持的分辨率。运行时优先使用当前渠道的 `video_model_capabilities`，未配置的已知模型回退到上表，既无渠道配置也无内置默认值的模型会被拒绝。模型映射场景按映射后的上游模型 ID 查询能力。
-
-对应的渠道 `setting` 数据结构如下，管理后台会以模型行和分辨率多选控件维护该结构：
+对应的渠道 `setting` 数据结构如下，管理后台会以模型行、动态分辨率标签和数量输入框维护该结构：
 
 ```json
 {
-  "video_protocol": "seedance",
+  "video_protocol": "seedance(megabyai)",
   "video_model_capabilities": {
-    "videos-standard": { "resolutions": ["480p", "720p"] },
-    "tvideos": { "resolutions": ["480p", "720p", "1080p", "4k"] },
-    "tvideos-fast-480p": { "resolutions": ["480p"] },
-    "tvideos-mini": { "resolutions": ["480p", "720p"] }
+    "upstream-video-model": {
+      "resolutions": ["720p", "1080p", "1440p"],
+      "max_reference_images": 2,
+      "max_reference_videos": 1,
+      "max_reference_audios": 0,
+      "min_duration_seconds": 4,
+      "max_duration_seconds": 29
+    }
   }
 }
 ```
 
-可配置的分辨率限定为现有计费档位 `480p`、`720p`、`1080p`、`4k`。任务提交时会冻结最终命中的分辨率能力，后续渠道配置变更不会改变进行中任务的结算规则。
+所有视频协议都要求每个模型至少配置一个分辨率。分辨率名称不使用全局白名单，由管理员按上游实际值填写；参考素材上限必须显式配置，`0` 表示该模型不支持对应素材。Seedance 的 `min_duration_seconds` 和 `max_duration_seconds` 同样按模型配置，例如 2.0 可配置为 4–15，2.5 可配置为 4–29。任务提交时会冻结最终命中的分辨率和时长能力，后续渠道配置变更不会改变进行中任务的结算规则。
 
-两个供应商均支持以下 JSON 素材字段，zmodel 保持字段名、数组顺序和 URL 原样透传，由上游执行数量、格式、时长和内容策略校验：
+统一视频请求支持以下 JSON 素材字段。zmodel 在调用上游前按模型能力校验数量，并保持字段名、数组顺序和 URL 原样透传：
 
 ```text
 referenceImages
@@ -107,7 +97,7 @@ referenceAudios
 }
 ```
 
-有效协议为 `openai_video`、`seedance` 和 `agnes_video_v2`。协议决定请求校验、公共字段转换和扩展
+有效协议为 `openai_video`、`seedance(megabyai)` 和 `agnes_video_v2`。协议决定请求校验、公共字段转换和扩展
 参数命名空间。空或缺失保持发布前的历史请求逻辑，不做隐式协议推断或数据迁移。管理后台只提供
 “视频协议”下拉框，不提供严格、供应商选项或透传模式，也没有供应商命名空间输入框。
 
@@ -127,7 +117,7 @@ referenceAudios
 ```
 
 `provider_options` 是请求字段，不是渠道模式。命名空间由协议固定派生：`openai_video` 使用
-`openai`，`seedance` 使用 `seedance`，`agnes_video_v2` 使用 `agnes`。该字段只接受 JSON 请求；
+`openai`，`seedance(megabyai)` 使用 `seedance(megabyai)`，`agnes_video_v2` 使用 `agnes`。该字段只接受 JSON 请求；
 选中值必须是 JSON object。发送上游前移除命名空间包装，并保持字符串、数字、布尔值、对象和数组
 的原始 JSON 类型。供应商选项不能覆盖公共请求、时长、分辨率、输出数量、计费、回调、鉴权、
 上游地址或其他安全敏感字段，也不能与已有顶层字段重名。嵌套对象和数组执行同类检查，最大深度为
@@ -163,8 +153,9 @@ Agnes 渠道通过 `video_protocol=agnes_video_v2` 启用轻量转换，不按 A
 | `720p` | 1–18 的整数 | 24 fps | 433 |
 | `1080p` | 1–18 的整数；11–18 归一为10 | 24 fps | 241 |
 
-该范围是平台API合同，并统一适用于 Agnes 当前支持的全部宽高比。若客户端不传 `resolution`，使用
-默认 `720p`；不传 `duration`，使用默认5秒。1080p 的 11–18 秒请求会在调用上游前归一为10秒，
+该范围是平台API合同，并统一适用于 Agnes 当前支持的全部宽高比。客户端必须显式传入渠道中为当前
+模型配置的 `resolution`；不传 `duration` 时使用默认5秒。1080p 的 11–18 秒请求会在调用上游前
+归一为10秒，
 实际生成和计费均使用10秒；小于1秒或大于18秒返回 `invalid_seconds`。
 
 Agnes 官方创建任务参数不包含 `seconds`；实际时长由 `num_frames` 和 `frame_rate` 控制，且
@@ -185,8 +176,9 @@ Agnes 官方创建任务参数不包含 `seconds`；实际时长由 `num_frames`
 }
 ```
 
-Agnes 适配器将其转换为 `width: 1280`、`height: 720`。支持的分辨率为 `480p`、`720p`、`1080p`；
-支持的宽高比为 `16:9`、`9:16`、`1:1`、`4:3`、`3:4`。未传时默认 `720p + 16:9`。Agnes 会把
+Agnes 适配器将其转换为 `width: 1280`、`height: 720`。分辨率名称由渠道按模型动态配置，Agnes
+协议接受 `1p` 到 `4320p` 的数值型名称；支持的宽高比为 `16:9`、`9:16`、`1:1`、`4:3`、`3:4`。
+`resolution` 必须显式传入，未传 `ratio` 时默认 `16:9`。Agnes 会把
 名义尺寸映射到最近的内部标准输出尺寸，任务完成后以响应 `metadata.size_mapping.resolution` 和
 `size` 为实际结果。
 
@@ -195,7 +187,7 @@ Agnes 统一模式不接受公共 `size`，也不允许 `provider_options.agnes`
 
 ### 3.5 统一参考图字段
 
-用户统一使用 `referenceImages` 表达视频参考图片。Seedance 兼容协议保持该数组字段和顺序发送
+用户统一使用 `referenceImages` 表达视频参考图片。`seedance(megabyai)` 协议保持该数组字段和顺序发送
 上游；Agnes Video V2 只支持0或1张参考图，单张时由适配器转换为 Agnes 的顶层 `image` URL。
 Agnes 请求不接受顶层 `image`、`images` 或 `input_reference`，也不允许通过
 `provider_options.agnes` 覆盖参考图字段。多图、空 URL 或非 HTTP/HTTPS URL 在调用上游前返回
@@ -244,6 +236,35 @@ RelayInfo.ChannelMeta.ApiKey
 Task.PrivateData.Key != "" ? Task.PrivateData.Key : Channel.Key
 ```
 
+### 3.8 视频交付与 S3 归档独立配置
+
+渠道包含三个相互独立的布尔配置：
+
+| 配置 | 职责 |
+| --- | --- |
+| `video_content_proxy_enabled` | S3 优先未命中时，内容接口是否代理上游视频；访问内容接口时读取渠道当前值 |
+| `video_s3_storage_enabled` | 任务成功后是否自动把视频归档到视频对象存储；任务创建时写入快照 |
+| `video_s3_preferred` | 内容接口是否优先重定向到已有可用 S3 对象的临时签名地址；访问内容接口时读取渠道当前值 |
+
+任务查询响应中的公开视频地址始终为：
+
+```text
+zmodel /v1/videos/{task_id}/content
+```
+
+客户端访问该内容接口时，再按以下顺序选择实际交付方式：
+
+```text
+S3 优先且对象可用 -> S3 临时签名地址
+否则代理视频内容已开启 -> zmodel 流式返回上游视频
+否则 -> 上游视频地址
+```
+
+自动归档开关不参与地址选择。管理员修改渠道的 `S3 优先`或`代理视频内容`后，该渠道所有已提交
+任务后续访问内容接口时都会立即按当前配置重新选择实际交付方式。管理员也可以在任务日志中手动选择成功的视频任务
+上传到 S3；因此即使任务创建时没有开启自动归档，只要后来存在可用的 S3 对象且渠道当前开启了
+`S3 优先`，内容接口仍会重定向到 S3 临时签名地址。上传失败不改变视频任务状态和计费结果。
+
 ## 4. 请求数据流
 
 ### 4.1 创建任务
@@ -276,15 +297,13 @@ Task.PrivateData.Key != "" ? Task.PrivateData.Key : Channel.Key
   -> GET zmodel /v1/videos/{public_task_id}
   -> zmodel 按用户 ID和公开任务 ID查询任务
   -> 读取任务轮询保存的上游响应
-  -> 重写任务 ID和视频下载地址
+  -> 将任务 ID重写为公开任务 ID
+  -> 将所有视频下载地址统一重写为 zmodel /v1/videos/{public_task_id}/content
   -> 返回 OpenAI Video 兼容响应
 ```
 
-完成状态下，响应中的下载地址统一指向：
-
-```text
-{ServerAddress}/v1/videos/{public_task_id}/content
-```
+因此，同一已提交任务始终返回稳定的平台内容接口地址；任务查询不读取渠道交付开关、不查询 S3 对象，
+也不生成 S3 签名地址。
 
 ### 4.3 下载视频
 
@@ -293,13 +312,47 @@ Task.PrivateData.Key != "" ? Task.PrivateData.Key : Channel.Key
   -> GET zmodel /v1/videos/{public_task_id}/content
   -> zmodel Token 或用户会话鉴权
   -> 校验任务归属和完成状态
-  -> 查询任务对应渠道
-  -> 使用 UpstreamTaskID 构造上游内容地址
-  -> 使用任务保存的上游密钥请求上游
-  -> 将视频内容流式返回客户端
+  -> 查询任务对应渠道的当前配置
+  -> 当前开启 S3 优先且对象可用时重定向到 S3 签名地址
+  -> 否则使用 UpstreamTaskID 和任务保存的上游密钥解析上游视频地址
+  -> 当前关闭代理视频内容时重定向到上游 HTTPS 地址
+  -> 当前开启代理视频内容时由 zmodel 流式返回内容
 ```
 
+`download_name` 只在 S3 签名地址或平台流式代理分支中控制下载文件名。关闭代理并跳转上游时，平台
+无法控制上游响应头，因此忽略该参数且不会为了修改文件名而转发视频。上游结果是 `data:` URI 时
+没有可跳转的远程地址，只能由平台直接输出内容。
+
 客户端不需要知道上游域名、上游任务 ID或上游 API Key。
+
+对外复制视频地址、播放器 `src` 和下载入口都必须使用
+`/v1/videos/{public_task_id}/content`。下载时可以追加 `download_name` 查询参数，但不得把解析出的
+S3 签名地址或上游视频地址暴露为可复制、可保存的业务地址；这些地址只作为内容接口内部的临时交付目标。
+
+### 4.4 失败任务的上游 HTTP 诊断
+
+视频任务提交成功后，平台临时保存协议适配器实际发送的上游请求和上游提交响应。任务最终失败时，
+再保存最后一次状态轮询的请求和失败响应，并在管理端任务日志详情中展示“提交任务”和“失败任务轮询”
+两组 HTTP 报文。普通用户任务接口不返回这些诊断数据。
+
+如果连接超时、DNS 解析失败、连接被拒绝或代理不可用导致上游没有返回任何 HTTP 响应，平台仍保存
+实际请求，并以“传输错误”记录底层错误原因；此时不存在可展示的上游状态码、响应头或响应正文。
+提交阶段经过渠道重试后仍失败会直接写入失败任务日志。轮询阶段的单次网络异常不会立即终止任务，
+但会保存最近一次异常；任务后来成功则与其他诊断数据一并清除，最终超时或失败则供管理员查看。
+
+任务成功后清除临时诊断数据，避免成功任务长期占用数据库空间。每个请求或响应正文最多保存 64 KiB，
+超过上限时标记为已截断。`Authorization`、Cookie、API Key、Token、Secret、签名、凭据字段以及
+URL 查询参数中的敏感值必须在写入数据库前脱敏；诊断数据不得保存真实渠道密钥。
+
+诊断信息忠实记录上游请求与响应，不推断上游没有明确返回的信息。例如上游仅返回通用 403 或参数
+错误而未提供素材序号、字段路径或 URL 时，平台不能准确判断具体是哪一个参考素材不可访问，管理端
+只展示上游原始错误和已脱敏的实际请求，供管理员与上游核对。
+
+管理端以规范 HTTP 报文结构重建并复制诊断内容：请求行为
+`METHOD request-target HTTP/version`，响应行为 `HTTP/version status-code reason-phrase`，随后逐行展示
+`Header-Name: value`，空一行后展示 Body。请求同时补齐 `Host` 和已知的 `Content-Length`。报文中的
+凭据和敏感查询参数已经脱敏，JSON Body 会格式化，上述内容属于可与上游直接核对的规范化报文，
+不是网络抓包的原始字节；HTTP/2 等二进制协议也统一以可读的 HTTP 报文形式展示。
 
 ## 5. 查询响应转换契约
 
@@ -334,7 +387,7 @@ task_id
 
 ### 5.2 成功状态
 
-任务状态为 `TaskStatusSuccess` 时，以下顶层字段必须改为 zmodel 内容代理地址：
+任务状态为 `TaskStatusSuccess` 时，以下顶层字段必须改为同一个 zmodel 内容接口地址：
 
 ```text
 url
@@ -342,7 +395,7 @@ video_url
 metadata.url
 ```
 
-如果上游 `metadata` 原本包含以下扩展字段，也必须重写为同一个代理地址：
+如果上游 `metadata` 原本包含以下扩展字段，也必须重写为同一个 zmodel 内容接口地址：
 
 ```text
 metadata.content_url
@@ -353,7 +406,7 @@ metadata.final_video_url
 
 `metadata.origin_video_url` 不属于稳定的最终结果下载契约，成功和非成功状态下均删除，避免暴露原始素材或上游存储地址。其他非 URL 元数据保持原样，例如 `cached`、`expires_in` 和 `cost_credits`。这样既兼容供应商扩展字段，也不在通用层引入供应商判断。
 
-转换示例：
+无论渠道当前选择 S3、平台代理还是上游重定向，任务查询中的这些字段均保持以下形式：
 
 ```json
 {
@@ -397,10 +450,12 @@ metadata.origin_video_url
 
 配置行为：
 
-- `true`：由 zmodel 获取并流式转发视频内容。
-- `false`：默认值，zmodel 将客户端重定向到任务详情响应中的 HTTPS `url`。
+- `true`：S3 优先未命中时，由 zmodel 获取并流式转发上游视频内容。
+- `false`：默认值；S3 优先未命中时，zmodel 将客户端重定向到任务详情响应中的 HTTPS `url`。
 
-关闭代理时，如果上游任务详情返回 HTTP `url`，接口返回错误并提示管理员开启视频代理，避免 HTTPS 页面加载混合内容。
+`S3 优先`在上述代理判断之前执行，命中可用对象时直接重定向到 S3 签名地址。两个开关均在每次
+访问内容接口时读取渠道当前值。关闭代理时，如果上游任务详情返回 HTTP `url`，接口返回错误
+并提示管理员开启视频代理，避免 HTTPS 页面加载混合内容。
 
 ### 6.1 上游请求
 
@@ -550,13 +605,17 @@ Task.Data
 
 | 文件 | 职责 |
 | --- | --- |
-| `model/task.go` | 保存任务密钥、上游任务 ID和视频协议计费快照 |
+| `model/task.go` | 保存任务密钥、上游任务 ID、自动 S3 归档开关和视频协议计费快照 |
 | `dto/channel_settings.go` | 定义视频协议枚举和设置校验 |
 | `model/channel.go` | 新增或更新渠道时校验视频请求设置 |
+| `model/video_storage.go` | 保存视频 S3 对象、上传状态、重试状态和暂存文件元数据 |
 | `relay/channel/task/sora/video_protocol.go` | 协议校验、安全保护、供应商选项展开和 Agnes 转换 |
-| `relay/channel/task/sora/adaptor.go` | 构造上游请求，兼容响应时长，重写公开任务 ID和视频代理 URL |
-| `controller/relay.go` | 把任务提交时的视频协议写入私有计费上下文 |
-| `controller/video_proxy.go` | 鉴权后代理上游视频内容，处理 Range 和响应头 |
+| `relay/channel/task/sora/adaptor.go` | 构造上游请求，兼容响应时长并重写公开任务 ID和视频 URL |
+| `relay/relay_task.go` | 将视频任务查询响应中的下载地址统一重写为平台内容接口地址 |
+| `controller/relay.go` | 把自动 S3 归档开关和视频协议计费能力写入任务快照 |
+| `controller/task.go` | 构建任务日志 DTO，并仅向管理员补充渠道名称、S3 对象状态和失败诊断 |
+| `controller/video_proxy.go` | 动态重定向到 S3/上游或代理上游内容，处理 Range、下载文件名和响应头 |
+| `controller/video_storage.go` | 自动或手动从上游获取视频，暂存后上传到视频 S3，并处理批量上传和重试 |
 | `relay/channel/task/taskcommon/helpers.go` | 构造 zmodel 视频代理 URL |
 | `router/video-router.go` | 注册现有视频提交、查询和内容代理路由 |
 
@@ -569,7 +628,10 @@ Task.Data
 | `relay/channel/task/sora/adaptor_test.go` | ID和 URL重写、非成功状态地址清理 |
 | `relay/channel/task/sora/live_e2e_test.go` | 可选真实接口 E2E，以及 E2E 流程自身的本地协议模拟测试 |
 | `model/task_init_test.go` | 最终渠道密钥进入任务私有数据并成功落库 |
-| `controller/video_proxy_test.go` | 保存密钥、历史回退、Range、200、206、响应头和上游错误 |
+| `controller/task_test.go` | 任务日志始终返回平台内容接口地址，管理员仍可查看 S3 对象状态 |
+| `controller/video_proxy_test.go` | S3/上游重定向、代理流式响应、`download_name`、Range、响应头和上游错误 |
+| `controller/video_storage_test.go` | 自动归档、暂存重试、批量手动上传，以及关闭自动归档后的手动上传 |
+| `service/task_polling_test.go` | 自动归档失败不影响任务结算和计费 |
 
 ## 10. 自动化测试矩阵
 
@@ -591,13 +653,17 @@ Task.Data
 | Agnes 创建响应只含 `seconds: "10.0"` 和 `size: "1280x720"` | 返回公共 `duration: 10`、`resolution: "720p"`、`ratio: "16:9"`，保留兼容 `size` |
 | Agnes 查询的实际时长与请求时长不同 | 公共 `duration` 返回上游实际时长，请求快照只作缺失回退 |
 | Seedance 上游未返回 `seconds` 或 `size` | 仍从提交快照返回公共 `duration` 和 `resolution` |
-| 历史任务请求快照损坏 | 查询继续成功并使用可解析的上游公共字段 |
+| 任务能力快照完整但请求快照损坏 | 查询继续成功并使用能力快照允许的上游公共字段 |
 | Agnes 完成结果为 1–18 秒 | 按任务保存的 Agnes 协议范围更新实际结算维度 |
 | Agnes 同时收到不一致的 `duration` 和 `seconds` | 返回 `duration_conflict`，不调用上游 |
 | Agnes 更换或新增模型名称 | 继续按渠道 `video_protocol` 转换，无需修改模型名单 |
 | 成功任务查询 | `id` 和 `task_id` 为公开 ID |
-| 成功任务查询 | 顶层和上游实际返回的 metadata 下载 URL 均指向 zmodel |
-| 成功任务查询 | 响应不包含上游任务 ID和上游域名 |
+| 成功任务查询 | 顶层和 metadata 下载 URL 均为 zmodel `/v1/videos/{task_id}/content` 地址 |
+| 已提交任务对应渠道的 S3 优先或代理开关发生变化 | 任务查询 URL 保持不变；下一次访问内容接口立即按渠道当前值选择交付方式 |
+| 内容接口访问，S3 优先开启且对象可用 | 重定向到 S3 签名地址 |
+| 内容接口访问，S3 不可用且代理开启 | 由 zmodel 流式代理上游视频 |
+| 内容接口访问，S3 不可用且代理关闭 | 重定向到上游 HTTPS 视频地址 |
+| 成功任务响应 | `id` 和 `task_id` 不包含上游任务 ID |
 | 未完成或失败任务查询 | 删除所有上游下载 URL |
 | 未完成或失败任务查询 | 保留 `metadata` 中其他字段 |
 | OpenAI 任务创建 | 保存请求上下文中的最终上游密钥 |
@@ -608,9 +674,12 @@ Task.Data
 | `proxy` 上游返回 `206` | 下游返回 `206` 和分段下载头 |
 | `proxy` 上游返回 `200` | 下游流式返回完整内容 |
 | `proxy` 上游返回非 `200/206` | 下游返回 `502` |
-| `redirect` 上游返回重定向 | 不跟随重定向，校验并向客户端返回绝对 `Location` |
-| `redirect` 上游返回 `200/206` | 返回 `502`，不回退到反向代理 |
+| `redirect` 上游返回重定向链 | 逐跳校验并解析最终视频地址，再向客户端返回绝对 `Location` |
+| `redirect` 地址探测返回 `200/206` | 向客户端返回指向该地址的 `307`，不通过平台转发视频内容 |
 | `redirect` 目标被安全策略拦截 | 返回 `403`，不暴露或访问目标内容 |
+| `redirect` 请求携带 `download_name` | 仍重定向上游且忽略文件名，不通过平台转发视频 |
+| 自动 S3 归档关闭的成功视频任务 | 管理员仍可从任务日志手动上传到 S3 |
+| 自动或手动 S3 上传失败 | 不改变视频任务成功状态和计费结果 |
 | 上游返回非白名单头 | 下游不转发该响应头 |
 
 相关包的无缓存验证命令：
@@ -704,9 +773,9 @@ GOCACHE=/tmp/zmodel-go-build go test -count=1 -v \
 3. 轮询任务直至 `completed`，失败或超时则测试失败。
 4. zmodel 目标的查询响应始终使用公开任务 ID。
 5. zmodel 目标在非完成状态不返回下载 URL。
-6. zmodel 完成响应中的顶层 URL 和上游实际返回的 metadata URL 均指向 zmodel 内容代理。
+6. 使用代理交付配置时，zmodel 完成响应中的顶层 URL 和上游实际返回的 metadata URL 均指向 zmodel 内容入口。
 7. 内容接口接受 zmodel Token 或上游密钥，并发送 `Range: bytes=0-1023`。
-8. 内容接口返回 `200` 或 `206` 以及非空视频字节；返回 `206` 时同时验证 `Content-Range` 和 `Accept-Ranges`。
+8. 代理交付配置下，内容接口返回 `200` 或 `206` 以及非空视频字节；返回 `206` 时同时验证 `Content-Range` 和 `Accept-Ranges`。
 
 安全和运行约束：
 

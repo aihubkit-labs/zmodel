@@ -15,6 +15,8 @@ type ChannelSettings struct {
 	ThinkingToContent        bool                            `json:"thinking_to_content,omitempty"`
 	Proxy                    string                          `json:"proxy"`
 	VideoContentProxyEnabled bool                            `json:"video_content_proxy_enabled,omitempty"`
+	VideoS3StorageEnabled    bool                            `json:"video_s3_storage_enabled,omitempty"`
+	VideoS3Preferred         bool                            `json:"video_s3_preferred,omitempty"`
 	VideoProtocol            VideoProtocol                   `json:"video_protocol,omitempty"`
 	VideoModelCapabilities   map[string]VideoModelCapability `json:"video_model_capabilities,omitempty"`
 	PassThroughBodyEnabled   bool                            `json:"pass_through_body_enabled,omitempty"`
@@ -23,22 +25,34 @@ type ChannelSettings struct {
 }
 
 type VideoModelCapability struct {
-	Resolutions []string `json:"resolutions"`
+	Resolutions        []string `json:"resolutions,omitempty"`
+	MaxReferenceImages *int     `json:"max_reference_images,omitempty"`
+	MaxReferenceVideos *int     `json:"max_reference_videos,omitempty"`
+	MaxReferenceAudios *int     `json:"max_reference_audios,omitempty"`
+	MinDurationSeconds *int     `json:"min_duration_seconds,omitempty"`
+	MaxDurationSeconds *int     `json:"max_duration_seconds,omitempty"`
 }
+
+const MaxVideoReferenceCount = 64
+const MaxVideoModelResolutions = 32
+const MaxVideoDurationSeconds = 3600
 
 type VideoProtocol string
 
 const (
-	VideoProtocolOpenAI       VideoProtocol = "openai_video"
-	VideoProtocolSeedance     VideoProtocol = "seedance"
-	VideoProtocolAgnesVideoV2 VideoProtocol = "agnes_video_v2"
+	VideoProtocolOpenAI           VideoProtocol = "openai_video"
+	VideoProtocolSeedanceMegabyAI VideoProtocol = "seedance(megabyai)"
+	VideoProtocolAgnesVideoV2     VideoProtocol = "agnes_video_v2"
 )
 
 func (s ChannelSettings) ValidateVideoRequestSettings() error {
 	switch s.VideoProtocol {
-	case "", VideoProtocolOpenAI, VideoProtocolSeedance, VideoProtocolAgnesVideoV2:
+	case "", VideoProtocolOpenAI, VideoProtocolSeedanceMegabyAI, VideoProtocolAgnesVideoV2:
 	default:
 		return fmt.Errorf("unsupported video_protocol %q", s.VideoProtocol)
+	}
+	if s.VideoProtocol != "" && len(s.VideoModelCapabilities) == 0 {
+		return fmt.Errorf("video_model_capabilities is required when video_protocol is configured")
 	}
 
 	normalizedModels := make(map[string]struct{}, len(s.VideoModelCapabilities))
@@ -58,18 +72,59 @@ func (s ChannelSettings) ValidateVideoRequestSettings() error {
 		if len(capability.Resolutions) == 0 {
 			return fmt.Errorf("video model %q must configure at least one resolution", modelName)
 		}
+		if len(capability.Resolutions) > MaxVideoModelResolutions {
+			return fmt.Errorf("video model %q cannot configure more than %d resolutions", modelName, MaxVideoModelResolutions)
+		}
 		seenResolutions := make(map[string]struct{}, len(capability.Resolutions))
 		for _, resolution := range capability.Resolutions {
 			normalizedResolution := strings.ToLower(strings.TrimSpace(resolution))
-			switch normalizedResolution {
-			case "480p", "720p", "1080p", "4k":
-			default:
-				return fmt.Errorf("video model %q has unsupported resolution %q", modelName, resolution)
+			if normalizedResolution == "" {
+				return fmt.Errorf("video model %q contains an empty resolution", modelName)
+			}
+			if len(normalizedResolution) > 64 {
+				return fmt.Errorf("video model %q resolution %q exceeds 64 characters", modelName, resolution)
 			}
 			if _, exists := seenResolutions[normalizedResolution]; exists {
 				return fmt.Errorf("video model %q contains duplicate resolution %q", modelName, resolution)
 			}
 			seenResolutions[normalizedResolution] = struct{}{}
+		}
+
+		for _, limit := range []struct {
+			name  string
+			value *int
+		}{
+			{name: "max_reference_images", value: capability.MaxReferenceImages},
+			{name: "max_reference_videos", value: capability.MaxReferenceVideos},
+			{name: "max_reference_audios", value: capability.MaxReferenceAudios},
+		} {
+			if limit.value == nil {
+				return fmt.Errorf("video model %q must configure %s", modelName, limit.name)
+			}
+			if *limit.value < 0 || *limit.value > MaxVideoReferenceCount {
+				return fmt.Errorf("video model %q %s must be between 0 and %d", modelName, limit.name, MaxVideoReferenceCount)
+			}
+		}
+		if s.VideoProtocol == VideoProtocolAgnesVideoV2 &&
+			capability.MaxReferenceImages != nil && *capability.MaxReferenceImages > 1 {
+			return fmt.Errorf("video model %q max_reference_images cannot exceed 1 for Agnes Video V2", modelName)
+		}
+		if s.VideoProtocol == VideoProtocolSeedanceMegabyAI {
+			if capability.MinDurationSeconds == nil {
+				return fmt.Errorf("video model %q must configure min_duration_seconds", modelName)
+			}
+			if capability.MaxDurationSeconds == nil {
+				return fmt.Errorf("video model %q must configure max_duration_seconds", modelName)
+			}
+			if *capability.MinDurationSeconds < 1 || *capability.MinDurationSeconds > MaxVideoDurationSeconds {
+				return fmt.Errorf("video model %q min_duration_seconds must be between 1 and %d", modelName, MaxVideoDurationSeconds)
+			}
+			if *capability.MaxDurationSeconds < 1 || *capability.MaxDurationSeconds > MaxVideoDurationSeconds {
+				return fmt.Errorf("video model %q max_duration_seconds must be between 1 and %d", modelName, MaxVideoDurationSeconds)
+			}
+			if *capability.MinDurationSeconds > *capability.MaxDurationSeconds {
+				return fmt.Errorf("video model %q min_duration_seconds cannot exceed max_duration_seconds", modelName)
+			}
 		}
 	}
 	return nil
@@ -85,7 +140,14 @@ func (s ChannelSettings) GetVideoModelCapability(modelName string) (VideoModelCa
 		for _, resolution := range capability.Resolutions {
 			resolutions = append(resolutions, strings.ToLower(strings.TrimSpace(resolution)))
 		}
-		return VideoModelCapability{Resolutions: resolutions}, true
+		return VideoModelCapability{
+			Resolutions:        resolutions,
+			MaxReferenceImages: capability.MaxReferenceImages,
+			MaxReferenceVideos: capability.MaxReferenceVideos,
+			MaxReferenceAudios: capability.MaxReferenceAudios,
+			MinDurationSeconds: capability.MinDurationSeconds,
+			MaxDurationSeconds: capability.MaxDurationSeconds,
+		}, true
 	}
 	return VideoModelCapability{}, false
 }

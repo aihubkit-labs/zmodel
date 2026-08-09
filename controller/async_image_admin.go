@@ -518,12 +518,12 @@ func (asyncImageCleanupHandler) Interval() time.Duration {
 func (asyncImageCleanupHandler) NewPayload() any { return nil }
 
 func (asyncImageCleanupHandler) Run(ctx context.Context, systemTask *model.SystemTask, runnerID string) {
-	objects, err := model.ClaimExpiredStorageObjects(100)
+	settings := storage_setting.GetSettings()
+	objects, err := model.ClaimExpiredStorageObjectsByBusinessID(settings.BusinessID, 100)
 	if err != nil {
 		finishSystemTaskHandler(systemTask, runnerID, model.SystemTaskStatusFailed, nil, err)
 		return
 	}
-	settings := storage_setting.GetSettings()
 	deleted, failed := 0, 0
 	for _, object := range objects {
 		if ctx.Err() != nil {
