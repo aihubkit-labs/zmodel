@@ -110,3 +110,38 @@ export const getAllTaskLogs = (params: GetTaskLogsParams) =>
 
 export const getUserTaskLogs = (params: GetTaskLogsParams) =>
   fetchLogs('/api/task', params, false)
+
+export async function retryVideoUpload(taskId: string): Promise<{
+  operation_id: string
+  created: boolean
+}> {
+  const res = await api.post(`/api/task/${taskId}/retry-video-upload`)
+  if (!res.data.success) {
+    throw new Error(res.data.message || 'Failed to retry video upload')
+  }
+  return res.data.data
+}
+
+export interface BatchVideoUploadResult {
+  accepted: Array<{
+    task_id: string
+    operation_id: string
+    created: boolean
+  }>
+  skipped: Array<{
+    task_id: string
+    reason: string
+  }>
+}
+
+export async function batchVideoUpload(
+  taskIds: string[]
+): Promise<BatchVideoUploadResult> {
+  const res = await api.post('/api/task/batch-video-upload', {
+    task_ids: taskIds,
+  })
+  if (!res.data.success) {
+    throw new Error(res.data.message || 'Failed to upload videos to S3')
+  }
+  return res.data.data
+}

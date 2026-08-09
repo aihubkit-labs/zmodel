@@ -23,6 +23,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/storage_setting"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/bytedance/gopkg/util/gopool"
@@ -514,6 +515,7 @@ func RelayTask(c *gin.Context) {
 		RequestPath: c.Request.URL.Path,
 		Retry:       common.GetPointer(0),
 	}
+	c.Set(relaycommon.TaskUpstreamHTTPTraceContextKey, nil)
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
 		var channel *model.Channel
@@ -535,6 +537,14 @@ func RelayTask(c *gin.Context) {
 				break
 			}
 		}
+		if channel.GetSetting().VideoS3StorageEnabled && !storage_setting.GetVideoSettings().Configured() {
+			taskErr = service.TaskErrorWrapperLocal(
+				errors.New("video object storage is not configured"),
+				"video_object_storage_not_configured",
+				http.StatusServiceUnavailable,
+			)
+			break
+		}
 
 		addUsedChannel(c, channel.Id)
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
@@ -547,6 +557,7 @@ func RelayTask(c *gin.Context) {
 			break
 		}
 		c.Request.Body = io.NopCloser(bodyStorage)
+		c.Set(relaycommon.TaskUpstreamHTTPRequestContextKey, nil)
 
 		result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
 		if taskErr == nil {
@@ -580,10 +591,14 @@ func RelayTask(c *gin.Context) {
 
 		task := model.InitTask(result.Platform, relayInfo)
 		task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
+		task.PrivateData.VideoS3StorageEnabled = relayInfo.ChannelSetting.VideoS3StorageEnabled
 		task.PrivateData.BillingSource = relayInfo.BillingSource
 		task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
 		task.PrivateData.TokenId = relayInfo.TokenId
 		task.PrivateData.NodeName = common.NodeName
+		if model.IsVideoTaskAction(relayInfo.Action) {
+			task.PrivateData.UpstreamHTTPTrace = result.UpstreamHTTPTrace
+		}
 		task.PrivateData.BillingContext = &model.TaskBillingContext{
 			ModelPrice:              relayInfo.PriceData.ModelPrice,
 			GroupRatio:              relayInfo.PriceData.GroupRatioInfo.GroupRatio,
@@ -592,6 +607,8 @@ func RelayTask(c *gin.Context) {
 			OriginModelName:         relayInfo.OriginModelName,
 			VideoProtocol:           relayInfo.ChannelSetting.VideoProtocol,
 			VideoAllowedResolutions: append([]string(nil), relayInfo.VideoAllowedResolutions...),
+			VideoMinDurationSeconds: relayInfo.VideoMinDurationSeconds,
+			VideoMaxDurationSeconds: relayInfo.VideoMaxDurationSeconds,
 			PerCallBilling:          relayInfo.TieredBillingSnapshot == nil && (common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice),
 		}
 		if snap := relayInfo.TieredBillingSnapshot; snap != nil {
@@ -623,8 +640,42 @@ func RelayTask(c *gin.Context) {
 	}
 
 	if taskErr != nil {
+		if recordErr := recordFailedVideoTask(c, relayInfo, taskErr); recordErr != nil {
+			common.SysError("record failed video task error: " + recordErr.Error())
+		}
 		respondTaskError(c, taskErr)
 	}
+}
+
+func recordFailedVideoTask(c *gin.Context, relayInfo *relaycommon.RelayInfo, taskErr *dto.TaskError) error {
+	if relayInfo == nil || taskErr == nil || !model.IsVideoTaskAction(relayInfo.Action) {
+		return nil
+	}
+	value, exists := c.Get(relaycommon.TaskUpstreamHTTPTraceContextKey)
+	trace, ok := value.(*dto.TaskUpstreamHTTPTrace)
+	if !exists || !ok || trace == nil {
+		return nil
+	}
+
+	platform := constant.TaskPlatform(c.GetString("platform"))
+	if platform == "" {
+		platform = relay.GetTaskPlatform(c)
+	}
+	task := model.InitTask(platform, relayInfo)
+	task.PrivateData.Key = ""
+	task.PrivateData.UpstreamHTTPTrace = trace
+	task.Action = relayInfo.Action
+	task.Status = model.TaskStatusFailure
+	task.Progress = "100%"
+	task.FailReason = taskErr.Message
+	task.StartTime = task.SubmitTime
+	task.FinishTime = time.Now().Unix()
+	if taskRequest, requestErr := relaycommon.GetTaskRequest(c); requestErr == nil {
+		if requestSnapshot, marshalErr := common.Marshal(taskRequest.Snapshot()); marshalErr == nil {
+			task.Properties.Input = string(requestSnapshot)
+		}
+	}
+	return task.Insert()
 }
 
 // respondTaskError 统一输出 Task 错误响应（含 429 限流提示改写）

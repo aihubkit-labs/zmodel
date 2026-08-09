@@ -26,6 +26,11 @@ import { IconBadge } from '@/components/ui/icon-badge'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { cn } from '@/lib/utils'
 
+import {
+  buildPublicVideoContentURL,
+  buildPublicVideoDownloadURL,
+} from '../../lib/video-task'
+
 interface VideoPreviewDialogProps {
   taskId: string
   open: boolean
@@ -36,12 +41,10 @@ export function VideoPreviewDialog(props: VideoPreviewDialogProps) {
   const { t } = useTranslation()
   const [hasError, setHasError] = useState(false)
   const { copiedText, copyToClipboard } = useCopyToClipboard()
-  const videoPath = `/v1/videos/${encodeURIComponent(props.taskId)}/content`
-  const videoUrl =
-    typeof window === 'undefined'
-      ? videoPath
-      : new URL(videoPath, window.location.origin).href
-  const downloadUrl = `${videoUrl}?download_name=${encodeURIComponent(props.taskId)}`
+  const origin =
+    typeof window === 'undefined' ? undefined : window.location.origin
+  const videoUrl = buildPublicVideoContentURL(props.taskId, origin)
+  const downloadUrl = buildPublicVideoDownloadURL(props.taskId, origin)
   const isCopied = copiedText === videoUrl
 
   return (

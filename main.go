@@ -143,6 +143,7 @@ func main() {
 		}
 		return a
 	}
+	service.ArchiveVideoTaskFunc = controller.ArchiveVideoTask
 
 	// Register the periodic channel test, upstream model update, and async task
 	// polling (Midjourney / Suno / video) jobs as scheduled system tasks

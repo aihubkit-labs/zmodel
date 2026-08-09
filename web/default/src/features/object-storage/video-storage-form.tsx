@@ -1,0 +1,309 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
+import { useForm } from 'react-hook-form'
+import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
+
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form'
+import { Input } from '@/components/ui/input'
+
+import {
+  getVideoObjectStorageSettings,
+  updateVideoObjectStorageSettings,
+} from './api'
+import {
+  createVideoObjectStorageSchema,
+  type VideoObjectStorageFormValues,
+} from './schema'
+
+const initialValues: VideoObjectStorageFormValues = {
+  endpoint: '',
+  region: '',
+  bucket: '',
+  access_key: '',
+  secret_access_key: '',
+  s3_key_prefix: 'prod',
+  business_id: '',
+  staging_directory: '',
+  retention_seconds: 86_400,
+  presign_seconds: 600,
+  archive_timeout_seconds: 600,
+  archive_max_attempts: 8,
+  archive_retry_window_seconds: 21_600,
+  cleanup_interval_seconds: 900,
+}
+
+const connectionFields = [
+  ['region', 'Region'],
+  ['bucket', 'Bucket'],
+  ['access_key', 'Access Key'],
+] as const
+
+const numberFields = [
+  ['retention_seconds', 'Object retention (seconds)'],
+  ['presign_seconds', 'Presigned URL lifetime (seconds)'],
+  ['archive_timeout_seconds', 'Archive attempt timeout (seconds)'],
+  ['archive_max_attempts', 'Maximum archive attempts'],
+  ['archive_retry_window_seconds', 'Maximum retry window (seconds)'],
+  ['cleanup_interval_seconds', 'Cleanup interval (seconds)'],
+] as const
+
+export function VideoStorageForm() {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const settingsQuery = useQuery({
+    queryKey: ['video-object-storage-settings'],
+    queryFn: getVideoObjectStorageSettings,
+  })
+  const form = useForm<VideoObjectStorageFormValues>({
+    resolver: zodResolver(createVideoObjectStorageSchema(t)),
+    defaultValues: initialValues,
+  })
+
+  useEffect(() => {
+    if (!settingsQuery.data) return
+    form.reset({ ...settingsQuery.data, secret_access_key: '' })
+  }, [form, settingsQuery.data])
+
+  const updateMutation = useMutation({
+    mutationFn: updateVideoObjectStorageSettings,
+    onSuccess: async () => {
+      toast.success(t('Video object storage settings saved'))
+      await queryClient.invalidateQueries({
+        queryKey: ['video-object-storage-settings'],
+      })
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t('Failed to save video object storage settings')
+      )
+    },
+  })
+
+  return (
+    <div className='mx-auto flex w-full max-w-4xl flex-col gap-4'>
+      <Alert>
+        <AlertTitle>{t('Secret storage notice')}</AlertTitle>
+        <AlertDescription>
+          {t(
+            'The S3 Secret Access Key is stored as plaintext in the database. Anyone with database or backup access can read it.'
+          )}
+        </AlertDescription>
+      </Alert>
+
+      <div className='rounded-lg border p-4 sm:p-6'>
+        <div className='mb-5 flex flex-wrap items-start justify-between gap-3'>
+          <div>
+            <h2 className='font-semibold'>{t('Video S3 connection')}</h2>
+            <p className='text-muted-foreground text-sm'>
+              {t(
+                'Archived videos remain private and are delivered with temporary signed URLs.'
+              )}
+            </p>
+          </div>
+          <div className='flex items-center gap-2'>
+            <Badge
+              variant={
+                settingsQuery.data?.secret_configured
+                  ? 'secondary'
+                  : 'destructive'
+              }
+            >
+              {settingsQuery.data?.secret_configured
+                ? t('Secret configured')
+                : t('Secret not configured')}
+            </Badge>
+            <Button
+              onClick={form.handleSubmit((values) =>
+                updateMutation.mutate(values)
+              )}
+              disabled={updateMutation.isPending || settingsQuery.isLoading}
+            >
+              {updateMutation.isPending ? t('Saving...') : t('Save settings')}
+            </Button>
+          </div>
+        </div>
+
+        <Form {...form}>
+          <form
+            onSubmit={form.handleSubmit((values) =>
+              updateMutation.mutate(values)
+            )}
+            className='grid gap-5 md:grid-cols-2'
+            autoComplete='off'
+          >
+            <FormField
+              control={form.control}
+              name='endpoint'
+              render={({ field }) => (
+                <FormItem className='md:col-span-2'>
+                  <FormLabel>{t('Endpoint URL')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='url'
+                      placeholder='https://s3.example.com'
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t('Leave blank to use the standard AWS endpoint.')}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            {connectionFields.map(([name, label]) => (
+              <FormField
+                key={name}
+                control={form.control}
+                name={name}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t(label)}</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ))}
+            <FormField
+              control={form.control}
+              name='secret_access_key'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Secret Access Key')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='password'
+                      autoComplete='new-password'
+                      placeholder={t('Leave blank to keep the existing secret')}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='staging_directory'
+              render={({ field }) => (
+                <FormItem className='md:col-span-2'>
+                  <FormLabel>{t('Persistent staging directory')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder='/data/zmodel/video-staging'
+                      autoComplete='off'
+                      spellCheck={false}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'The path must be on a persistent volume mounted at the same location on every worker node.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='s3_key_prefix'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('S3 object key prefix')}</FormLabel>
+                  <FormControl>
+                    <Input placeholder='prod' spellCheck={false} {...field} />
+                  </FormControl>
+                  <FormDescription>
+                    {t('The root prefix before user-files.')}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='business_id'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Business ID')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder='zmodel@videos'
+                      spellCheck={false}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Used as the business path segment and object namespace.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            {numberFields.map(([name, label]) => (
+              <FormField
+                key={name}
+                control={form.control}
+                name={name}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t(label)}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        value={field.value}
+                        onChange={(event) =>
+                          field.onChange(event.target.valueAsNumber)
+                        }
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ))}
+          </form>
+        </Form>
+      </div>
+    </div>
+  )
+}

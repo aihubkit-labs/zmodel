@@ -24,6 +24,8 @@ const (
 	SystemTaskTypeAsyncImageProcess   = "async_image_process"
 	SystemTaskTypeAsyncImageCleanup   = "async_image_storage_cleanup"
 	SystemTaskTypeAsyncImageBulkRetry = "async_image_archive_bulk_retry"
+	SystemTaskTypeVideoStorageCleanup = "video_storage_cleanup"
+	SystemTaskTypeVideoStorageRetry   = "video_storage_retry"
 )
 
 var ErrSystemTaskLockLost = errors.New("system task lock lost")
@@ -93,6 +95,13 @@ func GenerateSystemTaskID() (string, error) {
 }
 
 func CreateSystemTask(taskType string, payload any, state any) (*SystemTask, error) {
+	return CreateSystemTaskWithActiveKey(taskType, taskType, payload, state)
+}
+
+func CreateSystemTaskWithActiveKey(taskType string, activeKey string, payload any, state any) (*SystemTask, error) {
+	if taskType == "" || activeKey == "" || len(activeKey) > 64 {
+		return nil, errors.New("invalid system task type or active key")
+	}
 	taskID, err := GenerateSystemTaskID()
 	if err != nil {
 		return nil, err
@@ -110,7 +119,7 @@ func CreateSystemTask(taskType string, payload any, state any) (*SystemTask, err
 		TaskID:    taskID,
 		Type:      taskType,
 		Status:    SystemTaskStatusPending,
-		ActiveKey: &taskType,
+		ActiveKey: &activeKey,
 		Payload:   payloadText,
 		State:     stateText,
 	}
@@ -119,6 +128,20 @@ func CreateSystemTask(taskType string, payload any, state any) (*SystemTask, err
 		return nil, err
 	}
 	return task, nil
+}
+
+func GetActiveSystemTaskByKey(activeKey string) (*SystemTask, error) {
+	var task SystemTask
+	err := DB.Where("active_key = ? AND status IN ?", activeKey, activeSystemTaskStatuses()).
+		Order("id desc").
+		First(&task).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &task, nil
 }
 
 func GetSystemTaskByTaskID(taskID string) (*SystemTask, error) {

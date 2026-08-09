@@ -25,10 +25,11 @@ import (
 )
 
 type TaskSubmitResult struct {
-	UpstreamTaskID string
-	TaskData       []byte
-	Platform       constant.TaskPlatform
-	Quota          int
+	UpstreamTaskID    string
+	TaskData          []byte
+	Platform          constant.TaskPlatform
+	Quota             int
+	UpstreamHTTPTrace *dto.TaskUpstreamHTTPTrace
 	//PerCallPrice   types.PriceData
 }
 
@@ -229,10 +230,16 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	// 9. 发送请求
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
+		trace := taskSubmitHTTPTrace(c, relaycommon.UpstreamHTTPTransportError(err))
+		if trace.SubmitRequest != nil {
+			c.Set(relaycommon.TaskUpstreamHTTPTraceContextKey, trace)
+		}
 		return nil, service.TaskErrorWrapper(err, "do_request_failed", http.StatusInternalServerError)
 	}
+	submitResponse := relaycommon.CaptureUpstreamHTTPResponse(resp)
 	if resp != nil && resp.StatusCode != http.StatusOK {
 		responseBody, _ := io.ReadAll(resp.Body)
+		c.Set(relaycommon.TaskUpstreamHTTPTraceContextKey, taskSubmitHTTPTrace(c, submitResponse))
 		return nil, service.TaskErrorWrapper(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", resp.StatusCode)
 	}
 
@@ -247,6 +254,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	// 11. 解析响应
 	upstreamTaskID, taskData, taskErr := adaptor.DoResponse(c, resp, info)
 	if taskErr != nil {
+		c.Set(relaycommon.TaskUpstreamHTTPTraceContextKey, taskSubmitHTTPTrace(c, submitResponse))
 		return nil, taskErr
 	}
 
@@ -264,11 +272,20 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	}
 
 	return &TaskSubmitResult{
-		UpstreamTaskID: upstreamTaskID,
-		TaskData:       taskData,
-		Platform:       platform,
-		Quota:          finalQuota,
+		UpstreamTaskID:    upstreamTaskID,
+		TaskData:          taskData,
+		Platform:          platform,
+		Quota:             finalQuota,
+		UpstreamHTTPTrace: taskSubmitHTTPTrace(c, submitResponse),
 	}, nil
+}
+
+func taskSubmitHTTPTrace(c *gin.Context, response *dto.TaskHTTPMessage) *dto.TaskUpstreamHTTPTrace {
+	var request *dto.TaskHTTPMessage
+	if value, exists := c.Get(relaycommon.TaskUpstreamHTTPRequestContextKey); exists {
+		request, _ = value.(*dto.TaskHTTPMessage)
+	}
+	return &dto.TaskUpstreamHTTPTrace{SubmitRequest: request, SubmitResponse: response}
 }
 
 // recalcQuotaFromRatios 根据 adjustedRatios 重新计算 quota。
@@ -418,6 +435,13 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 				taskResp = service.TaskErrorWrapper(err, "convert_to_openai_video_failed", http.StatusInternalServerError)
 				return
 			}
+			if originTask.Status == model.TaskStatusSuccess {
+				openAIVideoData, err = rewriteStoredVideoURLs(openAIVideoData, videoTaskPublicURL(originTask))
+				if err != nil {
+					taskResp = service.TaskErrorWrapper(err, "set_video_url_failed", http.StatusInternalServerError)
+					return
+				}
+			}
 			respBody = openAIVideoData
 			return
 		}
@@ -434,6 +458,30 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 		taskResp = service.TaskErrorWrapper(err, "marshal_response_failed", http.StatusInternalServerError)
 	}
 	return
+}
+
+func rewriteStoredVideoURLs(data []byte, publicURL string) ([]byte, error) {
+	updated, err := sjson.SetBytes(data, "metadata.url", publicURL)
+	if err != nil {
+		return nil, err
+	}
+	for _, path := range []string{
+		"url",
+		"video_url",
+		"metadata.content_url",
+		"metadata.local_url",
+		"metadata.video_url",
+		"metadata.final_video_url",
+	} {
+		if !gjson.GetBytes(updated, path).Exists() {
+			continue
+		}
+		updated, err = sjson.SetBytes(updated, path, publicURL)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return updated, nil
 }
 
 // tryRealtimeFetch 尝试从上游实时拉取 Gemini/Vertex 任务状态。
@@ -462,17 +510,43 @@ func tryRealtimeFetch(task *model.Task, isOpenAIVideoAPI bool) []byte {
 		"task_id": task.GetUpstreamTaskID(),
 		"action":  task.Action,
 	}, proxy)
-	if err != nil || resp == nil {
+	if err != nil {
+		var requestErr *relaycommon.UpstreamRequestError
+		if errors.As(err, &requestErr) {
+			if task.PrivateData.UpstreamHTTPTrace == nil {
+				task.PrivateData.UpstreamHTTPTrace = &dto.TaskUpstreamHTTPTrace{}
+			}
+			task.PrivateData.UpstreamHTTPTrace.PollRequest = relaycommon.UpstreamHTTPRequestMetadata(requestErr.Request)
+			task.PrivateData.UpstreamHTTPTrace.PollResponse = relaycommon.UpstreamHTTPTransportError(requestErr)
+			_, _ = task.UpdatePrivateDataWithStatus(task.Status)
+		}
+		return nil
+	}
+	if resp == nil {
 		return nil
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		if task.PrivateData.UpstreamHTTPTrace == nil {
+			task.PrivateData.UpstreamHTTPTrace = &dto.TaskUpstreamHTTPTrace{}
+		}
+		task.PrivateData.UpstreamHTTPTrace.PollRequest = relaycommon.UpstreamHTTPRequestMetadata(resp.Request)
+		pollResponse := relaycommon.UpstreamHTTPResponseFromBody(resp, body)
+		pollResponse.Error = relaycommon.UpstreamHTTPTransportError(err).Error
+		task.PrivateData.UpstreamHTTPTrace.PollResponse = pollResponse
+		_, _ = task.UpdatePrivateDataWithStatus(task.Status)
 		return nil
 	}
 
 	ti, err := adaptor.ParseTaskResult(body)
 	if err != nil || ti == nil {
+		if task.PrivateData.UpstreamHTTPTrace == nil {
+			task.PrivateData.UpstreamHTTPTrace = &dto.TaskUpstreamHTTPTrace{}
+		}
+		task.PrivateData.UpstreamHTTPTrace.PollRequest = relaycommon.UpstreamHTTPRequestMetadata(resp.Request)
+		task.PrivateData.UpstreamHTTPTrace.PollResponse = relaycommon.UpstreamHTTPResponseFromBody(resp, body)
+		_, _ = task.UpdatePrivateDataWithStatus(task.Status)
 		return nil
 	}
 
@@ -487,6 +561,15 @@ func tryRealtimeFetch(task *model.Task, isOpenAIVideoAPI bool) []byte {
 	}
 	if task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure {
 		task.Progress = taskcommon.ProgressComplete
+	}
+	if task.Status == model.TaskStatusSuccess {
+		task.PrivateData.UpstreamHTTPTrace = nil
+	} else if task.Status == model.TaskStatusFailure {
+		if task.PrivateData.UpstreamHTTPTrace == nil {
+			task.PrivateData.UpstreamHTTPTrace = &dto.TaskUpstreamHTTPTrace{}
+		}
+		task.PrivateData.UpstreamHTTPTrace.PollRequest = relaycommon.UpstreamHTTPRequestMetadata(resp.Request)
+		task.PrivateData.UpstreamHTTPTrace.PollResponse = relaycommon.UpstreamHTTPResponseFromBody(resp, body)
 	}
 	if strings.HasPrefix(ti.Url, "data:") {
 		// data: URI — kept in Data, not ResultURL
@@ -514,7 +597,7 @@ func tryRealtimeFetch(task *model.Task, isOpenAIVideoAPI bool) []byte {
 		"metadata": nil,
 		"status":   mapTaskStatusToSimple(task.Status),
 		"task_id":  task.TaskID,
-		"url":      task.GetResultURL(),
+		"url":      videoTaskPublicURL(task),
 	}
 	respBody, _ := common.Marshal(dto.TaskResponse[any]{
 		Code: "success",
@@ -574,13 +657,8 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 	if task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure {
 		progress = taskcommon.ProgressComplete
 	}
-	switch task.Action {
-	case constant.TaskActionGenerate,
-		constant.TaskActionTextGenerate,
-		constant.TaskActionFirstTailGenerate,
-		constant.TaskActionReferenceGenerate,
-		constant.TaskActionRemix:
-		resultURL = taskcommon.BuildProxyURL(task.TaskID)
+	if model.IsVideoTaskAction(task.Action) {
+		resultURL = videoTaskPublicURL(task)
 		data = publicVideoTaskData(task)
 	}
 
@@ -609,6 +687,10 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 	}
 }
 
+func videoTaskPublicURL(task *model.Task) string {
+	return taskcommon.BuildProxyURL(task.TaskID)
+}
+
 func publicVideoTaskData(task *model.Task) []byte {
 	data := task.Data
 	if !gjson.ParseBytes(data).IsObject() {
@@ -625,12 +707,12 @@ func publicVideoTaskData(task *model.Task) []byte {
 		"metadata.final_video_url",
 	}
 	if task.Status == model.TaskStatusSuccess {
-		proxyURL := taskcommon.BuildProxyURL(task.TaskID)
+		publicURL := videoTaskPublicURL(task)
 		for _, path := range paths {
 			if !gjson.GetBytes(data, path).Exists() {
 				continue
 			}
-			updated, err := sjson.SetBytes(data, path, proxyURL)
+			updated, err := sjson.SetBytes(data, path, publicURL)
 			if err != nil {
 				return task.Data
 			}

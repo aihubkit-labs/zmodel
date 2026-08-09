@@ -175,6 +175,8 @@ type RelayInfo struct {
 	BillingRequestInput     *billingexpr.RequestInput
 	ActualBillingDimensions *billingexpr.BillingDimensions
 	VideoAllowedResolutions []string
+	VideoMinDurationSeconds int
+	VideoMaxDurationSeconds int
 
 	Request dto.Request
 
@@ -198,6 +200,8 @@ type RelayInfo struct {
 
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	info.VideoAllowedResolutions = nil
+	info.VideoMinDurationSeconds = 0
+	info.VideoMaxDurationSeconds = 0
 	channelType := common.GetContextKeyInt(c, constant.ContextKeyChannelType)
 	paramOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelParamOverride)
 	headerOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelHeaderOverride)

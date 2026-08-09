@@ -89,6 +89,23 @@ func TestSystemTaskActiveKeyPreventsDuplicateActiveRun(t *testing.T) {
 	assert.Equal(t, task.TaskID, activeTask.TaskID)
 }
 
+func TestSystemTaskActiveKeysDeduplicatePerVideo(t *testing.T) {
+	truncateTables(t)
+
+	first, err := CreateSystemTaskWithActiveKey(SystemTaskTypeVideoStorageRetry, "video_storage_retry:task_a", nil, nil)
+	require.NoError(t, err)
+	second, err := CreateSystemTaskWithActiveKey(SystemTaskTypeVideoStorageRetry, "video_storage_retry:task_b", nil, nil)
+	require.NoError(t, err)
+	_, err = CreateSystemTaskWithActiveKey(SystemTaskTypeVideoStorageRetry, "video_storage_retry:task_a", nil, nil)
+	require.Error(t, err)
+
+	activeFirst, err := GetActiveSystemTaskByKey("video_storage_retry:task_a")
+	require.NoError(t, err)
+	require.NotNil(t, activeFirst)
+	assert.Equal(t, first.TaskID, activeFirst.TaskID)
+	assert.NotEqual(t, first.TaskID, second.TaskID)
+}
+
 func TestSystemTaskLockPreventsConcurrentClaim(t *testing.T) {
 	truncateTables(t)
 

@@ -25,12 +25,14 @@ import { useTranslation } from 'react-i18next'
 import { StatusBadge } from '@/components/status-badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-import { TASK_ACTIONS, TASK_STATUS } from '../../constants'
+import { TASK_STATUS } from '../../constants'
 import { taskActionMapper, taskStatusMapper } from '../../lib/mappers'
+import { isVideoTask } from '../../lib/video-task'
 import type { TaskLog } from '../../types'
 import {
   AudioPreviewDialog,
@@ -90,16 +92,6 @@ function AudioPreviewCell({ log }: { log: TaskLog }) {
         clips={clips as AudioClip[]}
       />
     </>
-  )
-}
-
-function isVideoTask(log: TaskLog) {
-  return (
-    log.action === TASK_ACTIONS.GENERATE ||
-    log.action === TASK_ACTIONS.TEXT_GENERATE ||
-    log.action === TASK_ACTIONS.FIRST_TAIL_GENERATE ||
-    log.action === TASK_ACTIONS.REFERENCE_GENERATE ||
-    log.action === TASK_ACTIONS.REMIX_GENERATE
   )
 }
 
@@ -395,6 +387,7 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
             </div>
             <TaskDetailsDialog
               log={log}
+              isAdmin={isAdmin}
               open={detailsOpen}
               onOpenChange={setDetailsOpen}
             />
@@ -412,6 +405,33 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
       maxSize: 180,
     }
   )
+
+  if (isAdmin) {
+    columns.unshift({
+      id: 'select',
+      header: ({ table }) => (
+        <Checkbox
+          checked={table.getIsAllPageRowsSelected()}
+          indeterminate={table.getIsSomePageRowsSelected()}
+          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+          aria-label={t('Select all uploadable video tasks')}
+          className='translate-y-[2px]'
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          checked={row.getIsSelected()}
+          disabled={!row.getCanSelect()}
+          onCheckedChange={(value) => row.toggleSelected(!!value)}
+          aria-label={t('Select video task')}
+          className='translate-y-[2px]'
+        />
+      ),
+      enableSorting: false,
+      enableHiding: false,
+      size: 40,
+    })
+  }
 
   return columns
 }

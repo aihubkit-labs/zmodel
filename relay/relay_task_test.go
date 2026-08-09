@@ -43,6 +43,18 @@ func TestTaskModel2DtoUsesPublicContentURLForVideoTask(t *testing.T) {
 	assert.Equal(t, "https://api.example.com/v1/videos/task_public_id/content", dtoTask.ResultURL)
 }
 
+func TestTaskModel2DtoAlwaysUsesPublicContentURL(t *testing.T) {
+	task := &model.Task{
+		TaskID: "task_delivery_policy", Action: constant.TaskActionGenerate,
+		Status: model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{
+			ResultURL: "https://upstream.example/video.mp4",
+		},
+	}
+
+	assert.Equal(t, taskcommon.BuildProxyURL(task.TaskID), TaskModel2Dto(task).ResultURL)
+}
+
 func TestTaskModel2DtoProvidesReadablePlatformName(t *testing.T) {
 	task := &model.Task{
 		Platform: constant.TaskPlatform("1"),
@@ -173,4 +185,30 @@ func TestTaskModel2DtoKeepsInvalidVideoDataUnchanged(t *testing.T) {
 	dtoTask := TaskModel2Dto(task)
 
 	assert.Equal(t, task.Data, dtoTask.Data)
+}
+
+func TestRewriteStoredVideoURLsReplacesEveryPublicVideoLocation(t *testing.T) {
+	data := []byte(`{
+		"url":"https://upstream.example/video.mp4",
+		"video_url":"https://upstream.example/video.mp4",
+		"metadata":{
+			"content_url":"https://upstream.example/video.mp4",
+			"local_url":"https://upstream.example/video.mp4",
+			"video_url":"https://upstream.example/video.mp4",
+			"final_video_url":"https://upstream.example/video.mp4"
+		}
+	}`)
+	const publicURL = "https://api.example.com/v1/videos/task_public/content"
+
+	updated, err := rewriteStoredVideoURLs(data, publicURL)
+	require.NoError(t, err)
+	var payload map[string]any
+	require.NoError(t, common.Unmarshal(updated, &payload))
+	assert.Equal(t, publicURL, payload["url"])
+	assert.Equal(t, publicURL, payload["video_url"])
+	metadata, ok := payload["metadata"].(map[string]any)
+	require.True(t, ok)
+	for _, key := range []string{"url", "content_url", "local_url", "video_url", "final_video_url"} {
+		assert.Equal(t, publicURL, metadata[key])
+	}
 }

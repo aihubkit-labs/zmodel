@@ -84,6 +84,8 @@ export interface ChannelSettings {
   thinking_to_content?: boolean
   proxy?: string
   video_content_proxy_enabled?: boolean
+  video_s3_storage_enabled?: boolean
+  video_s3_preferred?: boolean
   video_protocol?: VideoProtocol
   video_model_capabilities?: Record<string, VideoModelCapability>
   pass_through_body_enabled?: boolean
@@ -93,10 +95,19 @@ export interface ChannelSettings {
 
 export interface VideoModelCapability {
   resolutions: VideoResolution[]
+  max_reference_images: number
+  max_reference_videos: number
+  max_reference_audios: number
+  min_duration_seconds?: number
+  max_duration_seconds?: number
 }
 
-export type VideoProtocol = '' | 'openai_video' | 'seedance' | 'agnes_video_v2'
-export type VideoResolution = '480p' | '720p' | '1080p' | '4k'
+export type VideoProtocol =
+  | ''
+  | 'openai_video'
+  | 'seedance(megabyai)'
+  | 'agnes_video_v2'
+export type VideoResolution = string
 
 export interface ChannelOtherSettings {
   azure_responses_version?: string

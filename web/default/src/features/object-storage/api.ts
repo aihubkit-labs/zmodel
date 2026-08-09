@@ -22,12 +22,40 @@ import type {
   ApiResponse,
   ObjectStorageSettings,
   UpdateObjectStorageSettings,
+  UpdateVideoObjectStorageSettings,
+  VideoObjectStorageSettings,
 } from './types'
 
 export async function getObjectStorageSettings() {
   const response = await api.get<ApiResponse<ObjectStorageSettings>>(
     '/api/option/object-storage'
   )
+  return response.data.data
+}
+
+export async function getVideoObjectStorageSettings() {
+  const response = await api.get<ApiResponse<VideoObjectStorageSettings>>(
+    '/api/option/object-storage/video'
+  )
+  return response.data.data
+}
+
+export async function updateVideoObjectStorageSettings(
+  values: UpdateVideoObjectStorageSettings
+) {
+  const response = await api.put<ApiResponse<VideoObjectStorageSettings>>(
+    '/api/option/object-storage/video',
+    values,
+    {
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    }
+  )
+  if (!response.data.success) {
+    throw new Error(
+      response.data.message || 'Failed to save video object storage settings'
+    )
+  }
   return response.data.data
 }
 

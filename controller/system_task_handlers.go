@@ -25,6 +25,8 @@ func RegisterScheduledSystemTasks() {
 	service.RegisterSystemTaskHandler(asyncImageProcessHandler{})
 	service.RegisterSystemTaskHandler(asyncImageCleanupHandler{})
 	service.RegisterSystemTaskHandler(asyncImageBulkRetryHandler{})
+	service.RegisterSystemTaskHandler(videoStorageCleanupHandler{})
+	service.RegisterSystemTaskHandler(videoStorageRetryHandler{})
 }
 
 // channelTestHandler runs the scheduled "test all channels" job. Enablement and

@@ -54,7 +54,7 @@
 | 值 | 用途 |
 | --- | --- |
 | `openai_video` | 通用 OpenAI Video / Sora 兼容上游 |
-| `seedance` | 当前项目已接入的 Seedance 兼容模型能力 |
+| `seedance(megabyai)` | 当前项目接入的 MegabyAI Seedance 协议 |
 | `agnes_video_v2` | Agnes Video V2 字段转换和校验 |
 | 空或缺失 | 保持发布前历史逻辑 |
 
@@ -62,7 +62,7 @@
 `provider_options` 或 `passthrough` 渠道模式，也没有 `video_provider` 设置。
 
 当前生产环境只有一个 Seedance 视频渠道。发布后由管理员进入该渠道编辑页，显式选择
-`Seedance Compatible` 即可；代码不为它添加隐藏默认值或自动迁移。Agnes 渠道必须显式选择
+`seedance(megabyai)` 即可；代码不为它添加隐藏默认值或自动迁移。Agnes 渠道必须显式选择
 `Agnes Video V2`。
 
 ## 3. 协议边界
@@ -81,19 +81,14 @@
 
 ### 3.1 OpenAI Video / Sora
 
-保持通用 OpenAI Video 字段语义，不应用 Seedance 模型能力矩阵，也不执行 Agnes 转换。
+保持通用 OpenAI Video 字段语义，不执行 Seedance 时长规则或 Agnes 转换。模型与分辨率能力仍由
+渠道的统一视频模型能力配置校验。
 
-### 3.2 Seedance
+### 3.2 Seedance (MegabyAI)
 
-Seedance 继续使用 OpenAI Video 兼容路由，但作为独立协议 profile 维护已有模型能力矩阵：
-
-| 上游模型 | 分辨率 | 时长 |
-| --- | --- | --- |
-| `videos-mini`、`videos-fast` | `480p`、`720p` | 4–15 秒 |
-| `videos-standard` | `480p`、`720p`、`1080p`、`4K` | 4–15 秒 |
-| `videos-4-mini`、`videos-4-fast`、`videos-4` | `480p`、`720p` | 4–15 秒 |
-
-显式选择 Seedance 协议后，能力校验使用模型映射完成后的上游模型名，因此公开模型可以使用别名。
+MegabyAI Seedance 协议继续使用 OpenAI Video 兼容路由。平台不维护 Seedance 内置模型、分辨率或固定时长名单；
+管理员按映射后的上游模型 ID 配置分辨率、参考素材数量上限以及最小和最大时长，因此 Seedance 2.0
+可配置为 4–15 秒，Seedance 2.5 可配置为 4–29 秒，新增模型无需修改代码。
 
 ### 3.3 Agnes Video V2
 
@@ -107,7 +102,7 @@ Agnes profile 负责时长、分辨率和宽高比转换。它按渠道协议启
 | 视频协议 | 请求命名空间 |
 | --- | --- |
 | `openai_video` | `provider_options.openai` |
-| `seedance` | `provider_options.seedance` |
+| `seedance(megabyai)` | `provider_options["seedance(megabyai)"]` |
 | `agnes_video_v2` | `provider_options.agnes` |
 
 示例：
@@ -146,7 +141,7 @@ Agnes profile 负责时长、分辨率和宽高比转换。它按渠道协议启
 | `resolution` | `duration` 允许值 | 固定帧率 | 最大请求帧数 | 说明 |
 | --- | --- | --- | --- | --- |
 | `480p` | 1–18 的整数 | 24 fps | 433 | 最长18秒 |
-| `720p` | 1–18 的整数 | 24 fps | 433 | 默认分辨率 |
+| `720p` | 1–18 的整数 | 24 fps | 433 | 示例分辨率 |
 | `1080p` | 1–18 的整数 | 24 fps | 241 | 11–18 秒归一为10秒 |
 
 该表是平台API合同，适用于当前支持的所有 `ratio`。Agnes 上游可能按分辨率和宽高比分别设置帧数
@@ -169,9 +164,9 @@ num_frames = duration * 24 + 1
 241 帧。因此适配器在 1080p 下把 11–18 秒请求归一为 10 秒，而不是降低帧率生成不流畅的长视频。
 
 计费、预扣、结算和任务输入快照统一读取归一化后的 `Duration`，不读取供应商扩展参数。任务创建时
-把 `video_protocol` 保存到私有计费上下文，轮询完成结算按提交时协议校验实际时长：Seedance 为
-4–15 秒，Agnes 的全局范围为 1–18 秒，请求阶段再把 1080p 的 11–18 秒归一为10秒，避免依赖
-模型名称猜测协议。由于预扣和结算读取归一化后的 `Duration`，用户请求 18 秒时按实际的10秒计费。
+把 `video_protocol` 和模型命中的时长范围保存到私有计费上下文，轮询完成结算按提交时快照校验实际
+时长。Seedance 使用模型配置的最小和最大时长；Agnes 的全局范围为 1–18 秒，请求阶段再把 1080p
+的 11–18 秒归一为10秒。由于预扣和结算读取归一化后的 `Duration`，用户请求 18 秒时按实际的10秒计费。
 
 ### 5.3 响应
 
@@ -194,19 +189,20 @@ num_frames = duration * 24 + 1
 
 ## 6. Agnes 分辨率转换
 
-公共请求使用 `resolution` 和 `ratio`。支持：
+公共请求使用 `resolution` 和 `ratio`。规则如下：
 
-- 分辨率：`480p`、`720p`、`1080p`。
+- 分辨率：必须显式传入，并命中渠道为当前模型配置的动态名称；Agnes 转换接受 `1p` 到 `4320p`
+  的数值型名称。
 - 宽高比：`16:9`、`9:16`、`1:1`、`4:3`、`3:4`。
-- 默认值：`720p + 16:9`。
+- 宽高比默认值：`16:9`。
 
 适配器按分辨率短边和宽高比计算偶数名义尺寸，例如 `720p + 16:9` 转换为
 `width: 1280`、`height: 720`。发送上游前删除公共 `resolution`、`ratio`、`size` 以及客户端原始
 `width`、`height`。Agnes 协议不接受公共 `size`，避免多个分辨率事实来源。
 
-内部结算解析优先使用顶层 `resolution`，其次使用 `metadata.size_mapping.resolution`。公共查询响应
-只在 `size` 本身是 `480p`、`720p`、`1080p` 或 `4k` 档位时将其作为 `resolution`；像
-`1280x720` 这样的具体尺寸不会被误当成逻辑分辨率，缺失档位时改为回退到提交请求快照。
+内部结算解析优先使用顶层 `resolution`，其次使用 `metadata.size_mapping.resolution`，并只接受任务
+提交时冻结的动态分辨率能力。像 `1280x720` 这样的具体尺寸不会被误当成逻辑分辨率，缺失档位时
+改为回退到提交请求快照。
 
 ## 7. 统一参考图与 Agnes 图生视频
 
@@ -215,7 +211,7 @@ num_frames = duration * 24 + 1
 
 | 视频协议 | 公共输入 | 适配器出站行为 |
 | --- | --- | --- |
-| `seedance` | `referenceImages` | 保持数组和顺序，以同名字段发送上游 |
+| `seedance(megabyai)` | `referenceImages` | 保持数组和顺序，以同名字段发送上游 |
 | `agnes_video_v2` | `referenceImages` | 只允许0或1张；单张转换为 Agnes 顶层 `image` URL |
 
 Agnes 图生视频请求示例：
@@ -265,7 +261,7 @@ Agnes 官方字段是单个图片 URL，因此适配器执行以下约束：
 页面只显示一个“视频协议”下拉框，包含：
 
 1. OpenAI Video / Sora Compatible
-2. Seedance Compatible
+2. seedance(megabyai)
 3. Agnes Video V2
 
 未选择时保存空字符串并保持历史逻辑。页面没有启用开关、严格模式、供应商选项模式、透传模式或
@@ -292,11 +288,11 @@ Agnes 官方字段是单个图片 URL，因此适配器执行以下约束：
 
 1. 三个协议值和非法设置校验。
 2. 空协议保持历史请求字段处理。
-3. Seedance 协议使用映射后的上游模型能力。
-4. OpenAI Video 协议不误用 Seedance profile。
+3. 三种协议都使用映射后的上游模型能力并要求显式分辨率。
+4. OpenAI Video 协议不误用 Seedance 时长规则。
 5. 固定供应商命名空间、JSON 类型保持和安全字段冲突拒绝。
 6. Agnes `duration -> num_frames + frame_rate` 且不依赖模型名称，并固定保持 24 fps。
-7. Agnes `resolution + ratio -> width + height`、默认值和非法组合拒绝。
+7. Agnes 动态 `resolution + ratio -> width + height`、缺少分辨率和非法组合拒绝。
 8. 归一化时长和分辨率进入预扣维度，完成结算按协议快照采用 Seedance 或 Agnes 的实际范围。
 9. Agnes 创建响应统一公开模型、状态、`duration`、`resolution`、`ratio` 和兼容字段。
 10. Agnes 查询优先返回实际时长，缺失的逻辑分辨率和比例回退到提交快照。
@@ -307,7 +303,7 @@ Agnes 官方字段是单个图片 URL，因此适配器执行以下约束：
 
 ## 12. 发布与验收
 
-1. 发布代码后，手动把现有生产 Seedance 渠道选择为 `Seedance Compatible`。
+1. 发布代码后，按最新业务配置把 Seedance 渠道选择为 `seedance(megabyai)`。
 2. Agnes 验收渠道选择 `Agnes Video V2`。
 3. 使用配套验收手册验证 10 秒时长、分辨率、任务查询和视频下载。
 4. 确认实际视频时长和消费记录一致后再投入生产。

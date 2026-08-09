@@ -278,9 +278,9 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	req.Header.Set("x-goog-user-project", adc.ProjectID)
 	client, err := service.GetHttpClientWithProxy(proxy)
 	if err != nil {
-		return nil, fmt.Errorf("new proxy http client failed: %w", err)
+		return nil, relaycommon.WrapUpstreamRequestError(req, fmt.Errorf("new proxy http client failed: %w", err))
 	}
-	return client.Do(req)
+	return relaycommon.DoTaskRequest(client, req)
 }
 
 func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {

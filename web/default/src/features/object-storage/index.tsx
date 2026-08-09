@@ -37,12 +37,14 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 import { getObjectStorageSettings, updateObjectStorageSettings } from './api'
 import {
   createObjectStorageSchema,
   type ObjectStorageFormValues,
 } from './schema'
+import { VideoStorageForm } from './video-storage-form'
 
 const initialValues: ObjectStorageFormValues = {
   endpoint: '',
@@ -51,6 +53,7 @@ const initialValues: ObjectStorageFormValues = {
   access_key: '',
   secret_access_key: '',
   s3_key_prefix: 'prod',
+  business_id: '',
   staging_directory: '',
   retention_seconds: 86_400,
   presign_seconds: 600,
@@ -119,182 +122,220 @@ export function ObjectStorageSettingsPage() {
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>{t('Object Storage')}</SectionPageLayout.Title>
-      <SectionPageLayout.Actions>
-        <Button
-          onClick={form.handleSubmit(onSubmit)}
-          disabled={updateMutation.isPending || settingsQuery.isLoading}
-        >
-          {updateMutation.isPending ? t('Saving...') : t('Save settings')}
-        </Button>
-      </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
-        <div className='mx-auto flex w-full max-w-4xl flex-col gap-4'>
-          <Alert>
-            <AlertTitle>{t('Secret storage notice')}</AlertTitle>
-            <AlertDescription>
-              {t(
-                'The S3 Secret Access Key is stored as plaintext in the database. Anyone with database or backup access can read it.'
-              )}
-            </AlertDescription>
-          </Alert>
-
-          <div className='rounded-xl border p-4 sm:p-6'>
-            <div className='mb-5 flex items-center justify-between gap-3'>
-              <div>
-                <h2 className='font-semibold'>{t('S3 connection')}</h2>
-                <p className='text-muted-foreground text-sm'>
+        <Tabs defaultValue='async-images' className='w-full gap-4'>
+          <TabsList aria-label={t('Object storage type')}>
+            <TabsTrigger value='async-images'>{t('Async images')}</TabsTrigger>
+            <TabsTrigger value='video'>{t('Video')}</TabsTrigger>
+          </TabsList>
+          <TabsContent value='async-images'>
+            <div className='mx-auto flex w-full max-w-4xl flex-col gap-4'>
+              <Alert>
+                <AlertTitle>{t('Secret storage notice')}</AlertTitle>
+                <AlertDescription>
                   {t(
-                    'Objects remain private and are delivered with temporary signed URLs.'
+                    'The S3 Secret Access Key is stored as plaintext in the database. Anyone with database or backup access can read it.'
                   )}
-                </p>
-              </div>
-              <Badge
-                variant={
-                  settingsQuery.data?.secret_configured
-                    ? 'secondary'
-                    : 'destructive'
-                }
-              >
-                {settingsQuery.data?.secret_configured
-                  ? t('Secret configured')
-                  : t('Secret not configured')}
-              </Badge>
-            </div>
+                </AlertDescription>
+              </Alert>
 
-            <Form {...form}>
-              <form
-                onSubmit={form.handleSubmit(onSubmit)}
-                className='grid gap-5 md:grid-cols-2'
-                autoComplete='off'
-              >
-                <FormField
-                  control={form.control}
-                  name='endpoint'
-                  render={({ field }) => (
-                    <FormItem className='md:col-span-2'>
-                      <FormLabel>{t('Endpoint URL')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          type='url'
-                          placeholder='https://s3.example.com'
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t('Leave blank to use the standard AWS endpoint.')}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                {connectionFields.map(([name, label]) => (
-                  <FormField
-                    key={name}
-                    control={form.control}
-                    name={name}
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t(label)}</FormLabel>
-                        <FormControl>
-                          <Input {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                ))}
-                <FormField
-                  control={form.control}
-                  name='secret_access_key'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Secret Access Key')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          type='password'
-                          autoComplete='new-password'
-                          placeholder={t(
-                            'Leave blank to keep the existing secret'
-                          )}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name='staging_directory'
-                  render={({ field }) => (
-                    <FormItem className='md:col-span-2'>
-                      <FormLabel>{t('Persistent staging directory')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder='/data/zmodel/async-image-staging'
-                          autoComplete='off'
-                          spellCheck={false}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t(
-                          'The path must be on a persistent volume mounted at the same location on every worker node.'
+              <div className='rounded-lg border p-4 sm:p-6'>
+                <div className='mb-5 flex flex-wrap items-start justify-between gap-3'>
+                  <div>
+                    <h2 className='font-semibold'>{t('S3 connection')}</h2>
+                    <p className='text-muted-foreground text-sm'>
+                      {t(
+                        'Objects remain private and are delivered with temporary signed URLs.'
+                      )}
+                    </p>
+                  </div>
+                  <div className='flex items-center gap-2'>
+                    <Badge
+                      variant={
+                        settingsQuery.data?.secret_configured
+                          ? 'secondary'
+                          : 'destructive'
+                      }
+                    >
+                      {settingsQuery.data?.secret_configured
+                        ? t('Secret configured')
+                        : t('Secret not configured')}
+                    </Badge>
+                    <Button
+                      onClick={form.handleSubmit(onSubmit)}
+                      disabled={
+                        updateMutation.isPending || settingsQuery.isLoading
+                      }
+                    >
+                      {updateMutation.isPending
+                        ? t('Saving...')
+                        : t('Save settings')}
+                    </Button>
+                  </div>
+                </div>
+
+                <Form {...form}>
+                  <form
+                    onSubmit={form.handleSubmit(onSubmit)}
+                    className='grid gap-5 md:grid-cols-2'
+                    autoComplete='off'
+                  >
+                    <FormField
+                      control={form.control}
+                      name='endpoint'
+                      render={({ field }) => (
+                        <FormItem className='md:col-span-2'>
+                          <FormLabel>{t('Endpoint URL')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='url'
+                              placeholder='https://s3.example.com'
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('Leave blank to use the standard AWS endpoint.')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    {connectionFields.map(([name, label]) => (
+                      <FormField
+                        key={name}
+                        control={form.control}
+                        name={name}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t(label)}</FormLabel>
+                            <FormControl>
+                              <Input {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
                         )}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name='s3_key_prefix'
-                  render={({ field }) => (
-                    <FormItem className='md:col-span-2'>
-                      <FormLabel>{t('S3 object key prefix')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder='prod'
-                          autoComplete='off'
-                          spellCheck={false}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t(
-                          'New async image objects are stored under this prefix.'
+                      />
+                    ))}
+                    <FormField
+                      control={form.control}
+                      name='secret_access_key'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Secret Access Key')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='password'
+                              autoComplete='new-password'
+                              placeholder={t(
+                                'Leave blank to keep the existing secret'
+                              )}
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name='staging_directory'
+                      render={({ field }) => (
+                        <FormItem className='md:col-span-2'>
+                          <FormLabel>
+                            {t('Persistent staging directory')}
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder='/data/zmodel/async-image-staging'
+                              autoComplete='off'
+                              spellCheck={false}
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'The path must be on a persistent volume mounted at the same location on every worker node.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name='s3_key_prefix'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('S3 object key prefix')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder='prod'
+                              autoComplete='off'
+                              spellCheck={false}
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('The root prefix before user-files.')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name='business_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Business ID')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder='zmodel@async-images'
+                              autoComplete='off'
+                              spellCheck={false}
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Used as the business path segment and object namespace.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    {numberFields.map(([name, label]) => (
+                      <FormField
+                        key={name}
+                        control={form.control}
+                        name={name}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t(label)}</FormLabel>
+                            <FormControl>
+                              <Input
+                                type='number'
+                                value={field.value}
+                                onChange={(event) =>
+                                  field.onChange(event.target.valueAsNumber)
+                                }
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
                         )}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                {numberFields.map(([name, label]) => (
-                  <FormField
-                    key={name}
-                    control={form.control}
-                    name={name}
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t(label)}</FormLabel>
-                        <FormControl>
-                          <Input
-                            type='number'
-                            value={field.value}
-                            onChange={(event) =>
-                              field.onChange(event.target.valueAsNumber)
-                            }
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                ))}
-              </form>
-            </Form>
-          </div>
-        </div>
+                      />
+                    ))}
+                  </form>
+                </Form>
+              </div>
+            </div>
+          </TabsContent>
+          <TabsContent value='video'>
+            <VideoStorageForm />
+          </TabsContent>
+        </Tabs>
       </SectionPageLayout.Content>
     </SectionPageLayout>
   )

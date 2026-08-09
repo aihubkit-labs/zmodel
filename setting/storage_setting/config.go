@@ -18,6 +18,7 @@ const (
 	OptionS3AccessKey                     = "ObjectStorageS3AccessKey"
 	OptionS3SecretAccessKey               = "ObjectStorageS3SecretAccessKey"
 	OptionS3KeyPrefix                     = "ObjectStorageS3KeyPrefix"
+	OptionBusinessID                      = "ObjectStorageBusinessID"
 	OptionStagingDirectory                = "ObjectStorageStagingDirectory"
 	OptionRetentionSeconds                = "ObjectStorageRetentionSeconds"
 	OptionPresignSeconds                  = "ObjectStoragePresignSeconds"
@@ -41,6 +42,7 @@ type Settings struct {
 	AccessKey                 string `json:"access_key"`
 	SecretAccessKey           string `json:"-"`
 	S3KeyPrefix               string `json:"s3_key_prefix"`
+	BusinessID                string `json:"business_id"`
 	StagingDirectory          string `json:"staging_directory"`
 	RetentionSeconds          int64  `json:"retention_seconds"`
 	PresignSeconds            int64  `json:"presign_seconds"`
@@ -64,6 +66,7 @@ func GetSettings() Settings {
 		AccessKey:                 strings.TrimSpace(common.OptionMap[OptionS3AccessKey]),
 		SecretAccessKey:           common.OptionMap[OptionS3SecretAccessKey],
 		S3KeyPrefix:               s3KeyPrefix,
+		BusinessID:                strings.TrimSpace(common.OptionMap[OptionBusinessID]),
 		StagingDirectory:          strings.TrimSpace(common.OptionMap[OptionStagingDirectory]),
 		RetentionSeconds:          parseInt64(common.OptionMap[OptionRetentionSeconds], DefaultRetentionSeconds),
 		PresignSeconds:            parseInt64(common.OptionMap[OptionPresignSeconds], DefaultPresignSeconds),
@@ -75,7 +78,7 @@ func GetSettings() Settings {
 }
 
 func (s Settings) Configured() bool {
-	return s.Region != "" && s.Bucket != "" && s.AccessKey != "" && strings.TrimSpace(s.SecretAccessKey) != ""
+	return s.Validate() == nil
 }
 
 func (s Settings) Validate() error {
@@ -100,15 +103,11 @@ func (s Settings) Validate() error {
 	if err := validateS3KeyPrefix(s.S3KeyPrefix); err != nil {
 		return err
 	}
-	if s.StagingDirectory == "" {
-		return errors.New("staging directory is required")
+	if err := validateBusinessID(s.BusinessID); err != nil {
+		return err
 	}
-	if len(s.StagingDirectory) > 1024 || !filepath.IsAbs(s.StagingDirectory) {
-		return errors.New("staging directory must be an absolute path of at most 1024 characters")
-	}
-	cleanStagingDirectory := filepath.Clean(s.StagingDirectory)
-	if filepath.Dir(cleanStagingDirectory) == cleanStagingDirectory {
-		return errors.New("staging directory cannot be a filesystem root")
+	if err := validateStagingDirectory(s.StagingDirectory); err != nil {
+		return err
 	}
 	if s.RetentionSeconds < 60 || s.RetentionSeconds > 31536000 {
 		return errors.New("retention seconds must be between 60 and 31536000")
@@ -130,6 +129,38 @@ func (s Settings) Validate() error {
 	}
 	if s.CleanupIntervalSeconds < 60 || s.CleanupIntervalSeconds > 86400 {
 		return errors.New("cleanup interval seconds must be between 60 and 86400")
+	}
+	return nil
+}
+
+func validateStagingDirectory(directory string) error {
+	if directory == "" {
+		return errors.New("staging directory is required")
+	}
+	if len(directory) > 1024 || !filepath.IsAbs(directory) {
+		return errors.New("staging directory must be an absolute path of at most 1024 characters")
+	}
+	cleanDirectory := filepath.Clean(directory)
+	if filepath.Dir(cleanDirectory) == cleanDirectory {
+		return errors.New("staging directory cannot be a filesystem root")
+	}
+	return nil
+}
+
+func validateBusinessID(businessID string) error {
+	if businessID == "" {
+		return errors.New("business ID is required")
+	}
+	if len(businessID) > 64 || strings.ContainsAny(businessID, "/\\") {
+		return errors.New("business ID must be a single path segment of at most 64 characters")
+	}
+	for _, character := range businessID {
+		if unicode.IsSpace(character) || unicode.IsControl(character) {
+			return errors.New("business ID cannot contain whitespace or control characters")
+		}
+	}
+	if businessID == "." || businessID == ".." {
+		return errors.New("business ID cannot be . or ..")
 	}
 	return nil
 }

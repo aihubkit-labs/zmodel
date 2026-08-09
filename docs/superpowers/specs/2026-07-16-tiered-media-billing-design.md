@@ -596,49 +596,16 @@ while [ "$index" -le 3 ]; do
 done
 ```
 
-#### 10.4.6 Seedance 兼容视频请求范围
+#### 10.4.6 seedance(megabyai) 视频请求范围
 
-当前 Sora/Seedance 兼容适配器对以下对外模型执行严格校验：
+`seedance(megabyai)` 适配器不维护模型、分辨率或时长白名单。启用该视频协议的渠道必须按映射后的上游模型 ID 配置 `video_model_capabilities`，其中包含动态分辨率列表及参考图片、视频、音频数量上限；Seedance 模型还配置 `min_duration_seconds` 和 `max_duration_seconds`。请求模型、分辨率或时长超出配置时直接拒绝。
 
-| 模型 | 可选分辨率 | 时长 |
-| --- | --- | --- |
-| `videos-mini` | `480p`、`720p` | 4–15 秒 |
-| `videos-fast` | `480p`、`720p` | 4–15 秒 |
-| `videos-standard` | `480p`、`720p` | 4–15 秒 |
-| `videos-4-mini` | `480p`、`720p` | 4–15 秒 |
-| `videos-4-fast` | `480p`、`720p` | 4–15 秒 |
-| `videos-4` | `480p`、`720p` | 4–15 秒 |
-| `tvideos` | `480p`、`720p`、`1080p`、`4K` | 4–15 秒 |
-| `tvideos-fast-480p` | `480p` | 4–15 秒 |
-| `tvideos-mini` | `480p`、`720p` | 4–15 秒 |
-
-下面的变量可覆盖九个模型和全部已支持分辨率。修改变量后直接执行提交命令即可：
+下面的变量应使用渠道后台已配置的模型和分辨率。修改变量后直接执行提交命令即可：
 
 ```bash
-export VIDEO_MODEL='tvideos'
-export VIDEO_RESOLUTION='1080p'
+export VIDEO_MODEL='upstream-video-model'
+export VIDEO_RESOLUTION='1440p'
 export VIDEO_DURATION='10'
-
-# 其他有效组合：
-# VIDEO_MODEL=videos-mini     VIDEO_RESOLUTION=480p
-# VIDEO_MODEL=videos-mini     VIDEO_RESOLUTION=720p
-# VIDEO_MODEL=videos-fast     VIDEO_RESOLUTION=480p
-# VIDEO_MODEL=videos-fast     VIDEO_RESOLUTION=720p
-# VIDEO_MODEL=videos-standard VIDEO_RESOLUTION=480p
-# VIDEO_MODEL=videos-standard VIDEO_RESOLUTION=720p
-# VIDEO_MODEL=videos-4-mini   VIDEO_RESOLUTION=480p
-# VIDEO_MODEL=videos-4-mini   VIDEO_RESOLUTION=720p
-# VIDEO_MODEL=videos-4-fast   VIDEO_RESOLUTION=480p
-# VIDEO_MODEL=videos-4-fast   VIDEO_RESOLUTION=720p
-# VIDEO_MODEL=videos-4        VIDEO_RESOLUTION=480p
-# VIDEO_MODEL=videos-4        VIDEO_RESOLUTION=720p
-# VIDEO_MODEL=tvideos         VIDEO_RESOLUTION=480p
-# VIDEO_MODEL=tvideos         VIDEO_RESOLUTION=720p
-# VIDEO_MODEL=tvideos         VIDEO_RESOLUTION=1080p
-# VIDEO_MODEL=tvideos         VIDEO_RESOLUTION=4K
-# VIDEO_MODEL=tvideos-fast-480p VIDEO_RESOLUTION=480p
-# VIDEO_MODEL=tvideos-mini    VIDEO_RESOLUTION=480p
-# VIDEO_MODEL=tvideos-mini    VIDEO_RESOLUTION=720p
 ```
 
 #### 10.4.7 提交、轮询并下载视频
@@ -760,13 +727,10 @@ v2:image_size_tier == "1K"
 
 - OpenAI 兼容图片生成路径提供 `units`、`quality`、`image_size`、
   `image_size_tier`，并在可靠响应中按实际图片数量结算。
-- 当前 Sora/Seedance 兼容适配器为 `videos-mini`、`videos-fast`、
-  `videos-standard`、`videos-4-mini`、`videos-4-fast`、`videos-4`、
-  `tvideos`、`tvideos-fast-480p`、`tvideos-mini` 提供经过白名单校验的
-  `resolution_tier` 和 `seconds`。
-- Seedance 分辨率能力支持渠道级 `video_model_capabilities` 覆盖，按映射后的
-  上游模型 ID 查询；未覆盖时回退到内置模型默认值，未知模型则拒绝。任务提交时
-  将允许的分辨率写入 `TaskBillingContext`，避免运行期间配置变化影响最终结算。
+- Sora/OpenAI Video 兼容适配器按渠道级 `video_model_capabilities` 和映射后的上游
+  模型 ID 校验 `resolution_tier` 及参考素材数量；没有模型或分辨率内置默认值。
+- 任务提交时将允许的分辨率写入 `TaskBillingContext`，所有视频协议完成结算时均
+  使用该快照，避免运行期间配置变化影响最终结算。
 - 其他视频适配器不能因为可以保存 `v2` 表达式，就被视为已支持上述视频维度。
   接入前必须为该适配器定义字段来源、默认值、合法范围及完成时实际值提取规则。
 - 固定价格、模型倍率、`v1` Token 表达式以及不含 `v2` 快照的历史任务继续走原有

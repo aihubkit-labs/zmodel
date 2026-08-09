@@ -181,7 +181,7 @@ import {
 import { ParamOverrideEditorDialog } from '../dialogs/param-override-editor-dialog'
 import { StatusCodeRiskDialog } from '../dialogs/status-code-risk-dialog'
 import { ModelMappingEditor } from '../model-mapping-editor'
-import { SeedanceModelCapabilitiesField } from '../seedance-model-capabilities-field'
+import { VideoModelCapabilitiesField } from '../video-model-capabilities-field'
 import {
   ChannelAdvancedSection,
   ChannelApiAccessSection,
@@ -285,6 +285,8 @@ const SENSITIVE_FORM_FIELDS = [
   'thinking_to_content',
   'proxy',
   'video_content_proxy_enabled',
+  'video_s3_storage_enabled',
+  'video_s3_preferred',
   'pass_through_body_enabled',
   'system_prompt',
   'system_prompt_override',
@@ -336,6 +338,8 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.weight ||
     values.proxy?.trim() ||
     values.video_content_proxy_enabled ||
+    values.video_s3_storage_enabled ||
+    values.video_s3_preferred ||
     values.system_prompt?.trim() ||
     values.force_format ||
     values.thinking_to_content ||
@@ -744,6 +748,11 @@ export function ChannelMutateDrawer({
   const currentThinkingToContent = form.watch('thinking_to_content')
   const currentPassThroughBodyEnabled = form.watch('pass_through_body_enabled')
   const currentVideoProtocol = form.watch('video_protocol')
+  const currentVideoContentProxyEnabled = form.watch(
+    'video_content_proxy_enabled'
+  )
+  const currentVideoS3StorageEnabled = form.watch('video_s3_storage_enabled')
+  const currentVideoS3Preferred = form.watch('video_s3_preferred')
   const currentDisableTaskPollingSleep = form.watch(
     'disable_task_polling_sleep'
   )
@@ -1012,6 +1021,9 @@ export function ChannelMutateDrawer({
     currentThinkingToContent ||
     currentPassThroughBodyEnabled ||
     currentVideoProtocol ||
+    currentVideoContentProxyEnabled ||
+    currentVideoS3StorageEnabled ||
+    currentVideoS3Preferred ||
     currentDisableTaskPollingSleep ||
     currentProxy?.trim() ||
     currentSystemPrompt?.trim() ||
@@ -1131,6 +1143,20 @@ export function ChannelMutateDrawer({
     () => extractMappingSourceModels(currentModelMapping || ''),
     [currentModelMapping]
   )
+
+  const upstreamVideoModels = useMemo(() => {
+    const mappedPublicModels = new Set(
+      redirectModelKeyList.map((model) => model.trim().toLowerCase())
+    )
+    return [
+      ...new Set([
+        ...currentModelsArray.filter(
+          (model) => !mappedPublicModels.has(model.trim().toLowerCase())
+        ),
+        ...redirectModelList,
+      ]),
+    ]
+  }, [currentModelsArray, redirectModelKeyList, redirectModelList])
 
   // Transform models to multi-select options
   const modelOptions = useMemo(() => {
@@ -4180,8 +4206,8 @@ export function ChannelMutateDrawer({
                                             ),
                                           },
                                           {
-                                            value: 'seedance',
-                                            label: t('Seedance Compatible'),
+                                            value: 'seedance(megabyai)',
+                                            label: t('seedance(megabyai)'),
                                           },
                                           {
                                             value: 'agnes_video_v2',
@@ -4209,8 +4235,8 @@ export function ChannelMutateDrawer({
                                                 'OpenAI Video / Sora Compatible'
                                               )}
                                             </SelectItem>
-                                            <SelectItem value='seedance'>
-                                              {t('Seedance Compatible')}
+                                            <SelectItem value='seedance(megabyai)'>
+                                              {t('seedance(megabyai)')}
                                             </SelectItem>
                                             <SelectItem value='agnes_video_v2'>
                                               {t('Agnes Video V2')}
@@ -4225,9 +4251,11 @@ export function ChannelMutateDrawer({
                               ) : null}
 
                               {[1, 55].includes(currentType) &&
-                              currentVideoProtocol === 'seedance' ? (
-                                <SeedanceModelCapabilitiesField
+                              currentVideoProtocol ? (
+                                <VideoModelCapabilitiesField
                                   control={form.control}
+                                  models={upstreamVideoModels}
+                                  protocol={currentVideoProtocol}
                                 />
                               ) : null}
                             </div>
@@ -4237,20 +4265,43 @@ export function ChannelMutateDrawer({
                               name='video_content_proxy_enabled'
                               render={({ field }) => (
                                 <FormItem className='flex items-center justify-between gap-4'>
-                                  <div className='space-y-0.5'>
-                                    <FormLabel>
-                                      {t('Proxy Video Content')}
-                                    </FormLabel>
-                                    <FormDescription>
-                                      {field.value
-                                        ? t(
-                                            'Stream video content through this server for reliable preview and download'
-                                          )
-                                        : t(
-                                            'Redirect to the HTTPS URL returned by upstream task details'
-                                          )}
-                                    </FormDescription>
-                                  </div>
+                                  <FormLabel>
+                                    {t('Proxy Video Content')}
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Switch
+                                      checked={field.value || false}
+                                      onCheckedChange={field.onChange}
+                                    />
+                                  </FormControl>
+                                </FormItem>
+                              )}
+                            />
+
+                            <FormField
+                              control={form.control}
+                              name='video_s3_storage_enabled'
+                              render={({ field }) => (
+                                <FormItem className='flex items-center justify-between gap-4'>
+                                  <FormLabel>
+                                    {t('Store video files in S3')}
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Switch
+                                      checked={field.value || false}
+                                      onCheckedChange={field.onChange}
+                                    />
+                                  </FormControl>
+                                </FormItem>
+                              )}
+                            />
+
+                            <FormField
+                              control={form.control}
+                              name='video_s3_preferred'
+                              render={({ field }) => (
+                                <FormItem className='flex items-center justify-between gap-4'>
+                                  <FormLabel>{t('S3 Preferred')}</FormLabel>
                                   <FormControl>
                                     <Switch
                                       checked={field.value || false}

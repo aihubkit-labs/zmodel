@@ -19,7 +19,6 @@ import (
 const (
 	videoProviderOptionsContextKey = "video_provider_options"
 	agnesDefaultDurationSeconds    = 5
-	agnesDefaultResolution         = "720p"
 	agnesDefaultRatio              = "16:9"
 	agnesPreferredFrameRate        = 24
 	agnesMaxNumFrames              = 441
@@ -135,8 +134,8 @@ func videoProtocolProviderNamespace(protocol dto.VideoProtocol) string {
 	switch protocol {
 	case dto.VideoProtocolOpenAI:
 		return "openai"
-	case dto.VideoProtocolSeedance:
-		return "seedance"
+	case dto.VideoProtocolSeedanceMegabyAI:
+		return "seedance(megabyai)"
 	case dto.VideoProtocolAgnesVideoV2:
 		return "agnes"
 	default:
@@ -247,15 +246,15 @@ func normalizeVideoProtocolRequest(c *gin.Context, info *relaycommon.RelayInfo) 
 	}
 	resolution := strings.ToLower(strings.TrimSpace(req.Resolution))
 	if resolution == "" {
-		resolution = agnesDefaultResolution
+		return videoRequestError("Agnes resolution is required", "invalid_resolution")
 	}
 	ratio := strings.TrimSpace(req.Ratio)
 	if ratio == "" {
 		ratio = agnesDefaultRatio
 	}
 	if _, _, ok := agnesVideoDimensions(resolution, ratio); !ok {
-		if _, supportedResolution := agnesResolutionPixels[resolution]; !supportedResolution {
-			return videoRequestError("Agnes resolution must be one of 480p, 720p, or 1080p", "invalid_resolution")
+		if _, supportedResolution := agnesResolutionPixels(resolution); !supportedResolution {
+			return videoRequestError("Agnes resolution must use a numeric value ending in p, such as 720p", "invalid_resolution")
 		}
 		return videoRequestError("Agnes ratio must be one of 16:9, 9:16, 1:1, 4:3, or 3:4", "invalid_ratio")
 	}
@@ -266,6 +265,87 @@ func normalizeVideoProtocolRequest(c *gin.Context, info *relaycommon.RelayInfo) 
 	req.Ratio = ratio
 	req.Seconds = ""
 	c.Set("task_request", req)
+	return nil
+}
+
+func validateVideoModelCapability(info *relaycommon.RelayInfo, req relaycommon.TaskSubmitReq) *dto.TaskError {
+	if info == nil || info.ChannelSetting.VideoProtocol == "" {
+		return nil
+	}
+	modelName := strings.TrimSpace(info.UpstreamModelName)
+	if modelName == "" {
+		modelName = strings.TrimSpace(req.Model)
+	}
+	capability, ok := info.ChannelSetting.GetVideoModelCapability(modelName)
+	if !ok {
+		return videoRequestError(
+			fmt.Sprintf("video model %q is not configured for protocol %q", modelName, info.ChannelSetting.VideoProtocol),
+			"video_model_not_configured",
+		)
+	}
+	if capability.MaxReferenceImages == nil || capability.MaxReferenceVideos == nil || capability.MaxReferenceAudios == nil {
+		return service.TaskErrorWrapperLocal(
+			fmt.Errorf("video model %q has incomplete reference media limits", modelName),
+			"video_model_capability_incomplete",
+			http.StatusInternalServerError,
+		)
+	}
+	if info.ChannelSetting.VideoProtocol == dto.VideoProtocolSeedanceMegabyAI {
+		if capability.MinDurationSeconds == nil || capability.MaxDurationSeconds == nil {
+			return service.TaskErrorWrapperLocal(
+				fmt.Errorf("video model %q has incomplete duration limits", modelName),
+				"video_model_capability_incomplete",
+				http.StatusInternalServerError,
+			)
+		}
+		if *capability.MinDurationSeconds < 1 ||
+			*capability.MaxDurationSeconds > relaycommon.MaxTaskDurationSeconds ||
+			*capability.MinDurationSeconds > *capability.MaxDurationSeconds {
+			return service.TaskErrorWrapperLocal(
+				fmt.Errorf("video model %q has invalid duration limits", modelName),
+				"video_model_capability_invalid",
+				http.StatusInternalServerError,
+			)
+		}
+		info.VideoMinDurationSeconds = *capability.MinDurationSeconds
+		info.VideoMaxDurationSeconds = *capability.MaxDurationSeconds
+	}
+	resolution := strings.ToLower(strings.TrimSpace(req.Resolution))
+	if resolution == "" {
+		return videoRequestError(fmt.Sprintf("resolution is required for video model %q", modelName), "invalid_resolution")
+	}
+	resolutionSupported := false
+	for _, configuredResolution := range capability.Resolutions {
+		if strings.ToLower(strings.TrimSpace(configuredResolution)) == resolution {
+			resolutionSupported = true
+			break
+		}
+	}
+	if !resolutionSupported {
+		return videoRequestError(
+			fmt.Sprintf("video model %q does not support resolution %q", modelName, req.Resolution),
+			"invalid_resolution",
+		)
+	}
+	info.VideoAllowedResolutions = append([]string(nil), capability.Resolutions...)
+
+	for _, media := range []struct {
+		name  string
+		count int
+		limit *int
+		code  string
+	}{
+		{name: "reference images", count: len(req.ReferenceImages), limit: capability.MaxReferenceImages, code: "invalid_reference_images"},
+		{name: "reference videos", count: len(req.ReferenceVideos), limit: capability.MaxReferenceVideos, code: "invalid_reference_videos"},
+		{name: "reference audios", count: len(req.ReferenceAudios), limit: capability.MaxReferenceAudios, code: "invalid_reference_audios"},
+	} {
+		if media.limit != nil && media.count > *media.limit {
+			return videoRequestError(
+				fmt.Sprintf("video model %q supports at most %d %s", modelName, *media.limit, media.name),
+				media.code,
+			)
+		}
+	}
 	return nil
 }
 
@@ -328,12 +408,6 @@ func agnesVideoFrameParameters(duration int) (int, int) {
 	return duration*agnesPreferredFrameRate + 1, agnesPreferredFrameRate
 }
 
-var agnesResolutionPixels = map[string]int{
-	"480p":  480,
-	"720p":  720,
-	"1080p": 1080,
-}
-
 var agnesRatios = map[string][2]int{
 	"16:9": {16, 9},
 	"9:16": {9, 16},
@@ -343,7 +417,7 @@ var agnesRatios = map[string][2]int{
 }
 
 func agnesVideoDimensions(resolution, ratio string) (int, int, bool) {
-	pixels, resolutionOK := agnesResolutionPixels[resolution]
+	pixels, resolutionOK := agnesResolutionPixels(resolution)
 	ratioParts, ratioOK := agnesRatios[ratio]
 	if !resolutionOK || !ratioOK {
 		return 0, 0, false
@@ -361,6 +435,18 @@ func agnesVideoDimensions(resolution, ratio string) (int, int, bool) {
 		height++
 	}
 	return pixels, height, true
+}
+
+func agnesResolutionPixels(resolution string) (int, bool) {
+	resolution = strings.ToLower(strings.TrimSpace(resolution))
+	if !strings.HasSuffix(resolution, "p") {
+		return 0, false
+	}
+	pixels, err := strconv.Atoi(strings.TrimSuffix(resolution, "p"))
+	if err != nil || pixels <= 0 || pixels > 4320 {
+		return 0, false
+	}
+	return pixels, true
 }
 
 func validateVideoProtocolMultipartFields(c *gin.Context) *dto.TaskError {

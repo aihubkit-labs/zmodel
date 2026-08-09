@@ -329,6 +329,29 @@ export interface TaskLog {
   other?: string
   created_at?: number
   updated_at?: number
+  video_s3_storage_enabled?: boolean
+  video_storage_status?: string
+  video_storage_error?: string
+  upstream_http_trace?: TaskUpstreamHTTPTrace
+}
+
+export interface TaskHTTPMessage {
+  method?: string
+  url?: string
+  protocol?: string
+  status?: string
+  status_code?: number
+  headers?: Record<string, string>
+  body?: string
+  body_truncated?: boolean
+  error?: string
+}
+
+export interface TaskUpstreamHTTPTrace {
+  submit_request?: TaskHTTPMessage
+  submit_response?: TaskHTTPMessage
+  poll_request?: TaskHTTPMessage
+  poll_response?: TaskHTTPMessage
 }
 
 // ============================================================================

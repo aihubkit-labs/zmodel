@@ -231,7 +231,7 @@ func TestVideoProxyMapsUpstreamFailureToBadGateway(t *testing.T) {
 	})
 }
 
-func TestVideoProxyRedirectsToFreshTaskDetailURL(t *testing.T) {
+func TestVideoProxyRedirectsToFreshTaskDetailURLWithDownloadNameWhenProxyDisabled(t *testing.T) {
 	db := setupVideoProxyTest(t)
 	originalTLSInsecureSkipVerify := common.TLSInsecureSkipVerify
 	common.TLSInsecureSkipVerify = true
@@ -284,7 +284,7 @@ func TestVideoProxyRedirectsToFreshTaskDetailURL(t *testing.T) {
 
 	recorder := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(recorder)
-	context.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task_zmodel_public/content", nil)
+	context.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task_zmodel_public/content?download_name=custom-name", nil)
 	context.Params = gin.Params{{Key: "task_id", Value: task.TaskID}}
 	context.Set("id", task.UserId)
 

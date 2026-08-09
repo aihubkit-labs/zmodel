@@ -99,7 +99,7 @@ func createAsyncImageDetailFixture(t *testing.T) {
 		BillingFinalizedAt: now - 10, CompletedAt: now - 5,
 	}).Error)
 	require.NoError(t, model.DB.Create(&model.StorageObject{
-		BusinessID: model.StorageObjectBusinessAsyncImages, ResourceID: "img_task_detail", ObjectIndex: 0,
+		BusinessID: "test@async-images", ResourceID: "img_task_detail", ObjectIndex: 0,
 		Provider: model.StorageObjectProviderS3, Status: model.StorageObjectStatusAvailable,
 		Endpoint: "https://s3.example.com", Region: "test-region", Bucket: "test-bucket",
 		ObjectKey: "prod/user-files/test.img", MimeType: "image/png", Extension: "png",
@@ -110,12 +110,12 @@ func createAsyncImageDetailFixture(t *testing.T) {
 }
 
 func TestAsyncImageObjectKeyIncludesDayPartition(t *testing.T) {
-	key := asyncImageObjectKey("dev", "task_day_partition", service.AsyncImageManifestItem{
+	key := asyncImageObjectKey("dev", "test@async-images", 42, "task_day_partition", service.AsyncImageManifestItem{
 		Index:               1,
 		Extension:           "png",
 		StagingRelativePath: "42/2026/07/29/task_day_partition/1.img",
 	})
-	assert.Equal(t, "dev/user-files/zmodel@async-images/2026/07/29/task_day_partition/1.png", key)
+	assert.Equal(t, "dev/user-files/test@async-images/42/2026/07/29/task_day_partition-1/original.png", key)
 }
 
 func TestAsyncImageTaskResponseUsesPublicContract(t *testing.T) {

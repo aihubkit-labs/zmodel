@@ -32,44 +32,54 @@ func newSeedanceTestContext(t *testing.T, body string) (*gin.Context, *relaycomm
 	t.Cleanup(func() {
 		common.CleanupBodyStorage(ctx)
 	})
-	return ctx, &relaycommon.RelayInfo{
+	var request struct {
+		Model string `json:"model"`
+	}
+	require.NoError(t, common.Unmarshal([]byte(body), &request))
+	info := &relaycommon.RelayInfo{
 		ChannelMeta:   &relaycommon.ChannelMeta{},
 		TaskRelayInfo: &relaycommon.TaskRelayInfo{},
+	}
+	configureTestVideoModel(info, dto.VideoProtocolSeedanceMegabyAI, request.Model, []string{"480p", "720p", "1080p", "4k"}, 64, 64, 64)
+	return ctx, info
+}
+
+func configureTestVideoModel(info *relaycommon.RelayInfo, protocol dto.VideoProtocol, modelName string, resolutions []string, imageLimit, videoLimit, audioLimit int, durationBounds ...int) {
+	var minDurationSeconds *int
+	var maxDurationSeconds *int
+	if protocol == dto.VideoProtocolSeedanceMegabyAI {
+		minDuration := 4
+		maxDuration := 15
+		if len(durationBounds) >= 2 {
+			minDuration = durationBounds[0]
+			maxDuration = durationBounds[1]
+		}
+		minDurationSeconds = common.GetPointer(minDuration)
+		maxDurationSeconds = common.GetPointer(maxDuration)
+	}
+	info.ChannelSetting.VideoProtocol = protocol
+	info.ChannelSetting.VideoModelCapabilities = map[string]dto.VideoModelCapability{
+		modelName: {
+			Resolutions:        resolutions,
+			MaxReferenceImages: common.GetPointer(imageLimit),
+			MaxReferenceVideos: common.GetPointer(videoLimit),
+			MaxReferenceAudios: common.GetPointer(audioLimit),
+			MinDurationSeconds: minDurationSeconds,
+			MaxDurationSeconds: maxDurationSeconds,
+		},
 	}
 }
 
 func TestSeedanceValidationAndBillingDimensions(t *testing.T) {
-	tests := []struct {
-		model      string
-		resolution string
-	}{
-		{model: "videos-mini", resolution: "480p"},
-		{model: "videos-mini", resolution: "720p"},
-		{model: "videos-fast", resolution: "480p"},
-		{model: "videos-fast", resolution: "720p"},
-		{model: "videos-standard", resolution: "480p"},
-		{model: "videos-standard", resolution: "720p"},
-		{model: "videos-4-mini", resolution: "480p"},
-		{model: "videos-4-mini", resolution: "720p"},
-		{model: "videos-4-fast", resolution: "480p"},
-		{model: "videos-4-fast", resolution: "720p"},
-		{model: "videos-4", resolution: "480p"},
-		{model: "videos-4", resolution: "720p"},
-		{model: "tvideos", resolution: "480p"},
-		{model: "tvideos", resolution: "720p"},
-		{model: "tvideos", resolution: "1080p"},
-		{model: "tvideos", resolution: "4K"},
-		{model: "tvideos-fast-480p", resolution: "480p"},
-		{model: "tvideos-mini", resolution: "480p"},
-		{model: "tvideos-mini", resolution: "720p"},
-	}
+	tests := []string{"480p", "720p", "1080p", "4K", "1440p"}
 
-	for _, test := range tests {
-		t.Run(test.model+"_"+test.resolution, func(t *testing.T) {
+	for _, resolution := range tests {
+		t.Run(resolution, func(t *testing.T) {
 			ctx, info := newSeedanceTestContext(t, fmt.Sprintf(
 				`{"model":%q,"prompt":"demo","duration":15,"resolution":%q}`,
-				test.model, test.resolution,
+				"upstream-video-model", resolution,
 			))
+			configureTestVideoModel(info, dto.VideoProtocolSeedanceMegabyAI, "upstream-video-model", tests, 0, 0, 0)
 			adaptor := &TaskAdaptor{}
 			require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
 
@@ -77,43 +87,51 @@ func TestSeedanceValidationAndBillingDimensions(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, float64(1), dimensions.Units)
 			assert.Equal(t, float64(15), dimensions.Seconds)
-			assert.Equal(t, strings.ToLower(test.resolution), dimensions.ResolutionTier)
+			assert.Equal(t, strings.ToLower(resolution), dimensions.ResolutionTier)
 		})
 	}
 }
 
 func TestSeedanceRejectsUnsupportedResolution(t *testing.T) {
-	tests := []struct {
-		model      string
-		resolution string
-	}{
-		{model: "videos-fast", resolution: "1080p"},
-		{model: "videos-4-mini", resolution: "1080p"},
-		{model: "videos-4-fast", resolution: "1080p"},
-		{model: "videos-4", resolution: "1080p"},
-		{model: "videos-standard", resolution: "1080p"},
-		{model: "videos-standard", resolution: "4K"},
-		{model: "tvideos-fast-480p", resolution: "720p"},
-		{model: "tvideos-mini", resolution: "1080p"},
-	}
-	for _, test := range tests {
-		t.Run(test.model+"_"+test.resolution, func(t *testing.T) {
-			ctx, info := newSeedanceTestContext(t, fmt.Sprintf(
-				`{"model":%q,"prompt":"demo","duration":5,"resolution":%q}`,
-				test.model, test.resolution,
-			))
-			taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
-			require.NotNil(t, taskErr)
-			assert.Equal(t, "invalid_resolution", taskErr.Code)
-		})
-	}
+	ctx, info := newSeedanceTestContext(t, `{"model":"upstream-video-model","prompt":"demo","duration":5,"resolution":"1440p"}`)
+	configureTestVideoModel(info, dto.VideoProtocolSeedanceMegabyAI, "upstream-video-model", []string{"720p"}, 0, 0, 0)
+	taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "invalid_resolution", taskErr.Code)
 }
 
-func TestSeedanceRejectsDurationOutsideProviderRange(t *testing.T) {
+func TestSeedanceRejectsDurationOutsideConfiguredRange(t *testing.T) {
 	ctx, info := newSeedanceTestContext(t, `{"model":"videos-mini","prompt":"demo","duration":16,"resolution":"720p"}`)
 	taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
 	require.NotNil(t, taskErr)
 	assert.Equal(t, "invalid_seconds", taskErr.Code)
+}
+
+func TestSeedanceUsesConfiguredDurationRange(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		duration int
+		wantCode string
+	}{
+		{name: "Seedance 2.5 maximum", duration: 29},
+		{name: "above Seedance 2.5 maximum", duration: 30, wantCode: "invalid_seconds"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, info := newSeedanceTestContext(t, fmt.Sprintf(
+				`{"model":"seedance-2.5","prompt":"demo","duration":%d,"resolution":"1080p"}`,
+				test.duration,
+			))
+			configureTestVideoModel(info, dto.VideoProtocolSeedanceMegabyAI, "seedance-2.5", []string{"1080p"}, 0, 0, 0, 4, 29)
+
+			taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
+			if test.wantCode == "" {
+				require.Nil(t, taskErr)
+				return
+			}
+			require.NotNil(t, taskErr)
+			assert.Equal(t, test.wantCode, taskErr.Code)
+		})
+	}
 }
 
 func TestSeedanceRejectsMissingDuration(t *testing.T) {
@@ -193,6 +211,73 @@ func TestSeedanceBuildRequestBodyPreservesReferenceMedia(t *testing.T) {
 	assert.Equal(t, []string{"https://example.com/1.mp3"}, upstream.ReferenceAudios)
 }
 
+func TestVideoModelReferenceLimitsUseConfiguredUpstreamCapability(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		code string
+	}{
+		{
+			name: "images within limit",
+			body: `{"model":"public-video-model","prompt":"demo","resolution":"720p","referenceImages":["a"]}`,
+		},
+		{
+			name: "too many images",
+			body: `{"model":"public-video-model","prompt":"demo","resolution":"720p","referenceImages":["a","b"]}`,
+			code: "invalid_reference_images",
+		},
+		{
+			name: "too many videos",
+			body: `{"model":"public-video-model","prompt":"demo","resolution":"720p","referenceVideos":["a","b"]}`,
+			code: "invalid_reference_videos",
+		},
+		{
+			name: "too many audios",
+			body: `{"model":"public-video-model","prompt":"demo","resolution":"720p","referenceAudios":["a","b"]}`,
+			code: "invalid_reference_audios",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, info := newSeedanceTestContext(t, test.body)
+			info.UpstreamModelName = "upstream-video-model"
+			configureTestVideoModel(info, dto.VideoProtocolOpenAI, "upstream-video-model", []string{"720p"}, 1, 1, 1)
+			taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
+			if test.code == "" {
+				require.Nil(t, taskErr)
+				return
+			}
+			require.NotNil(t, taskErr)
+			assert.Equal(t, test.code, taskErr.Code)
+		})
+	}
+}
+
+func TestConfiguredVideoProtocolsRequireResolution(t *testing.T) {
+	tests := []struct {
+		name     string
+		protocol dto.VideoProtocol
+		body     string
+	}{
+		{name: "OpenAI Video", protocol: dto.VideoProtocolOpenAI, body: `{"model":"video-model","prompt":"demo","duration":5}`},
+		{name: "Seedance", protocol: dto.VideoProtocolSeedanceMegabyAI, body: `{"model":"video-model","prompt":"demo","duration":5}`},
+		{name: "Agnes Video V2", protocol: dto.VideoProtocolAgnesVideoV2, body: `{"model":"video-model","prompt":"demo","duration":5}`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, info := newSeedanceTestContext(t, test.body)
+			info.UpstreamModelName = "video-model"
+			configureTestVideoModel(info, test.protocol, "video-model", []string{"720p"}, 0, 0, 0)
+
+			taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
+			require.NotNil(t, taskErr)
+			assert.Equal(t, "invalid_resolution", taskErr.Code)
+		})
+	}
+}
+
 func TestSeedanceProtocolUsesMappedUpstreamModelCapabilities(t *testing.T) {
 	ctx, info := newSeedanceTestContext(t, `{
 		"model":"public-seedance-alias",
@@ -200,8 +285,8 @@ func TestSeedanceProtocolUsesMappedUpstreamModelCapabilities(t *testing.T) {
 		"duration":15,
 		"resolution":"1080P"
 	}`)
-	info.ChannelSetting.VideoProtocol = dto.VideoProtocolSeedance
 	info.UpstreamModelName = "tvideos"
+	configureTestVideoModel(info, dto.VideoProtocolSeedanceMegabyAI, "tvideos", []string{"1080p"}, 0, 0, 0)
 	adaptor := &TaskAdaptor{}
 	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
 
@@ -221,45 +306,33 @@ func TestSeedanceProtocolUsesMappedUpstreamModelCapabilities(t *testing.T) {
 	assert.Equal(t, "1080p", upstream["resolution"])
 }
 
-func TestSeedanceChannelCapabilityOverridesBuiltInProfile(t *testing.T) {
+func TestSeedanceUsesConfiguredResolutionProfile(t *testing.T) {
 	ctx, info := newSeedanceTestContext(t, `{
 		"model":"videos-standard",
 		"prompt":"demo",
 		"duration":5,
 		"resolution":"720p"
 	}`)
-	info.ChannelSetting = dto.ChannelSettings{
-		VideoProtocol: dto.VideoProtocolSeedance,
-		VideoModelCapabilities: map[string]dto.VideoModelCapability{
-			"videos-standard": {Resolutions: []string{"480p"}},
-		},
-	}
+	configureTestVideoModel(info, dto.VideoProtocolSeedanceMegabyAI, "videos-standard", []string{"480p"}, 0, 0, 0)
 
 	adaptor := &TaskAdaptor{}
-	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
-	info.UpstreamModelName = "videos-standard"
-	_, err := adaptor.EstimateBillingDimensions(ctx, info)
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "invalid resolution")
+	taskErr := adaptor.ValidateRequestAndSetAction(ctx, info)
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "invalid_resolution", taskErr.Code)
 }
 
-func TestSeedanceCapabilityValidationUsesMappedModelAfterRequestValidation(t *testing.T) {
+func TestSeedanceCapabilityValidationUsesMappedModel(t *testing.T) {
 	ctx, info := newSeedanceTestContext(t, `{
 		"model":"videos-standard",
 		"prompt":"demo",
 		"duration":10,
 		"resolution":"4k"
 	}`)
-	info.ChannelSetting = dto.ChannelSettings{
-		VideoProtocol: dto.VideoProtocolSeedance,
-		VideoModelCapabilities: map[string]dto.VideoModelCapability{
-			"tvideos": {Resolutions: []string{"480p", "720p", "1080p", "4k"}},
-		},
-	}
+	info.UpstreamModelName = "tvideos"
+	configureTestVideoModel(info, dto.VideoProtocolSeedanceMegabyAI, "tvideos", []string{"480p", "720p", "1080p", "4k"}, 0, 0, 0)
 	adaptor := &TaskAdaptor{}
 	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
 
-	info.UpstreamModelName = "tvideos"
 	dimensions, err := adaptor.EstimateBillingDimensions(ctx, info)
 	require.NoError(t, err)
 	assert.Equal(t, "4k", dimensions.ResolutionTier)
@@ -273,16 +346,11 @@ func TestSeedanceConfiguredUnknownMappedModelSetsSettlementSnapshot(t *testing.T
 		"duration":10,
 		"resolution":"1080p"
 	}`)
-	info.ChannelSetting = dto.ChannelSettings{
-		VideoProtocol: dto.VideoProtocolSeedance,
-		VideoModelCapabilities: map[string]dto.VideoModelCapability{
-			"new-upstream-seedance": {Resolutions: []string{"720p", "1080p"}},
-		},
-	}
+	info.UpstreamModelName = "new-upstream-seedance"
+	configureTestVideoModel(info, dto.VideoProtocolSeedanceMegabyAI, "new-upstream-seedance", []string{"720p", "1080p"}, 0, 0, 0)
 	adaptor := &TaskAdaptor{}
 	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
 
-	info.UpstreamModelName = "new-upstream-seedance"
 	dimensions, err := adaptor.EstimateBillingDimensions(ctx, info)
 	require.NoError(t, err)
 	assert.Equal(t, "1080p", dimensions.ResolutionTier)
@@ -296,14 +364,11 @@ func TestSeedanceConfiguredUnknownModelFailsClosedWithoutCapability(t *testing.T
 		"duration":10,
 		"resolution":"720p"
 	}`)
-	info.ChannelSetting.VideoProtocol = dto.VideoProtocolSeedance
-	adaptor := &TaskAdaptor{}
-	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
-
 	info.UpstreamModelName = "unknown-upstream-model"
-	_, err := adaptor.EstimateBillingDimensions(ctx, info)
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "invalid resolution")
+	adaptor := &TaskAdaptor{}
+	taskErr := adaptor.ValidateRequestAndSetAction(ctx, info)
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "video_model_not_configured", taskErr.Code)
 }
 
 func TestOpenAIVideoProtocolDoesNotApplySeedanceModelProfile(t *testing.T) {
@@ -326,6 +391,7 @@ func TestOpenAIVideoProtocolDoesNotApplySeedanceModelProfile(t *testing.T) {
 
 func TestVideoRequestWithoutProtocolPreservesHistoricalFields(t *testing.T) {
 	ctx, info := newSeedanceTestContext(t, `{"model":"agnes-video-v2","prompt":"demo","custom_flag":false}`)
+	info.ChannelSetting = dto.ChannelSettings{}
 	info.UpstreamModelName = "agnes-video-v2"
 	adaptor := &TaskAdaptor{}
 	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
@@ -363,8 +429,8 @@ func TestVideoRequestProviderOptionsFlattensConfiguredNamespace(t *testing.T) {
 			}
 		}
 	}`)
-	info.ChannelSetting.VideoProtocol = dto.VideoProtocolAgnesVideoV2
 	info.UpstreamModelName = "agnes-video-v2"
+	configureTestVideoModel(info, dto.VideoProtocolAgnesVideoV2, "agnes-video-v2", []string{"720p"}, 1, 0, 0)
 	adaptor := &TaskAdaptor{}
 	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
 	dimensions, err := adaptor.EstimateBillingDimensions(ctx, info)
@@ -392,15 +458,37 @@ func TestVideoRequestProviderOptionsFlattensConfiguredNamespace(t *testing.T) {
 	assert.Equal(t, []any{"a", float64(2)}, upstream["custom_array"])
 }
 
+func TestSeedanceMegabyAIProviderOptionsUsesProtocolNamespace(t *testing.T) {
+	ctx, info := newSeedanceTestContext(t, `{
+		"model":"videos-standard",
+		"prompt":"demo",
+		"duration":10,
+		"resolution":"720p",
+		"provider_options":{"seedance(megabyai)":{"custom_flag":false}}
+	}`)
+	adaptor := &TaskAdaptor{}
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+
+	body, err := adaptor.BuildRequestBody(ctx, info)
+	require.NoError(t, err)
+	data, err := io.ReadAll(body)
+	require.NoError(t, err)
+	var upstream map[string]any
+	require.NoError(t, common.Unmarshal(data, &upstream))
+	assert.NotContains(t, upstream, "provider_options")
+	assert.Equal(t, false, upstream["custom_flag"])
+}
+
 func TestAgnesProviderConvertsDurationToFrameParametersWithoutModelHardcoding(t *testing.T) {
 	ctx, info := newSeedanceTestContext(t, `{
 		"model":"future-agnes-model-name",
 		"prompt":"demo",
 		"duration":10,
+		"resolution":"720p",
 		"provider_options":{"agnes":{"custom_flag":true}}
 	}`)
-	info.ChannelSetting.VideoProtocol = dto.VideoProtocolAgnesVideoV2
 	info.UpstreamModelName = "renamed-upstream-agnes-model"
+	configureTestVideoModel(info, dto.VideoProtocolAgnesVideoV2, "renamed-upstream-agnes-model", []string{"720p"}, 1, 0, 0)
 	adaptor := &TaskAdaptor{}
 	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
 
@@ -429,6 +517,7 @@ func TestAgnesProviderConvertsResolutionAndRatioToDimensions(t *testing.T) {
 		{resolution: "480p", ratio: "16:9", wantWidth: 854, wantHeight: 480},
 		{resolution: "720p", ratio: "9:16", wantWidth: 720, wantHeight: 1280},
 		{resolution: "1080p", ratio: "1:1", wantWidth: 1080, wantHeight: 1080},
+		{resolution: "1440p", ratio: "16:9", wantWidth: 2560, wantHeight: 1440},
 		{resolution: "720p", ratio: "4:3", wantWidth: 960, wantHeight: 720},
 		{resolution: "480p", ratio: "3:4", wantWidth: 480, wantHeight: 640},
 	} {
@@ -440,8 +529,8 @@ func TestAgnesProviderConvertsResolutionAndRatioToDimensions(t *testing.T) {
 				"resolution":%q,
 				"ratio":%q
 			}`, test.resolution, test.ratio))
-			info.ChannelSetting.VideoProtocol = dto.VideoProtocolAgnesVideoV2
 			info.UpstreamModelName = "agnes-video-v2.0"
+			configureTestVideoModel(info, dto.VideoProtocolAgnesVideoV2, "agnes-video-v2.0", []string{test.resolution}, 1, 0, 0)
 			adaptor := &TaskAdaptor{}
 			require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
 
@@ -472,7 +561,7 @@ func TestAgnesProviderRejectsUnsupportedResolutionInputs(t *testing.T) {
 		wantCode string
 	}{
 		{name: "resolution", body: `{"model":"agnes-video-v2","prompt":"demo","resolution":"4k"}`, wantCode: "invalid_resolution"},
-		{name: "ratio", body: `{"model":"agnes-video-v2","prompt":"demo","ratio":"2:1"}`, wantCode: "invalid_ratio"},
+		{name: "ratio", body: `{"model":"agnes-video-v2","prompt":"demo","resolution":"720p","ratio":"2:1"}`, wantCode: "invalid_ratio"},
 		{name: "size", body: `{"model":"agnes-video-v2","prompt":"demo","size":"1280x720"}`, wantCode: "invalid_size"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -493,9 +582,9 @@ func TestAgnesProviderDurationDefaultsAndBounds(t *testing.T) {
 		wantCode  string
 		wantFrame float64
 	}{
-		{name: "default", body: `{"model":"agnes-video-v2","prompt":"demo"}`, want: 5, wantFrame: 121},
-		{name: "maximum", body: `{"model":"agnes-video-v2","prompt":"demo","duration":18}`, want: 18, wantFrame: 433},
-		{name: "above maximum", body: `{"model":"agnes-video-v2","prompt":"demo","duration":19}`, wantCode: "invalid_seconds"},
+		{name: "default", body: `{"model":"agnes-video-v2","prompt":"demo","resolution":"720p"}`, want: 5, wantFrame: 121},
+		{name: "maximum", body: `{"model":"agnes-video-v2","prompt":"demo","duration":18,"resolution":"720p"}`, want: 18, wantFrame: 433},
+		{name: "above maximum", body: `{"model":"agnes-video-v2","prompt":"demo","duration":19,"resolution":"720p"}`, wantCode: "invalid_seconds"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, info := newSeedanceTestContext(t, test.body)
@@ -551,8 +640,8 @@ func TestAgnesProviderCaps1080pDurationAndPreservesFrameRate(t *testing.T) {
 				"resolution":"1080p",
 				"ratio":"16:9"
 			}`, test.duration))
-			info.ChannelSetting.VideoProtocol = dto.VideoProtocolAgnesVideoV2
 			info.UpstreamModelName = "agnes-video-v2.0"
+			configureTestVideoModel(info, dto.VideoProtocolAgnesVideoV2, "agnes-video-v2.0", []string{"1080p"}, 1, 0, 0)
 			adaptor := &TaskAdaptor{}
 			require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
 
@@ -716,10 +805,10 @@ func TestAgnesProviderNormalizesSecondsAliasAndRejectsConflicts(t *testing.T) {
 		wantCode string
 		want     int
 	}{
-		{name: "seconds alias", body: `{"model":"agnes-video-v2","prompt":"demo","seconds":"10"}`, want: 10},
-		{name: "matching fields", body: `{"model":"agnes-video-v2","prompt":"demo","duration":10,"seconds":"10"}`, want: 10},
-		{name: "conflicting fields", body: `{"model":"agnes-video-v2","prompt":"demo","duration":5,"seconds":"10"}`, wantCode: "duration_conflict"},
-		{name: "non-integer alias", body: `{"model":"agnes-video-v2","prompt":"demo","seconds":"ten"}`, wantCode: "invalid_seconds"},
+		{name: "seconds alias", body: `{"model":"agnes-video-v2","prompt":"demo","seconds":"10","resolution":"720p"}`, want: 10},
+		{name: "matching fields", body: `{"model":"agnes-video-v2","prompt":"demo","duration":10,"seconds":"10","resolution":"720p"}`, want: 10},
+		{name: "conflicting fields", body: `{"model":"agnes-video-v2","prompt":"demo","duration":5,"seconds":"10","resolution":"720p"}`, wantCode: "duration_conflict"},
+		{name: "non-integer alias", body: `{"model":"agnes-video-v2","prompt":"demo","seconds":"ten","resolution":"720p"}`, wantCode: "invalid_seconds"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, info := newSeedanceTestContext(t, test.body)
@@ -843,26 +932,29 @@ func TestSeedanceCompletionIgnoresUnknownResolution(t *testing.T) {
 	assert.Empty(t, dimensions.ResolutionTier)
 }
 
-func TestSeedanceCompletionRejectsResolutionUnsupportedByOriginalModel(t *testing.T) {
-	for _, modelName := range []string{
-		"videos-mini", "videos-fast", "videos-standard", "videos-4-mini", "videos-4-fast", "videos-4",
-		"tvideos-fast-480p", "tvideos-mini",
-	} {
-		t.Run(modelName, func(t *testing.T) {
-			task := &model.Task{Properties: model.Properties{OriginModelName: modelName}}
-			dimensions := (&TaskAdaptor{}).AdjustBillingDimensionsOnComplete(task, &relaycommon.TaskInfo{
-				Resolution: "1080p",
-			})
-
-			assert.Nil(t, dimensions)
-		})
+func TestSeedanceCompletionRejectsResolutionOutsideFrozenCapabilities(t *testing.T) {
+	task := &model.Task{
+		PrivateData: model.TaskPrivateData{
+			BillingContext: &model.TaskBillingContext{
+				VideoProtocol:           dto.VideoProtocolSeedanceMegabyAI,
+				VideoAllowedResolutions: []string{"720p"},
+			},
+		},
 	}
+	dimensions := (&TaskAdaptor{}).AdjustBillingDimensionsOnComplete(task, &relaycommon.TaskInfo{
+		Resolution: "1080p",
+	})
+
+	assert.Nil(t, dimensions)
 }
 
 func TestAgnesCompletionUsesAgnesDurationAndResolutionBounds(t *testing.T) {
 	task := &model.Task{
 		PrivateData: model.TaskPrivateData{
-			BillingContext: &model.TaskBillingContext{VideoProtocol: dto.VideoProtocolAgnesVideoV2},
+			BillingContext: &model.TaskBillingContext{
+				VideoProtocol:           dto.VideoProtocolAgnesVideoV2,
+				VideoAllowedResolutions: []string{"1080p"},
+			},
 		},
 	}
 	dimensions := (&TaskAdaptor{}).AdjustBillingDimensionsOnComplete(task, &relaycommon.TaskInfo{
@@ -887,7 +979,11 @@ func TestSeedanceCompletionUsesMappedUpstreamModelCapabilities(t *testing.T) {
 			UpstreamModelName: "videos-mini",
 		},
 		PrivateData: model.TaskPrivateData{
-			BillingContext: &model.TaskBillingContext{VideoProtocol: dto.VideoProtocolSeedance},
+			BillingContext: &model.TaskBillingContext{
+				VideoProtocol:           dto.VideoProtocolSeedanceMegabyAI,
+				VideoMinDurationSeconds: 4,
+				VideoMaxDurationSeconds: 15,
+			},
 		},
 	}
 	dimensions := (&TaskAdaptor{}).AdjustBillingDimensionsOnComplete(task, &relaycommon.TaskInfo{
@@ -904,17 +1000,28 @@ func TestSeedanceCompletionUsesFrozenConfiguredCapabilities(t *testing.T) {
 		Properties: model.Properties{UpstreamModelName: "new-upstream-seedance"},
 		PrivateData: model.TaskPrivateData{
 			BillingContext: &model.TaskBillingContext{
-				VideoProtocol:           dto.VideoProtocolSeedance,
+				VideoProtocol:           dto.VideoProtocolSeedanceMegabyAI,
 				VideoAllowedResolutions: []string{"720p", "1080p"},
+				VideoMinDurationSeconds: 4,
+				VideoMaxDurationSeconds: 29,
 			},
 		},
 	}
 
 	dimensions := (&TaskAdaptor{}).AdjustBillingDimensionsOnComplete(task, &relaycommon.TaskInfo{
-		Duration:   10,
+		Duration:   29,
 		Resolution: "1080p",
 	})
 	require.NotNil(t, dimensions)
+	assert.Equal(t, float64(29), dimensions.Seconds)
+	assert.Equal(t, "1080p", dimensions.ResolutionTier)
+
+	dimensions = (&TaskAdaptor{}).AdjustBillingDimensionsOnComplete(task, &relaycommon.TaskInfo{
+		Duration:   30,
+		Resolution: "1080p",
+	})
+	require.NotNil(t, dimensions)
+	assert.Zero(t, dimensions.Seconds)
 	assert.Equal(t, "1080p", dimensions.ResolutionTier)
 
 	dimensions = (&TaskAdaptor{}).AdjustBillingDimensionsOnComplete(task, &relaycommon.TaskInfo{

@@ -105,7 +105,7 @@ func TestCountAsyncImageStagingInUseProtectsPathChanges(t *testing.T) {
 
 	require.NoError(t, DB.Model(&AsyncImageTask{}).Where("task_id = ?", "task_staging_path_in_use").Update("status", AsyncImageStatusFailed).Error)
 	require.NoError(t, DB.Create(&StorageObject{
-		BusinessID:          StorageObjectBusinessAsyncImages,
+		BusinessID:          "test@async-images",
 		ResourceID:          "task_retained_staging",
 		StagingRelativePath: "1/2026/07/29/task_retained_staging/0.img",
 		StagingStatus:       StorageStagingAvailable,
@@ -203,6 +203,8 @@ func TestCompleteAsyncImageGenerationSettlesExactlyOnce(t *testing.T) {
 
 	manifest := `[{"index":0,"source_type":"base64","staging_relative_path":"9101/2026/07/29/task_async_settle_once/0.img","size_bytes":16,"mime_type":"image/png","extension":"png","sha256":"0123456789abcdef"}]`
 	objects := []StorageObject{{
+		BusinessID:          "test@async-images",
+		ResourceID:          taskID,
 		ObjectIndex:         0,
 		Endpoint:            "https://s3.example.com",
 		Region:              "test-region",
@@ -336,6 +338,8 @@ func TestUpdateObjectStorageOptionsRebindsFailedTaskAsOneTransaction(t *testing.
 	seedAsyncImageWalletTask(t, taskID, AsyncImageStatusRunning, "runner-1", 100, 100)
 	manifest := `[{"index":0,"source_type":"base64","staging_relative_path":"9101/2026/07/29/task_async_storage_rebind/0.img","size_bytes":16,"mime_type":"image/png","extension":"png","sha256":"0123456789abcdef"}]`
 	require.NoError(t, CompleteAsyncImageGeneration(taskID, "runner-1", 100, manifest, "base64", []StorageObject{{
+		BusinessID:          "test@async-images",
+		ResourceID:          taskID,
 		ObjectIndex:         0,
 		Endpoint:            "https://old.example.com",
 		Region:              "old-region",

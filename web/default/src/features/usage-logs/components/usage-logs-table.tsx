@@ -40,8 +40,10 @@ import {
 import { useColumnsByCategory } from '../lib/columns'
 import { parseLogOther } from '../lib/format'
 import { fetchLogsByCategory, mergeTaskLogProgress } from '../lib/utils'
+import { canUploadVideoTaskToS3 } from '../lib/video-task'
 import type { LogCategory, TaskLog } from '../types'
 import { CommonLogsFilterBar } from './common-logs-filter-bar'
+import { TaskLogsBulkActions } from './task-logs-bulk-actions'
 import { TaskLogsFilterBar } from './task-logs-filter-bar'
 import { UsageLogsMobileList } from './usage-logs-mobile-card'
 import { useLogsViewScope } from './usage-logs-provider'
@@ -269,7 +271,10 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       isAdmin
     ),
     pagination,
-    enableRowSelection: false,
+    enableRowSelection:
+      isAdmin && logCategory === 'task'
+        ? (row) => canUploadVideoTaskToS3(row.original as unknown as TaskLog)
+        : false,
     onPaginationChange,
     onColumnFiltersChange,
     manualPagination: true,
@@ -308,6 +313,11 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
         ) : (
           <TaskLogsFilterBar table={table} logCategory={logCategory} />
         )
+      }
+      bulkActions={
+        isAdmin && logCategory === 'task' ? (
+          <TaskLogsBulkActions table={table} />
+        ) : undefined
       }
       renderRow={(row) => {
         const logType = (row.original as Record<string, unknown>).type as

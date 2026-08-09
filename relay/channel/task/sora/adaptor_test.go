@@ -165,7 +165,7 @@ func TestConvertToOpenAIVideoAddsSeedanceResolutionFromRequestSnapshot(t *testin
 			Input:           `{"model":"public-seedance-model","duration":10,"resolution":"720p"}`,
 		},
 		PrivateData: model.TaskPrivateData{
-			BillingContext: &model.TaskBillingContext{VideoProtocol: dto.VideoProtocolSeedance},
+			BillingContext: &model.TaskBillingContext{VideoProtocol: dto.VideoProtocolSeedanceMegabyAI},
 		},
 		Data: []byte(`{
 			"id":"task_seedance_upstream",
@@ -188,13 +188,16 @@ func TestConvertToOpenAIVideoAddsSeedanceResolutionFromRequestSnapshot(t *testin
 	assert.NotContains(t, payload, "ratio")
 }
 
-func TestConvertToOpenAIVideoKeepsHistoricalTaskQueryableWithInvalidSnapshot(t *testing.T) {
+func TestConvertToOpenAIVideoUsesFrozenResolutionWithInvalidRequestSnapshot(t *testing.T) {
 	task := &model.Task{
 		TaskID:   "task_historical",
 		Status:   model.TaskStatusQueued,
 		Progress: "0%",
 		Properties: model.Properties{
 			Input: "{invalid",
+		},
+		PrivateData: model.TaskPrivateData{
+			BillingContext: &model.TaskBillingContext{VideoAllowedResolutions: []string{"720p"}},
 		},
 		Data: []byte(`{"id":"task_upstream","status":"queued","seconds":"8","size":"720P"}`),
 	}
