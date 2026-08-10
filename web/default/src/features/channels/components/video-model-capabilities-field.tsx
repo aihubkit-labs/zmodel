@@ -17,7 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Plus, Trash2 } from 'lucide-react'
-import { type Control, useFieldArray } from 'react-hook-form'
+import {
+  type Control,
+  useFieldArray,
+  useFormContext,
+  useWatch,
+} from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
 import { TagInput } from '@/components/tag-input'
@@ -39,6 +44,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 
 import {
   MAX_VIDEO_DURATION_SECONDS,
@@ -60,6 +66,14 @@ export function VideoModelCapabilitiesField(
     control: props.control,
     name: 'video_model_capabilities',
   })
+  const form = useFormContext<ChannelFormValues>()
+  const capabilityValues = useWatch({
+    control: props.control,
+    name: 'video_model_capabilities',
+  })
+  const isMinimaxH3 = props.protocol === 'minimax-h3(megabyai)'
+  const requiresDuration =
+    props.protocol === 'seedance(megabyai)' || isMinimaxH3
 
   return (
     <FormItem className='gap-3 px-4 py-3'>
@@ -153,7 +167,32 @@ export function VideoModelCapabilitiesField(
                 )}
               />
 
-              {props.protocol === 'seedance(megabyai)' ? (
+              {isMinimaxH3 ? (
+                <FormField
+                  control={props.control}
+                  name={`video_model_capabilities.${index}.ratios`}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Supported aspect ratios')}</FormLabel>
+                      <FormControl>
+                        <TagInput
+                          value={field.value || []}
+                          onChange={field.onChange}
+                          placeholder={t(
+                            'Add an aspect ratio, for example 16:9'
+                          )}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t('Press Enter or comma to add aspect ratios')}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : null}
+
+              {requiresDuration ? (
                 <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
                   {(
                     [
@@ -229,6 +268,98 @@ export function VideoModelCapabilitiesField(
                   />
                 ))}
               </div>
+
+              {isMinimaxH3 ? (
+                <div className='grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2'>
+                  {(
+                    [
+                      ['supports_generate_audio', 'Supports native audio'],
+                      [
+                        'generate_audio_required',
+                        'Require generate_audio=true',
+                      ],
+                      ['supports_first_frame', 'Supports first frame'],
+                      ['supports_last_frame', 'Supports last frame'],
+                      [
+                        'last_frame_requires_first_frame',
+                        'Last frame requires first frame',
+                      ],
+                      [
+                        'reference_images_incompatible_with_frames',
+                        'Reference images cannot be combined with frames',
+                      ],
+                      [
+                        'audio_reference_requires_visual_reference',
+                        'Reference audio requires a reference image',
+                      ],
+                    ] as const
+                  ).map(([name, label]) => (
+                    <FormField
+                      key={name}
+                      control={props.control}
+                      name={`video_model_capabilities.${index}.${name}`}
+                      render={({ field }) => {
+                        const capability = capabilityValues?.[index]
+                        const disabled =
+                          (name === 'generate_audio_required' &&
+                            capability?.supports_generate_audio !== true) ||
+                          (name === 'last_frame_requires_first_frame' &&
+                            (capability?.supports_first_frame !== true ||
+                              capability?.supports_last_frame !== true))
+
+                        return (
+                          <FormItem
+                            className='gap-1'
+                            data-disabled={disabled || undefined}
+                          >
+                            <div className='flex min-h-9 items-center justify-between gap-3'>
+                              <FormLabel className='font-normal'>
+                                {t(label)}
+                              </FormLabel>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value ?? false}
+                                  disabled={disabled}
+                                  onCheckedChange={(checked) => {
+                                    field.onChange(checked)
+                                    if (checked) {
+                                      return
+                                    }
+                                    if (name === 'supports_generate_audio') {
+                                      form.setValue(
+                                        `video_model_capabilities.${index}.generate_audio_required`,
+                                        false,
+                                        {
+                                          shouldDirty: true,
+                                          shouldValidate: true,
+                                        }
+                                      )
+                                    }
+                                    if (
+                                      name === 'supports_first_frame' ||
+                                      name === 'supports_last_frame'
+                                    ) {
+                                      form.setValue(
+                                        `video_model_capabilities.${index}.last_frame_requires_first_frame`,
+                                        false,
+                                        {
+                                          shouldDirty: true,
+                                          shouldValidate: true,
+                                        }
+                                      )
+                                    }
+                                  }}
+                                />
+                              </FormControl>
+                            </div>
+                            <FormMessage />
+                          </FormItem>
+                        )
+                      }}
+                    />
+                  ))}
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -247,6 +378,18 @@ export function VideoModelCapabilitiesField(
             max_reference_images: 0,
             max_reference_videos: 0,
             max_reference_audios: 0,
+            ...(isMinimaxH3
+              ? {
+                  ratios: [],
+                  supports_generate_audio: true,
+                  generate_audio_required: true,
+                  supports_first_frame: true,
+                  supports_last_frame: true,
+                  last_frame_requires_first_frame: true,
+                  reference_images_incompatible_with_frames: true,
+                  audio_reference_requires_visual_reference: true,
+                }
+              : {}),
           })
         }
       >

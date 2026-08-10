@@ -94,13 +94,21 @@ func TestValidateMultipartDirectNormalizesImageField(t *testing.T) {
 }
 
 func TestTaskSubmitReqSnapshotKeepsSafeMediaURLsAndOmitsInlineData(t *testing.T) {
+	generateAudio := true
+	watermark := false
 	req := TaskSubmitReq{
-		Prompt:          "animate this scene",
-		Image:           "data:image/png;base64,AAAA",
-		Images:          []string{"https://example.com/source.png?token=secret", "file:///tmp/source.png"},
-		ReferenceImages: []string{"https://example.com/reference.jpg"},
-		ReferenceVideos: []string{"https://example.com/reference.mp4"},
-		ReferenceAudios: []string{"https://example.com/reference.mp3"},
+		Prompt:              "animate this scene",
+		Image:               "data:image/png;base64,AAAA",
+		Images:              []string{"https://example.com/source.png?token=secret", "file:///tmp/source.png"},
+		ReferenceImages:     []string{"https://example.com/reference.jpg"},
+		ReferenceVideos:     []string{"https://example.com/reference.mp4"},
+		ReferenceAudios:     []string{"https://example.com/reference.mp3"},
+		FirstImage:          "https://example.com/first.jpg",
+		GenerateAudio:       &generateAudio,
+		Watermark:           &watermark,
+		ReferenceImageFiles: 2,
+		ReferenceAudioFiles: 1,
+		LastImageFile:       true,
 		Metadata: map[string]interface{}{
 			"seed":        42,
 			"api_token":   "secret-value",
@@ -113,14 +121,22 @@ func TestTaskSubmitReqSnapshotKeepsSafeMediaURLsAndOmitsInlineData(t *testing.T)
 
 	assert.Equal(t, "animate this scene", snapshot.Prompt)
 	assert.Equal(t, 3, snapshot.MediaCounts.Images)
-	assert.Equal(t, 1, snapshot.MediaCounts.ReferenceImages)
+	assert.Equal(t, 3, snapshot.MediaCounts.ReferenceImages)
 	assert.Equal(t, 1, snapshot.MediaCounts.ReferenceVideos)
-	assert.Equal(t, 1, snapshot.MediaCounts.ReferenceAudios)
+	assert.Equal(t, 2, snapshot.MediaCounts.ReferenceAudios)
+	assert.Equal(t, 1, snapshot.MediaCounts.FirstImages)
+	assert.Equal(t, 1, snapshot.MediaCounts.LastImages)
 	require.Len(t, snapshot.Images, 1)
 	assert.Equal(t, "https://example.com/source.png?token=secret", snapshot.Images[0])
 	assert.Equal(t, []string{"https://example.com/reference.jpg"}, snapshot.ReferenceImages)
 	assert.Equal(t, []string{"https://example.com/reference.mp4"}, snapshot.ReferenceVideos)
 	assert.Equal(t, []string{"https://example.com/reference.mp3"}, snapshot.ReferenceAudios)
+	assert.Equal(t, "https://example.com/first.jpg", snapshot.FirstImage)
+	assert.Empty(t, snapshot.LastImage)
+	require.NotNil(t, snapshot.GenerateAudio)
+	assert.True(t, *snapshot.GenerateAudio)
+	require.NotNil(t, snapshot.Watermark)
+	assert.False(t, *snapshot.Watermark)
 	assert.Equal(t, "***masked***", snapshot.Metadata["api_token"])
 	assert.Equal(t, "[omitted]", snapshot.Metadata["inline_data"])
 	assert.Equal(t, 42, snapshot.Metadata["seed"])

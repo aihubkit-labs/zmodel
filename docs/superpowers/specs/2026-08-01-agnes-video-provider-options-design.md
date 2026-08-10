@@ -55,6 +55,7 @@
 | --- | --- |
 | `openai_video` | 通用 OpenAI Video / Sora 兼容上游 |
 | `seedance(megabyai)` | 当前项目接入的 MegabyAI Seedance 协议 |
+| `minimax-h3(megabyai)` | 当前项目接入的 MegabyAI MiniMax H3 协议 |
 | `agnes_video_v2` | Agnes Video V2 字段转换和校验 |
 | 空或缺失 | 保持发布前历史逻辑 |
 
@@ -67,7 +68,7 @@
 
 ## 3. 协议边界
 
-三种协议复用现有 OpenAI/Sora task adaptor 的任务编排、路由、鉴权、任务查询和内容下载能力，
+四种协议复用现有 OpenAI/Sora task adaptor 的任务编排、路由、鉴权、任务查询和内容下载能力，
 只在请求边界使用轻量协议 profile：
 
 ```text
@@ -90,7 +91,11 @@ MegabyAI Seedance 协议继续使用 OpenAI Video 兼容路由。平台不维护
 管理员按映射后的上游模型 ID 配置分辨率、参考素材数量上限以及最小和最大时长，因此 Seedance 2.0
 可配置为 4–15 秒，Seedance 2.5 可配置为 4–29 秒，新增模型无需修改代码。
 
-### 3.3 Agnes Video V2
+### 3.3 MiniMax H3 (MegabyAI)
+
+MiniMax 与 Seedance 复用任务编排和上游路由，但使用独立的 `minimax-h3(megabyai)` 协议值。平台只公开稳定字段，不调用上游 `/v1/models` 自动改变客户模型合同；上游模型 ID、时长、分辨率、画幅和素材数量由管理员在模型映射与模型能力中维护。首尾帧和音频组合规则的7个布尔字段也允许管理员按上游能力调整；新增模型能力时按当前合同默认全部开启，前后端共同阻止互相矛盾的组合。MiniMax 支持 JSON URL 和 multipart 文件，向上游发送的幂等键按平台公开任务 ID 生成。
+
+### 3.4 Agnes Video V2
 
 Agnes profile 负责时长、分辨率和宽高比转换。它按渠道协议启用，新增或更换 Agnes 模型名称不需要
 修改 Agnes 模型名单。
@@ -103,6 +108,7 @@ Agnes profile 负责时长、分辨率和宽高比转换。它按渠道协议启
 | --- | --- |
 | `openai_video` | `provider_options.openai` |
 | `seedance(megabyai)` | `provider_options["seedance(megabyai)"]` |
+| `minimax-h3(megabyai)` | `provider_options["minimax-h3(megabyai)"]` |
 | `agnes_video_v2` | `provider_options.agnes` |
 
 示例：
@@ -212,6 +218,7 @@ num_frames = duration * 24 + 1
 | 视频协议 | 公共输入 | 适配器出站行为 |
 | --- | --- | --- |
 | `seedance(megabyai)` | `referenceImages` | 保持数组和顺序，以同名字段发送上游 |
+| `minimax-h3(megabyai)` | `referenceImages` | 保持数组和顺序，并按配置校验与首尾帧、参考音频的组合规则 |
 | `agnes_video_v2` | `referenceImages` | 只允许0或1张；单张转换为 Agnes 顶层 `image` URL |
 
 Agnes 图生视频请求示例：
@@ -262,7 +269,8 @@ Agnes 官方字段是单个图片 URL，因此适配器执行以下约束：
 
 1. OpenAI Video / Sora Compatible
 2. seedance(megabyai)
-3. Agnes Video V2
+3. minimax-h3(megabyai)
+4. Agnes Video V2
 
 未选择时保存空字符串并保持历史逻辑。页面没有启用开关、严格模式、供应商选项模式、透传模式或
 供应商命名空间输入框。文案覆盖 `en`、`zh`、`zh-TW`、`fr`、`ja`、`ru`、`vi`。
@@ -274,9 +282,9 @@ Agnes 官方字段是单个图片 URL，因此适配器执行以下约束：
 | 协议枚举和渠道设置校验 | `dto/channel_settings.go` |
 | 渠道保存时的设置校验入口 | `model/channel.go` |
 | 任务私有计费上下文中的协议快照 | `model/task.go`、`controller/relay.go` |
-| 协议请求校验、扩展参数保护、Agnes 转换 | `relay/channel/task/sora/video_protocol.go` |
-| Seedance profile、请求构造和统一响应 | `relay/channel/task/sora/adaptor.go` |
-| 后端协议、转换、统一响应和计费回归测试 | `relay/channel/task/sora/adaptor_test.go`、`relay/channel/task/sora/media_billing_test.go` |
+| 协议请求校验、MiniMax 规则、扩展参数保护、Agnes 转换 | `relay/channel/task/sora/video_protocol.go` |
+| Seedance/MiniMax profile、请求构造、幂等键和统一响应 | `relay/channel/task/sora/adaptor.go` |
+| 后端协议、转换、统一响应和计费回归测试 | `relay/channel/task/sora/adaptor_test.go`、`relay/channel/task/sora/media_billing_test.go`、`relay/channel/task/sora/minimax_h3_test.go` |
 | 渠道设置回归测试 | `model/channel_settings_test.go` |
 | 渠道编辑页协议下拉框 | `web/default/src/features/channels/components/drawers/channel-mutate-drawer.tsx` |
 | 前端表单校验和设置序列化 | `web/default/src/features/channels/lib/channel-form.ts` |
@@ -286,9 +294,9 @@ Agnes 官方字段是单个图片 URL，因此适配器执行以下约束：
 
 自动化测试保护以下合同：
 
-1. 三个协议值和非法设置校验。
+1. 四个协议值和非法设置校验。
 2. 空协议保持历史请求字段处理。
-3. 三种协议都使用映射后的上游模型能力并要求显式分辨率。
+3. 四种协议都使用映射后的上游模型能力并要求显式分辨率。
 4. OpenAI Video 协议不误用 Seedance 时长规则。
 5. 固定供应商命名空间、JSON 类型保持和安全字段冲突拒绝。
 6. Agnes `duration -> num_frames + frame_rate` 且不依赖模型名称，并固定保持 24 fps。
@@ -300,11 +308,14 @@ Agnes 官方字段是单个图片 URL，因此适配器执行以下约束：
 12. 历史任务的请求快照无效时仍可查询，不因新增归一化逻辑失败。
 13. Agnes 1080p 在 10 秒时发送 241 帧和 24 fps，11–18 秒归一为10秒并按10秒计费。
 14. Agnes 公共 `referenceImages` 单图转换成上游 `image`，多图、非法 URL 和供应商原生字段被拒绝。
+15. MiniMax 只接受稳定字段，按动态能力校验画幅、音频、首尾帧和素材组合，multipart 文件与 URL 合并计数。
+16. MiniMax 使用映射后的上游模型 ID，并按平台公开任务 ID 生成 `Idempotency-Key`，不依赖运行时 `/v1/models`。
 
 ## 12. 发布与验收
 
 1. 发布代码后，按最新业务配置把 Seedance 渠道选择为 `seedance(megabyai)`。
-2. Agnes 验收渠道选择 `Agnes Video V2`。
-3. 使用配套验收手册验证 10 秒时长、分辨率、任务查询和视频下载。
-4. 确认实际视频时长和消费记录一致后再投入生产。
-5. 保存验收任务 ID、`ffprobe` 输出、错误响应和后台配置截图。
+2. MiniMax 渠道选择 `minimax-h3(megabyai)`，按上游确认值配置模型映射和全部模型能力，不启用自动模型同步。
+3. Agnes 验收渠道选择 `Agnes Video V2`。
+4. 使用配套验收手册验证 10 秒时长、分辨率、任务查询和视频下载。
+5. 确认实际视频时长和消费记录一致后再投入生产。
+6. 保存验收任务 ID、`ffprobe` 输出、错误响应和后台配置截图。

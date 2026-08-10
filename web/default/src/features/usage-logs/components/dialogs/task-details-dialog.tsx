@@ -48,6 +48,8 @@ interface TaskRequestSnapshot {
   reference_images?: string[]
   reference_videos?: string[]
   reference_audios?: string[]
+  first_image?: string
+  last_image?: string
 }
 
 type MediaType = 'image' | 'video' | 'audio'
@@ -113,6 +115,10 @@ function getMediaItems(snapshot: unknown): MediaItem[] {
 
   append('image', request.images)
   append('image', request.reference_images)
+  append(
+    'image',
+    [request.first_image, request.last_image].filter(Boolean) as string[]
+  )
   append('video', request.reference_videos)
   append('audio', request.reference_audios)
   return items
@@ -120,12 +126,12 @@ function getMediaItems(snapshot: unknown): MediaItem[] {
 
 function JSONSection(props: { title: string; value: unknown }) {
   return (
-    <section className='space-y-2'>
-      <h3 className='text-sm font-medium'>{props.title}</h3>
+    <div className='space-y-2'>
+      <h4 className='text-sm font-medium'>{props.title}</h4>
       <pre className='bg-muted/30 text-muted-foreground max-h-72 overflow-auto rounded-md border p-3 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap'>
         {prettyJSON(props.value)}
       </pre>
-    </section>
+    </div>
   )
 }
 
@@ -392,8 +398,11 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
             </section>
           ) : null}
 
-          <JSONSection title={t('Request')} value={request} />
-          <JSONSection title={t('Response')} value={response} />
+          <section className='space-y-3'>
+            <h3 className='text-sm font-medium'>{t('Platform Task Data')}</h3>
+            <JSONSection title={t('Request Snapshot')} value={request} />
+            <JSONSection title={t('Task Result')} value={response} />
+          </section>
           {props.isAdmin &&
           props.log.status === 'FAILURE' &&
           props.log.upstream_http_trace ? (

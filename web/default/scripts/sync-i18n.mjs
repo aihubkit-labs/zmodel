@@ -111,6 +111,7 @@ const BRAND_AND_LITERAL_KEYS = new Set([
   'footer.columns.related.links.newApiKeyTool',
   'my-status',
   'new-api-key-tool',
+  'minimax-h3(megabyai)',
   'price_xxx',
   'seedance(megabyai)',
   'whsec_xxx',

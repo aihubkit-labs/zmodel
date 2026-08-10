@@ -95,17 +95,26 @@ export interface ChannelSettings {
 
 export interface VideoModelCapability {
   resolutions: VideoResolution[]
+  ratios?: string[]
   max_reference_images: number
   max_reference_videos: number
   max_reference_audios: number
   min_duration_seconds?: number
   max_duration_seconds?: number
+  supports_generate_audio?: boolean
+  generate_audio_required?: boolean
+  supports_first_frame?: boolean
+  supports_last_frame?: boolean
+  last_frame_requires_first_frame?: boolean
+  reference_images_incompatible_with_frames?: boolean
+  audio_reference_requires_visual_reference?: boolean
 }
 
 export type VideoProtocol =
   | ''
   | 'openai_video'
   | 'seedance(megabyai)'
+  | 'minimax-h3(megabyai)'
   | 'agnes_video_v2'
 export type VideoResolution = string
 

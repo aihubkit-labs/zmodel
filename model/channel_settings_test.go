@@ -26,6 +26,30 @@ func TestChannelValidateVideoRequestSettings(t *testing.T) {
 				}
 			}`,
 		},
+		{
+			name: "MiniMax H3 model capabilities",
+			setting: `{
+				"video_protocol":"minimax-h3(megabyai)",
+				"video_model_capabilities":{
+					"minimax-h3":{
+						"resolutions":["1440p"],
+						"ratios":["16:9","1:1","9:16","21:9","4:3","3:4"],
+						"max_reference_images":5,
+						"max_reference_videos":0,
+						"max_reference_audios":3,
+						"min_duration_seconds":5,
+						"max_duration_seconds":15,
+						"supports_generate_audio":true,
+						"generate_audio_required":true,
+						"supports_first_frame":true,
+						"supports_last_frame":true,
+						"last_frame_requires_first_frame":true,
+						"reference_images_incompatible_with_frames":true,
+						"audio_reference_requires_visual_reference":true
+					}
+				}
+			}`,
+		},
 		{name: "Agnes Video V2", setting: `{"video_protocol":"agnes_video_v2","video_model_capabilities":{"agnes-video":{"resolutions":["720p"],"max_reference_images":1,"max_reference_videos":0,"max_reference_audios":0}}}`},
 		{name: "legacy Seedance protocol is rejected", setting: `{"video_protocol":"seedance"}`, wantErr: "unsupported video_protocol"},
 		{name: "invalid protocol", setting: `{"video_protocol":"unsafe"}`, wantErr: "unsupported video_protocol"},
@@ -41,6 +65,8 @@ func TestChannelValidateVideoRequestSettings(t *testing.T) {
 		{name: "Seedance missing minimum duration", setting: `{"video_protocol":"seedance(megabyai)","video_model_capabilities":{"seedance-2.0":{"resolutions":["720p"],"max_reference_images":0,"max_reference_videos":0,"max_reference_audios":0,"max_duration_seconds":15}}}`, wantErr: "must configure min_duration_seconds"},
 		{name: "Seedance missing maximum duration", setting: `{"video_protocol":"seedance(megabyai)","video_model_capabilities":{"seedance-2.0":{"resolutions":["720p"],"max_reference_images":0,"max_reference_videos":0,"max_reference_audios":0,"min_duration_seconds":4}}}`, wantErr: "must configure max_duration_seconds"},
 		{name: "Seedance reversed duration range", setting: `{"video_protocol":"seedance(megabyai)","video_model_capabilities":{"seedance-2.0":{"resolutions":["720p"],"max_reference_images":0,"max_reference_videos":0,"max_reference_audios":0,"min_duration_seconds":29,"max_duration_seconds":4}}}`, wantErr: "cannot exceed"},
+		{name: "MiniMax missing ratio", setting: `{"video_protocol":"minimax-h3(megabyai)","video_model_capabilities":{"minimax-h3":{"resolutions":["1440p"],"max_reference_images":5,"max_reference_videos":0,"max_reference_audios":3,"min_duration_seconds":5,"max_duration_seconds":15}}}`, wantErr: "at least one ratio"},
+		{name: "MiniMax missing behavior flag", setting: `{"video_protocol":"minimax-h3(megabyai)","video_model_capabilities":{"minimax-h3":{"resolutions":["1440p"],"ratios":["16:9"],"max_reference_images":5,"max_reference_videos":0,"max_reference_audios":3,"min_duration_seconds":5,"max_duration_seconds":15}}}`, wantErr: "must configure supports_generate_audio"},
 	}
 
 	for _, test := range tests {
@@ -56,16 +82,100 @@ func TestChannelValidateVideoRequestSettings(t *testing.T) {
 	}
 }
 
+func TestChannelSettingsValidatesMinimaxCapabilityRelationships(t *testing.T) {
+	trueValue := true
+	falseValue := false
+	settings := dto.ChannelSettings{
+		VideoProtocol: dto.VideoProtocolMinimaxH3MegabyAI,
+		VideoModelCapabilities: map[string]dto.VideoModelCapability{
+			"minimax-h3": {
+				Resolutions:                           []string{"1440p"},
+				Ratios:                                []string{"16:9"},
+				MaxReferenceImages:                    common.GetPointer(5),
+				MaxReferenceVideos:                    common.GetPointer(0),
+				MaxReferenceAudios:                    common.GetPointer(3),
+				MinDurationSeconds:                    common.GetPointer(5),
+				MaxDurationSeconds:                    common.GetPointer(15),
+				SupportsGenerateAudio:                 &trueValue,
+				GenerateAudioRequired:                 &trueValue,
+				SupportsFirstFrame:                    &trueValue,
+				SupportsLastFrame:                     &trueValue,
+				LastFrameRequiresFirstFrame:           &trueValue,
+				ReferenceImagesIncompatibleWithFrames: &trueValue,
+				AudioReferenceRequiresVisualReference: &trueValue,
+			},
+		},
+	}
+
+	tests := []struct {
+		name      string
+		configure func(*dto.VideoModelCapability)
+		wantErr   string
+	}{
+		{
+			name: "all capabilities can be disabled",
+			configure: func(capability *dto.VideoModelCapability) {
+				capability.SupportsGenerateAudio = &falseValue
+				capability.GenerateAudioRequired = &falseValue
+				capability.SupportsFirstFrame = &falseValue
+				capability.SupportsLastFrame = &falseValue
+				capability.LastFrameRequiresFirstFrame = &falseValue
+				capability.ReferenceImagesIncompatibleWithFrames = &falseValue
+				capability.AudioReferenceRequiresVisualReference = &falseValue
+			},
+		},
+		{
+			name: "required audio must be supported",
+			configure: func(capability *dto.VideoModelCapability) {
+				capability.SupportsGenerateAudio = &falseValue
+			},
+			wantErr: "cannot require generate_audio when it is unsupported",
+		},
+		{
+			name: "required first frame must be supported",
+			configure: func(capability *dto.VideoModelCapability) {
+				capability.SupportsFirstFrame = &falseValue
+			},
+			wantErr: "cannot require a first frame when first frames are unsupported",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			capability := settings.VideoModelCapabilities["minimax-h3"]
+			test.configure(&capability)
+			testSettings := settings
+			testSettings.VideoModelCapabilities = map[string]dto.VideoModelCapability{
+				"minimax-h3": capability,
+			}
+			err := testSettings.ValidateVideoRequestSettings()
+			if test.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, test.wantErr)
+		})
+	}
+}
+
 func TestChannelSettingsGetVideoModelCapabilityNormalizesLookup(t *testing.T) {
 	settings := dto.ChannelSettings{
 		VideoModelCapabilities: map[string]dto.VideoModelCapability{
 			" TVideos ": {
-				Resolutions:        []string{"720P", "4K"},
-				MaxReferenceImages: common.GetPointer(2),
-				MaxReferenceVideos: common.GetPointer(1),
-				MaxReferenceAudios: common.GetPointer(0),
-				MinDurationSeconds: common.GetPointer(4),
-				MaxDurationSeconds: common.GetPointer(29),
+				Resolutions:                           []string{"720P", "4K"},
+				Ratios:                                []string{"16:9", " 1:1 "},
+				MaxReferenceImages:                    common.GetPointer(2),
+				MaxReferenceVideos:                    common.GetPointer(1),
+				MaxReferenceAudios:                    common.GetPointer(0),
+				MinDurationSeconds:                    common.GetPointer(4),
+				MaxDurationSeconds:                    common.GetPointer(29),
+				SupportsGenerateAudio:                 common.GetPointer(true),
+				GenerateAudioRequired:                 common.GetPointer(true),
+				SupportsFirstFrame:                    common.GetPointer(true),
+				SupportsLastFrame:                     common.GetPointer(true),
+				LastFrameRequiresFirstFrame:           common.GetPointer(true),
+				ReferenceImagesIncompatibleWithFrames: common.GetPointer(true),
+				AudioReferenceRequiresVisualReference: common.GetPointer(true),
 			},
 		},
 	}
@@ -73,9 +183,17 @@ func TestChannelSettingsGetVideoModelCapabilityNormalizesLookup(t *testing.T) {
 	capability, ok := settings.GetVideoModelCapability("tvideos")
 	require.True(t, ok)
 	assert.Equal(t, []string{"720p", "4k"}, capability.Resolutions)
+	assert.Equal(t, []string{"16:9", "1:1"}, capability.Ratios)
 	assert.Equal(t, 2, *capability.MaxReferenceImages)
 	assert.Equal(t, 1, *capability.MaxReferenceVideos)
 	assert.Equal(t, 0, *capability.MaxReferenceAudios)
 	assert.Equal(t, 4, *capability.MinDurationSeconds)
 	assert.Equal(t, 29, *capability.MaxDurationSeconds)
+	assert.True(t, *capability.SupportsGenerateAudio)
+	assert.True(t, *capability.GenerateAudioRequired)
+	assert.True(t, *capability.SupportsFirstFrame)
+	assert.True(t, *capability.SupportsLastFrame)
+	assert.True(t, *capability.LastFrameRequiresFirstFrame)
+	assert.True(t, *capability.ReferenceImagesIncompatibleWithFrames)
+	assert.True(t, *capability.AudioReferenceRequiresVisualReference)
 }

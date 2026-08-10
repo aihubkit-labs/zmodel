@@ -34,6 +34,21 @@ var commonVideoRequestFields = map[string]struct{}{
 	"input_reference": {}, "metadata": {}, "provider_options": {},
 }
 
+var minimaxH3VideoRequestFields = map[string]struct{}{
+	"generate_audio": {}, "watermark": {}, "first_image": {}, "last_image": {},
+}
+
+var minimaxH3CommonVideoRequestFields = map[string]struct{}{
+	"prompt": {}, "model": {},
+	"referenceImages": {}, "referenceVideos": {}, "referenceAudios": {},
+	"duration": {}, "resolution": {}, "ratio": {}, "provider_options": {},
+}
+
+var minimaxH3VideoFileFields = map[string]struct{}{
+	"referenceImageFiles": {}, "referenceVideoFiles": {}, "referenceAudioFiles": {},
+	"first_image": {}, "last_image": {},
+}
+
 var protectedVideoProviderOptionFields = map[string]struct{}{
 	"prompt": {}, "model": {}, "mode": {}, "image": {}, "images": {},
 	"referenceimages": {}, "referencevideos": {}, "referenceaudios": {},
@@ -42,6 +57,8 @@ var protectedVideoProviderOptionFields = map[string]struct{}{
 	"n": {}, "count": {}, "output_count": {}, "outputcount": {}, "outputs": {},
 	"num_frames": {}, "numframes": {}, "frame_rate": {}, "framerate": {},
 	"width": {}, "height": {},
+	"generate_audio": {}, "generateaudio": {}, "watermark": {},
+	"first_image": {}, "firstimage": {}, "last_image": {}, "lastimage": {},
 	"callback_url": {}, "callbackurl": {}, "webhook": {}, "webhook_url": {}, "webhookurl": {},
 	"api_key": {}, "apikey": {}, "authorization": {}, "base_url": {}, "baseurl": {},
 }
@@ -51,6 +68,8 @@ var nestedSensitiveVideoOptionFields = map[string]struct{}{
 	"n": {}, "count": {}, "output_count": {}, "outputcount": {}, "outputs": {},
 	"num_frames": {}, "numframes": {}, "frame_rate": {}, "framerate": {},
 	"width": {}, "height": {},
+	"generate_audio": {}, "generateaudio": {}, "watermark": {},
+	"first_image": {}, "firstimage": {}, "last_image": {}, "lastimage": {},
 	"callback_url": {}, "callbackurl": {}, "webhook": {}, "webhook_url": {}, "webhookurl": {},
 	"api_key": {}, "apikey": {}, "authorization": {}, "base_url": {}, "baseurl": {},
 }
@@ -61,7 +80,7 @@ func validateVideoProtocolRequest(c *gin.Context, info *relaycommon.RelayInfo) *
 		return nil
 	}
 	if !strings.HasPrefix(strings.ToLower(c.GetHeader("Content-Type")), "application/json") {
-		return validateVideoProtocolMultipartFields(c)
+		return validateVideoProtocolMultipartFields(c, protocol)
 	}
 
 	storage, err := common.GetBodyStorage(c)
@@ -77,8 +96,8 @@ func validateVideoProtocolRequest(c *gin.Context, info *relaycommon.RelayInfo) *
 		return videoRequestError(err.Error(), "invalid_json")
 	}
 	for name := range fields {
-		if _, ok := commonVideoRequestFields[name]; !ok {
-			return videoRequestError(fmt.Sprintf("unsupported video parameter %q for protocol %q", name, protocol), "unsupported_parameter")
+		if !videoRequestFieldAllowed(protocol, name, false) {
+			return videoRequestError(fmt.Sprintf("unsupported video parameter %q", name), "unsupported_parameter")
 		}
 	}
 
@@ -97,19 +116,19 @@ func validateVideoProtocolRequest(c *gin.Context, info *relaycommon.RelayInfo) *
 	namespace := videoProtocolProviderNamespace(protocol)
 	for name := range namespaces {
 		if name != namespace {
-			return videoRequestError(fmt.Sprintf("provider_options namespace %q does not match video protocol %q", name, protocol), "invalid_provider_options")
+			return videoRequestError(fmt.Sprintf("provider_options contains an unsupported namespace %q", name), "invalid_provider_options")
 		}
 	}
 	selectedRaw, ok := namespaces[namespace]
 	if !ok {
-		return videoRequestError(fmt.Sprintf("provider_options.%s is required", namespace), "invalid_provider_options")
+		return videoRequestError("provider_options must contain the namespace required by the selected channel", "invalid_provider_options")
 	}
 	if string(selectedRaw) == "null" {
-		return videoRequestError(fmt.Sprintf("provider_options.%s must be an object", namespace), "invalid_provider_options")
+		return videoRequestError("the selected provider_options namespace must be an object", "invalid_provider_options")
 	}
 	var selected map[string]json.RawMessage
 	if err := common.Unmarshal(selectedRaw, &selected); err != nil {
-		return videoRequestError(fmt.Sprintf("provider_options.%s must be an object", namespace), "invalid_provider_options")
+		return videoRequestError("the selected provider_options namespace must be an object", "invalid_provider_options")
 	}
 	for name, raw := range selected {
 		normalizedName := strings.ToLower(strings.TrimSpace(name))
@@ -136,6 +155,8 @@ func videoProtocolProviderNamespace(protocol dto.VideoProtocol) string {
 		return "openai"
 	case dto.VideoProtocolSeedanceMegabyAI:
 		return "seedance(megabyai)"
+	case dto.VideoProtocolMinimaxH3MegabyAI:
+		return "minimax-h3(megabyai)"
 	case dto.VideoProtocolAgnesVideoV2:
 		return "agnes"
 	default:
@@ -188,6 +209,18 @@ func validateNestedVideoProviderOption(raw json.RawMessage, rootPath string) *dt
 }
 
 func normalizeVideoProtocolRequest(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskError {
+	if info.ChannelSetting.VideoProtocol == dto.VideoProtocolMinimaxH3MegabyAI {
+		req, err := relaycommon.GetTaskRequest(c)
+		if err != nil {
+			return videoRequestError(err.Error(), "invalid_request")
+		}
+		req.Resolution = strings.ToLower(strings.TrimSpace(req.Resolution))
+		req.Ratio = strings.ToLower(strings.TrimSpace(req.Ratio))
+		req.FirstImage = strings.TrimSpace(req.FirstImage)
+		req.LastImage = strings.TrimSpace(req.LastImage)
+		c.Set("task_request", req)
+		return nil
+	}
 	if info.ChannelSetting.VideoProtocol != dto.VideoProtocolAgnesVideoV2 {
 		return nil
 	}
@@ -279,7 +312,7 @@ func validateVideoModelCapability(info *relaycommon.RelayInfo, req relaycommon.T
 	capability, ok := info.ChannelSetting.GetVideoModelCapability(modelName)
 	if !ok {
 		return videoRequestError(
-			fmt.Sprintf("video model %q is not configured for protocol %q", modelName, info.ChannelSetting.VideoProtocol),
+			"video model is not configured for the selected channel",
 			"video_model_not_configured",
 		)
 	}
@@ -290,7 +323,7 @@ func validateVideoModelCapability(info *relaycommon.RelayInfo, req relaycommon.T
 			http.StatusInternalServerError,
 		)
 	}
-	if info.ChannelSetting.VideoProtocol == dto.VideoProtocolSeedanceMegabyAI {
+	if videoProtocolUsesConfiguredDuration(info.ChannelSetting.VideoProtocol) {
 		if capability.MinDurationSeconds == nil || capability.MaxDurationSeconds == nil {
 			return service.TaskErrorWrapperLocal(
 				fmt.Errorf("video model %q has incomplete duration limits", modelName),
@@ -328,6 +361,18 @@ func validateVideoModelCapability(info *relaycommon.RelayInfo, req relaycommon.T
 		)
 	}
 	info.VideoAllowedResolutions = append([]string(nil), capability.Resolutions...)
+	if info.ChannelSetting.VideoProtocol == dto.VideoProtocolMinimaxH3MegabyAI {
+		ratio := strings.ToLower(strings.TrimSpace(req.Ratio))
+		if ratio == "" {
+			return videoRequestError(fmt.Sprintf("ratio is required for video model %q", modelName), "invalid_ratio")
+		}
+		if !videoValueSupported(capability.Ratios, ratio) {
+			return videoRequestError(
+				fmt.Sprintf("video model %q does not support ratio %q", modelName, req.Ratio),
+				"invalid_ratio",
+			)
+		}
+	}
 
 	for _, media := range []struct {
 		name  string
@@ -335,9 +380,9 @@ func validateVideoModelCapability(info *relaycommon.RelayInfo, req relaycommon.T
 		limit *int
 		code  string
 	}{
-		{name: "reference images", count: len(req.ReferenceImages), limit: capability.MaxReferenceImages, code: "invalid_reference_images"},
-		{name: "reference videos", count: len(req.ReferenceVideos), limit: capability.MaxReferenceVideos, code: "invalid_reference_videos"},
-		{name: "reference audios", count: len(req.ReferenceAudios), limit: capability.MaxReferenceAudios, code: "invalid_reference_audios"},
+		{name: "reference images", count: len(req.ReferenceImages) + req.ReferenceImageFiles, limit: capability.MaxReferenceImages, code: "invalid_reference_images"},
+		{name: "reference videos", count: len(req.ReferenceVideos) + req.ReferenceVideoFiles, limit: capability.MaxReferenceVideos, code: "invalid_reference_videos"},
+		{name: "reference audios", count: len(req.ReferenceAudios) + req.ReferenceAudioFiles, limit: capability.MaxReferenceAudios, code: "invalid_reference_audios"},
 	} {
 		if media.limit != nil && media.count > *media.limit {
 			return videoRequestError(
@@ -346,7 +391,94 @@ func validateVideoModelCapability(info *relaycommon.RelayInfo, req relaycommon.T
 			)
 		}
 	}
+	if info.ChannelSetting.VideoProtocol == dto.VideoProtocolMinimaxH3MegabyAI {
+		return validateMinimaxH3Request(modelName, capability, req)
+	}
 	return nil
+}
+
+func videoProtocolUsesConfiguredDuration(protocol dto.VideoProtocol) bool {
+	return protocol == dto.VideoProtocolSeedanceMegabyAI || protocol == dto.VideoProtocolMinimaxH3MegabyAI
+}
+
+func videoValueSupported(configured []string, value string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	for _, candidate := range configured {
+		if strings.ToLower(strings.TrimSpace(candidate)) == value {
+			return true
+		}
+	}
+	return false
+}
+
+func validateMinimaxH3Request(modelName string, capability dto.VideoModelCapability, req relaycommon.TaskSubmitReq) *dto.TaskError {
+	for _, field := range []struct {
+		name  string
+		value *bool
+	}{
+		{name: "supports_generate_audio", value: capability.SupportsGenerateAudio},
+		{name: "generate_audio_required", value: capability.GenerateAudioRequired},
+		{name: "supports_first_frame", value: capability.SupportsFirstFrame},
+		{name: "supports_last_frame", value: capability.SupportsLastFrame},
+		{name: "last_frame_requires_first_frame", value: capability.LastFrameRequiresFirstFrame},
+		{name: "reference_images_incompatible_with_frames", value: capability.ReferenceImagesIncompatibleWithFrames},
+		{name: "audio_reference_requires_visual_reference", value: capability.AudioReferenceRequiresVisualReference},
+	} {
+		if field.value == nil {
+			return service.TaskErrorWrapperLocal(
+				fmt.Errorf("video model %q has incomplete MiniMax capability %s", modelName, field.name),
+				"video_model_capability_incomplete",
+				http.StatusInternalServerError,
+			)
+		}
+	}
+	if len([]rune(req.Prompt)) > 2000 {
+		return videoRequestError("prompt cannot exceed 2000 characters for MiniMax H3", "invalid_prompt")
+	}
+	if !*capability.SupportsGenerateAudio && req.GenerateAudio != nil {
+		return videoRequestError("generate_audio is not supported by this video model", "invalid_generate_audio")
+	}
+	if *capability.GenerateAudioRequired && (req.GenerateAudio == nil || !*req.GenerateAudio) {
+		return videoRequestError("generate_audio must be true for this video model", "invalid_generate_audio")
+	}
+
+	hasFirstFrame := req.FirstImage != "" || req.FirstImageFile
+	hasLastFrame := req.LastImage != "" || req.LastImageFile
+	if req.FirstImage != "" && req.FirstImageFile {
+		return videoRequestError("first_image must use either a URL or one uploaded file", "invalid_first_image")
+	}
+	if req.LastImage != "" && req.LastImageFile {
+		return videoRequestError("last_image must use either a URL or one uploaded file", "invalid_last_image")
+	}
+	if req.FirstImage != "" && !isPublicVideoReferenceURL(req.FirstImage) {
+		return videoRequestError("first_image must be a valid HTTP or HTTPS URL", "invalid_first_image")
+	}
+	if req.LastImage != "" && !isPublicVideoReferenceURL(req.LastImage) {
+		return videoRequestError("last_image must be a valid HTTP or HTTPS URL", "invalid_last_image")
+	}
+	if hasFirstFrame && !*capability.SupportsFirstFrame {
+		return videoRequestError("first_image is not supported by this video model", "invalid_first_image")
+	}
+	if hasLastFrame && !*capability.SupportsLastFrame {
+		return videoRequestError("last_image is not supported by this video model", "invalid_last_image")
+	}
+	if hasLastFrame && *capability.LastFrameRequiresFirstFrame && !hasFirstFrame {
+		return videoRequestError("last_image requires first_image", "invalid_last_image")
+	}
+	referenceImageCount := len(req.ReferenceImages) + req.ReferenceImageFiles
+	if (hasFirstFrame || hasLastFrame) && referenceImageCount > 0 && *capability.ReferenceImagesIncompatibleWithFrames {
+		return videoRequestError("referenceImages cannot be combined with first_image or last_image", "invalid_reference_images")
+	}
+	referenceAudioCount := len(req.ReferenceAudios) + req.ReferenceAudioFiles
+	if referenceAudioCount > 0 && referenceImageCount == 0 && *capability.AudioReferenceRequiresVisualReference {
+		return videoRequestError("referenceAudios require at least one referenceImages item", "invalid_reference_audios")
+	}
+	return nil
+}
+
+func isPublicVideoReferenceURL(value string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	return err == nil && parsed.Host != "" && (strings.EqualFold(parsed.Scheme, "http") || strings.EqualFold(parsed.Scheme, "https"))
 }
 
 func applyVideoProtocolRequest(protocol dto.VideoProtocol, request relaycommon.TaskSubmitReq, fields map[string]json.RawMessage) error {
@@ -449,25 +581,50 @@ func agnesResolutionPixels(resolution string) (int, bool) {
 	return pixels, true
 }
 
-func validateVideoProtocolMultipartFields(c *gin.Context) *dto.TaskError {
-	form, err := c.MultipartForm()
+func validateVideoProtocolMultipartFields(c *gin.Context, protocol dto.VideoProtocol) *dto.TaskError {
+	form, err := common.ParseMultipartFormReusable(c)
 	if err != nil {
 		return videoRequestError(err.Error(), "invalid_request")
 	}
+	defer form.RemoveAll()
 	for name := range form.Value {
-		if _, ok := commonVideoRequestFields[name]; !ok {
+		if !videoRequestFieldAllowed(protocol, name, false) {
 			return videoRequestError(fmt.Sprintf("unsupported video parameter %q", name), "unsupported_parameter")
+		}
+		if (name == "first_image" || name == "last_image") && len(form.Value[name]) != 1 {
+			return videoRequestError(fmt.Sprintf("%s must be provided once", name), "invalid_request")
 		}
 		if name == "provider_options" {
 			return videoRequestError("provider_options requires an application/json request", "invalid_provider_options")
 		}
 	}
 	for name := range form.File {
-		if _, ok := commonVideoRequestFields[name]; !ok {
+		if !videoRequestFieldAllowed(protocol, name, true) {
 			return videoRequestError(fmt.Sprintf("unsupported video parameter %q", name), "unsupported_parameter")
+		}
+		if (name == "first_image" || name == "last_image") && len(form.File[name]) != 1 {
+			return videoRequestError(fmt.Sprintf("%s must contain one file", name), "invalid_request")
 		}
 	}
 	return nil
+}
+
+func videoRequestFieldAllowed(protocol dto.VideoProtocol, name string, file bool) bool {
+	if protocol == dto.VideoProtocolMinimaxH3MegabyAI {
+		if file {
+			_, ok := minimaxH3VideoFileFields[name]
+			return ok
+		}
+		if _, ok := minimaxH3CommonVideoRequestFields[name]; ok {
+			return true
+		}
+		_, ok := minimaxH3VideoRequestFields[name]
+		return ok
+	}
+	if _, ok := commonVideoRequestFields[name]; ok {
+		return true
+	}
+	return false
 }
 
 func validateAgnesMultipartReferenceInput(c *gin.Context) *dto.TaskError {

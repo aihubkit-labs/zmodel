@@ -47,7 +47,7 @@ func newSeedanceTestContext(t *testing.T, body string) (*gin.Context, *relaycomm
 func configureTestVideoModel(info *relaycommon.RelayInfo, protocol dto.VideoProtocol, modelName string, resolutions []string, imageLimit, videoLimit, audioLimit int, durationBounds ...int) {
 	var minDurationSeconds *int
 	var maxDurationSeconds *int
-	if protocol == dto.VideoProtocolSeedanceMegabyAI {
+	if videoProtocolUsesConfiguredDuration(protocol) {
 		minDuration := 4
 		maxDuration := 15
 		if len(durationBounds) >= 2 {
@@ -60,12 +60,20 @@ func configureTestVideoModel(info *relaycommon.RelayInfo, protocol dto.VideoProt
 	info.ChannelSetting.VideoProtocol = protocol
 	info.ChannelSetting.VideoModelCapabilities = map[string]dto.VideoModelCapability{
 		modelName: {
-			Resolutions:        resolutions,
-			MaxReferenceImages: common.GetPointer(imageLimit),
-			MaxReferenceVideos: common.GetPointer(videoLimit),
-			MaxReferenceAudios: common.GetPointer(audioLimit),
-			MinDurationSeconds: minDurationSeconds,
-			MaxDurationSeconds: maxDurationSeconds,
+			Resolutions:                           resolutions,
+			Ratios:                                []string{"16:9", "1:1", "9:16", "21:9", "4:3", "3:4"},
+			MaxReferenceImages:                    common.GetPointer(imageLimit),
+			MaxReferenceVideos:                    common.GetPointer(videoLimit),
+			MaxReferenceAudios:                    common.GetPointer(audioLimit),
+			MinDurationSeconds:                    minDurationSeconds,
+			MaxDurationSeconds:                    maxDurationSeconds,
+			SupportsGenerateAudio:                 common.GetPointer(true),
+			GenerateAudioRequired:                 common.GetPointer(true),
+			SupportsFirstFrame:                    common.GetPointer(true),
+			SupportsLastFrame:                     common.GetPointer(true),
+			LastFrameRequiresFirstFrame:           common.GetPointer(true),
+			ReferenceImagesIncompatibleWithFrames: common.GetPointer(true),
+			AudioReferenceRequiresVisualReference: common.GetPointer(true),
 		},
 	}
 }
@@ -262,6 +270,7 @@ func TestConfiguredVideoProtocolsRequireResolution(t *testing.T) {
 	}{
 		{name: "OpenAI Video", protocol: dto.VideoProtocolOpenAI, body: `{"model":"video-model","prompt":"demo","duration":5}`},
 		{name: "Seedance", protocol: dto.VideoProtocolSeedanceMegabyAI, body: `{"model":"video-model","prompt":"demo","duration":5}`},
+		{name: "MiniMax H3", protocol: dto.VideoProtocolMinimaxH3MegabyAI, body: `{"model":"video-model","prompt":"demo","duration":5,"ratio":"16:9","generate_audio":true}`},
 		{name: "Agnes Video V2", protocol: dto.VideoProtocolAgnesVideoV2, body: `{"model":"video-model","prompt":"demo","duration":5}`},
 	}
 
@@ -369,6 +378,9 @@ func TestSeedanceConfiguredUnknownModelFailsClosedWithoutCapability(t *testing.T
 	taskErr := adaptor.ValidateRequestAndSetAction(ctx, info)
 	require.NotNil(t, taskErr)
 	assert.Equal(t, "video_model_not_configured", taskErr.Code)
+	assert.Equal(t, "video model is not configured for the selected channel", taskErr.Message)
+	assert.NotContains(t, taskErr.Message, "unknown-upstream-model")
+	assert.NotContains(t, taskErr.Message, string(dto.VideoProtocolSeedanceMegabyAI))
 }
 
 func TestOpenAIVideoProtocolDoesNotApplySeedanceModelProfile(t *testing.T) {
@@ -412,6 +424,25 @@ func TestConfiguredVideoProtocolRejectsUnknownField(t *testing.T) {
 	taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
 	require.NotNil(t, taskErr)
 	assert.Equal(t, "unsupported_parameter", taskErr.Code)
+	assert.Equal(t, `unsupported video parameter "custom_flag"`, taskErr.Message)
+}
+
+func TestVideoProtocolValidationErrorsDoNotExposeInternalProtocol(t *testing.T) {
+	ctx, info := newSeedanceTestContext(t, `{
+		"model":"seedance-2.5",
+		"prompt":"demo",
+		"duration":4,
+		"resolution":"480p",
+		"ratio":"16:123",
+		"aspect_ratio":"12:23"
+	}`)
+	taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "unsupported_parameter", taskErr.Code)
+	assert.Equal(t, `unsupported video parameter "aspect_ratio"`, taskErr.Message)
+	assert.NotContains(t, taskErr.Message, string(dto.VideoProtocolSeedanceMegabyAI))
+	assert.NotContains(t, taskErr.Message, "megabyai")
+	assert.NotContains(t, taskErr.Message, "protocol")
 }
 
 func TestVideoRequestProviderOptionsFlattensConfiguredNamespace(t *testing.T) {
@@ -839,6 +870,8 @@ func TestVideoRequestProviderOptionsRejectsWrongNamespace(t *testing.T) {
 	taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
 	require.NotNil(t, taskErr)
 	assert.Equal(t, "invalid_provider_options", taskErr.Code)
+	assert.Equal(t, `provider_options contains an unsupported namespace "other"`, taskErr.Message)
+	assert.NotContains(t, taskErr.Message, string(dto.VideoProtocolAgnesVideoV2))
 }
 
 func TestVideoRequestProviderOptionsRejectsProtectedOverrides(t *testing.T) {
