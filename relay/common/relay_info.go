@@ -696,21 +696,30 @@ type TaskRelayInfo struct {
 }
 
 type TaskSubmitReq struct {
-	Prompt          string                 `json:"prompt"`
-	Model           string                 `json:"model,omitempty"`
-	Mode            string                 `json:"mode,omitempty"`
-	Image           string                 `json:"image,omitempty"`
-	Images          []string               `json:"images,omitempty"`
-	ReferenceImages []string               `json:"referenceImages,omitempty"`
-	ReferenceVideos []string               `json:"referenceVideos,omitempty"`
-	ReferenceAudios []string               `json:"referenceAudios,omitempty"`
-	Size            string                 `json:"size,omitempty"`
-	Duration        int                    `json:"duration,omitempty"`
-	Seconds         string                 `json:"seconds,omitempty"`
-	Resolution      string                 `json:"resolution,omitempty"`
-	Ratio           string                 `json:"ratio,omitempty"`
-	InputReference  string                 `json:"input_reference,omitempty"`
-	Metadata        map[string]interface{} `json:"metadata,omitempty"`
+	Prompt              string                 `json:"prompt"`
+	Model               string                 `json:"model,omitempty"`
+	Mode                string                 `json:"mode,omitempty"`
+	Image               string                 `json:"image,omitempty"`
+	Images              []string               `json:"images,omitempty"`
+	ReferenceImages     []string               `json:"referenceImages,omitempty"`
+	ReferenceVideos     []string               `json:"referenceVideos,omitempty"`
+	ReferenceAudios     []string               `json:"referenceAudios,omitempty"`
+	FirstImage          string                 `json:"first_image,omitempty"`
+	LastImage           string                 `json:"last_image,omitempty"`
+	GenerateAudio       *bool                  `json:"generate_audio,omitempty"`
+	Watermark           *bool                  `json:"watermark,omitempty"`
+	Size                string                 `json:"size,omitempty"`
+	Duration            int                    `json:"duration,omitempty"`
+	Seconds             string                 `json:"seconds,omitempty"`
+	Resolution          string                 `json:"resolution,omitempty"`
+	Ratio               string                 `json:"ratio,omitempty"`
+	InputReference      string                 `json:"input_reference,omitempty"`
+	Metadata            map[string]interface{} `json:"metadata,omitempty"`
+	ReferenceImageFiles int                    `json:"-"`
+	ReferenceVideoFiles int                    `json:"-"`
+	ReferenceAudioFiles int                    `json:"-"`
+	FirstImageFile      bool                   `json:"-"`
+	LastImageFile       bool                   `json:"-"`
 }
 
 type TaskRequestMediaCounts struct {
@@ -718,6 +727,8 @@ type TaskRequestMediaCounts struct {
 	ReferenceImages int `json:"reference_images,omitempty"`
 	ReferenceVideos int `json:"reference_videos,omitempty"`
 	ReferenceAudios int `json:"reference_audios,omitempty"`
+	FirstImages     int `json:"first_images,omitempty"`
+	LastImages      int `json:"last_images,omitempty"`
 }
 
 type TaskRequestSnapshot struct {
@@ -728,6 +739,10 @@ type TaskRequestSnapshot struct {
 	ReferenceImages []string               `json:"reference_images,omitempty"`
 	ReferenceVideos []string               `json:"reference_videos,omitempty"`
 	ReferenceAudios []string               `json:"reference_audios,omitempty"`
+	FirstImage      string                 `json:"first_image,omitempty"`
+	LastImage       string                 `json:"last_image,omitempty"`
+	GenerateAudio   *bool                  `json:"generate_audio,omitempty"`
+	Watermark       *bool                  `json:"watermark,omitempty"`
 	Size            string                 `json:"size,omitempty"`
 	Duration        int                    `json:"duration,omitempty"`
 	Seconds         string                 `json:"seconds,omitempty"`
@@ -747,6 +762,20 @@ func (t TaskSubmitReq) Snapshot() TaskRequestSnapshot {
 		images = append(images, t.InputReference)
 	}
 	images = uniqueTaskSnapshotValues(images)
+	firstImageCount := 0
+	if t.FirstImage != "" {
+		firstImageCount++
+	}
+	if t.FirstImageFile {
+		firstImageCount++
+	}
+	lastImageCount := 0
+	if t.LastImage != "" {
+		lastImageCount++
+	}
+	if t.LastImageFile {
+		lastImageCount++
+	}
 
 	return TaskRequestSnapshot{
 		Prompt:          sanitizeTaskSnapshotText(t.Prompt, 16*1024),
@@ -756,6 +785,10 @@ func (t TaskSubmitReq) Snapshot() TaskRequestSnapshot {
 		ReferenceImages: taskSnapshotMediaURLs(t.ReferenceImages),
 		ReferenceVideos: taskSnapshotMediaURLs(t.ReferenceVideos),
 		ReferenceAudios: taskSnapshotMediaURLs(t.ReferenceAudios),
+		FirstImage:      taskSnapshotMediaURL(t.FirstImage),
+		LastImage:       taskSnapshotMediaURL(t.LastImage),
+		GenerateAudio:   t.GenerateAudio,
+		Watermark:       t.Watermark,
 		Size:            sanitizeTaskSnapshotText(t.Size, 1024),
 		Duration:        t.Duration,
 		Seconds:         sanitizeTaskSnapshotText(t.Seconds, 1024),
@@ -764,9 +797,11 @@ func (t TaskSubmitReq) Snapshot() TaskRequestSnapshot {
 		Metadata:        sanitizeTaskSnapshotMetadata(t.Metadata),
 		MediaCounts: TaskRequestMediaCounts{
 			Images:          len(images),
-			ReferenceImages: len(t.ReferenceImages),
-			ReferenceVideos: len(t.ReferenceVideos),
-			ReferenceAudios: len(t.ReferenceAudios),
+			ReferenceImages: len(t.ReferenceImages) + t.ReferenceImageFiles,
+			ReferenceVideos: len(t.ReferenceVideos) + t.ReferenceVideoFiles,
+			ReferenceAudios: len(t.ReferenceAudios) + t.ReferenceAudioFiles,
+			FirstImages:     firstImageCount,
+			LastImages:      lastImageCount,
 		},
 	}
 }
@@ -806,6 +841,14 @@ func taskSnapshotMediaURLs(values []string) []string {
 		return nil
 	}
 	return urls
+}
+
+func taskSnapshotMediaURL(value string) string {
+	values := taskSnapshotMediaURLs([]string{value})
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
 }
 
 func sanitizeTaskSnapshotMetadata(metadata map[string]interface{}) map[string]interface{} {

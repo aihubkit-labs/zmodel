@@ -129,7 +129,7 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	if taskErr := validateVideoModelCapability(info, req); taskErr != nil {
 		return taskErr
 	}
-	if !usesSeedanceMegabyAIProtocol(info) {
+	if !usesConfiguredDurationVideoProtocol(info) {
 		return nil
 	}
 	duration := req.Duration
@@ -153,8 +153,8 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	return nil
 }
 
-func usesSeedanceMegabyAIProtocol(info *relaycommon.RelayInfo) bool {
-	return info != nil && info.ChannelSetting.VideoProtocol == dto.VideoProtocolSeedanceMegabyAI
+func usesConfiguredDurationVideoProtocol(info *relaycommon.RelayInfo) bool {
+	return info != nil && videoProtocolUsesConfiguredDuration(info.ChannelSetting.VideoProtocol)
 }
 
 func videoResolutionSupported(capability dto.VideoModelCapability, resolution string) bool {
@@ -177,7 +177,7 @@ func (a *TaskAdaptor) EstimateBillingDimensions(c *gin.Context, info *relaycommo
 		seconds = req.Duration
 	}
 	resolution := strings.ToLower(strings.TrimSpace(req.Resolution))
-	if usesSeedanceMegabyAIProtocol(info) {
+	if usesConfiguredDurationVideoProtocol(info) {
 		if seconds < info.VideoMinDurationSeconds || seconds > info.VideoMaxDurationSeconds {
 			return billingexpr.BillingDimensions{}, fmt.Errorf(
 				"duration is required and must be between %d and %d seconds for tiered billing",
@@ -248,6 +248,12 @@ func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, erro
 func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info *relaycommon.RelayInfo) error {
 	req.Header.Set("Authorization", "Bearer "+a.apiKey)
 	req.Header.Set("Content-Type", c.Request.Header.Get("Content-Type"))
+	if info != nil && info.ChannelSetting.VideoProtocol == dto.VideoProtocolMinimaxH3MegabyAI {
+		if strings.TrimSpace(info.PublicTaskID) == "" {
+			return fmt.Errorf("public task ID is required for MiniMax H3 idempotency")
+		}
+		req.Header.Set("Idempotency-Key", "zmodel:"+info.PublicTaskID)
+	}
 	return nil
 }
 
@@ -271,13 +277,20 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 			}
 			bodyMap["model"] = modelJSON
 			if parsed, getErr := relaycommon.GetTaskRequest(c); getErr == nil {
-				if usesSeedanceMegabyAIProtocol(info) {
+				if usesConfiguredDurationVideoProtocol(info) {
 					delete(bodyMap, "seconds")
 					resolutionJSON, marshalErr := common.Marshal(parsed.Resolution)
 					if marshalErr != nil {
 						return nil, errors.Wrap(marshalErr, "marshal_resolution_failed")
 					}
 					bodyMap["resolution"] = resolutionJSON
+					if info.ChannelSetting.VideoProtocol == dto.VideoProtocolMinimaxH3MegabyAI {
+						ratioJSON, marshalErr := common.Marshal(parsed.Ratio)
+						if marshalErr != nil {
+							return nil, errors.Wrap(marshalErr, "marshal_ratio_failed")
+						}
+						bodyMap["ratio"] = ratioJSON
+					}
 					if parsed.Duration > 0 {
 						durationJSON, marshalErr := common.Marshal(parsed.Duration)
 						if marshalErr != nil {
@@ -307,13 +320,14 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		writer := multipart.NewWriter(&buf)
 		writer.WriteField("model", info.UpstreamModelName)
 		parsed, _ := relaycommon.GetTaskRequest(c)
-		seedanceMegabyAIRequest := usesSeedanceMegabyAIProtocol(info)
+		megabyAIRequest := usesConfiguredDurationVideoProtocol(info)
 		agnesRequest := info.ChannelSetting.VideoProtocol == dto.VideoProtocolAgnesVideoV2
 		for key, values := range formData.Value {
 			if key == "model" {
 				continue
 			}
-			if seedanceMegabyAIRequest && (key == "resolution" || key == "duration" || key == "seconds") {
+			if megabyAIRequest && (key == "resolution" || key == "duration" || key == "seconds" ||
+				(info.ChannelSetting.VideoProtocol == dto.VideoProtocolMinimaxH3MegabyAI && key == "ratio")) {
 				continue
 			}
 			if agnesRequest && (key == "duration" || key == "seconds" || key == "num_frames" || key == "frame_rate" ||
@@ -324,10 +338,13 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 				writer.WriteField(key, v)
 			}
 		}
-		if seedanceMegabyAIRequest {
+		if megabyAIRequest {
 			writer.WriteField("resolution", parsed.Resolution)
 		}
-		if seedanceMegabyAIRequest && parsed.Duration > 0 {
+		if info.ChannelSetting.VideoProtocol == dto.VideoProtocolMinimaxH3MegabyAI {
+			writer.WriteField("ratio", parsed.Ratio)
+		}
+		if megabyAIRequest && parsed.Duration > 0 {
 			writer.WriteField("duration", strconv.Itoa(parsed.Duration))
 		}
 		if agnesRequest && parsed.Duration > 0 {
@@ -608,7 +625,7 @@ func (a *TaskAdaptor) AdjustBillingDimensionsOnComplete(task *model.Task, taskRe
 	}
 	dimensions := billingexpr.BillingDimensions{}
 	validDuration := taskResult.Duration > 0 && taskResult.Duration <= relaycommon.MaxTaskDurationSeconds
-	if protocol == dto.VideoProtocolSeedanceMegabyAI {
+	if videoProtocolUsesConfiguredDuration(protocol) {
 		validDuration = task != nil && task.PrivateData.BillingContext != nil &&
 			task.PrivateData.BillingContext.VideoMinDurationSeconds > 0 &&
 			task.PrivateData.BillingContext.VideoMaxDurationSeconds >= task.PrivateData.BillingContext.VideoMinDurationSeconds &&

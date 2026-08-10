@@ -547,42 +547,232 @@
       "post": {
         "summary": "创建视频 ",
         "deprecated": false,
-        "description": "OpenAI 兼容的视频生成接口。\n\n参考文档: https://platform.openai.com/docs/api-reference/videos/create\n",
+        "description": "统一视频生成接口。模型 ID、时长、分辨率、画幅和素材数量按所选渠道的后台模型映射与能力配置校验；客户响应和参数错误不会返回渠道内部协议或供应商标识。平台不会在运行时通过上游 /v1/models 改变客户模型合同。特定视频模型只接受文档列出的稳定字段，平台使用公开任务 ID 构造上游 Idempotency-Key。\n",
         "operationId": "createVideo",
         "tags": [
           "视频生成/Sora兼容格式"
         ],
         "parameters": [],
         "requestBody": {
+          "required": true,
           "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "model": {
+                    "description": "稳定公共模型名；平台按渠道模型映射替换为上游模型 ID",
+                    "example": "public-minimax-h3",
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "description": "视频提示词",
+                    "example": "Create a smooth cinematic transition",
+                    "type": "string"
+                  },
+                  "duration": {
+                    "description": "整数秒；按渠道中当前模型的动态能力校验",
+                    "example": 8,
+                    "type": "integer"
+                  },
+                  "seconds": {
+                    "description": "部分兼容协议使用的字符串时长；MiniMax 不接受该字段",
+                    "example": "8",
+                    "type": "string"
+                  },
+                  "resolution": {
+                    "description": "逻辑分辨率名称，所有已配置视频协议均要求传入，并按模型能力动态校验",
+                    "example": "1440p",
+                    "type": "string"
+                  },
+                  "ratio": {
+                    "description": "画幅；MiniMax 按模型能力动态校验",
+                    "example": "16:9",
+                    "type": "string"
+                  },
+                  "referenceImages": {
+                    "description": "普通参考图片 URL，数量按模型能力校验",
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "referenceVideos": {
+                    "description": "普通参考视频 URL，数量按模型能力校验",
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "referenceAudios": {
+                    "description": "普通参考音频 URL，数量和组合规则按模型能力校验",
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "generate_audio": {
+                    "description": "MiniMax 原生音频开关；是否支持和是否必须为 true 由模型能力配置决定",
+                    "type": "boolean"
+                  },
+                  "watermark": {
+                    "description": "MiniMax 水印开关",
+                    "type": "boolean"
+                  },
+                  "first_image": {
+                    "description": "MiniMax 首帧 HTTP/HTTPS URL",
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "last_image": {
+                    "description": "MiniMax 尾帧 HTTP/HTTPS URL；依赖关系由模型能力配置决定",
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "provider_options": {
+                    "description": "协议扩展参数；命名空间由视频协议固定，不能覆盖公共、计费、鉴权或路由字段",
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                },
+                "required": [
+                  "model",
+                  "prompt"
+                ]
+              }
+            },
             "multipart/form-data": {
               "schema": {
                 "type": "object",
                 "properties": {
                   "model": {
-                    "description": "模型名称",
-                    "example": "sora-2",
+                    "description": "稳定公共模型名",
+                    "example": "public-minimax-h3",
                     "type": "string"
                   },
                   "prompt": {
-                    "description": "提示词",
-                    "example": "cute cat dance",
+                    "description": "视频提示词",
+                    "example": "Create a smooth cinematic transition",
+                    "type": "string"
+                  },
+                  "duration": {
+                    "description": "整数秒字符串",
+                    "example": "8",
                     "type": "string"
                   },
                   "seconds": {
-                    "description": "生成秒数",
+                    "description": "兼容协议使用的字符串时长；MiniMax 不接受该字段",
                     "example": "8",
                     "type": "string"
+                  },
+                  "resolution": {
+                    "description": "动态配置的逻辑分辨率名称",
+                    "example": "1440p",
+                    "type": "string"
+                  },
+                  "ratio": {
+                    "description": "MiniMax 动态配置的画幅",
+                    "example": "16:9",
+                    "type": "string"
+                  },
+                  "generate_audio": {
+                    "description": "MiniMax 原生音频布尔值字符串",
+                    "example": "true",
+                    "type": "string"
+                  },
+                  "watermark": {
+                    "description": "MiniMax 水印布尔值字符串",
+                    "example": "false",
+                    "type": "string"
+                  },
+                  "referenceImages": {
+                    "description": "普通参考图片 URL；可重复提交该字段",
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "referenceVideos": {
+                    "description": "普通参考视频 URL；可重复提交该字段",
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "referenceAudios": {
+                    "description": "普通参考音频 URL；可重复提交该字段",
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "referenceImageFiles": {
+                    "description": "MiniMax 普通参考图片文件；可重复提交该字段",
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    }
+                  },
+                  "referenceVideoFiles": {
+                    "description": "MiniMax 普通参考视频文件；是否支持取决于模型能力",
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    }
+                  },
+                  "referenceAudioFiles": {
+                    "description": "MiniMax 普通参考音频文件",
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    }
+                  },
+                  "first_image": {
+                    "description": "MiniMax 单个首帧 HTTP/HTTPS URL 或文件",
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "format": "uri"
+                      },
+                      {
+                        "type": "string",
+                        "format": "binary"
+                      }
+                    ]
+                  },
+                  "last_image": {
+                    "description": "MiniMax 单个尾帧 HTTP/HTTPS URL 或文件",
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "format": "uri"
+                      },
+                      {
+                        "type": "string",
+                        "format": "binary"
+                      }
+                    ]
                   },
                   "input_reference": {
                     "format": "binary",
                     "type": "string",
-                    "description": "参考图片文件",
-                    "example": ""
+                    "description": "OpenAI/Sora 兼容协议的参考图片文件"
                   }
-                }
-              },
-              "examples": {}
+                },
+                "required": [
+                  "model",
+                  "prompt"
+                ]
+              }
             }
           }
         },
@@ -621,6 +811,18 @@
                     "seconds": {
                       "type": "string",
                       "description": "视频时长"
+                    },
+                    "duration": {
+                      "type": "integer",
+                      "description": "标准化后的整数视频时长"
+                    },
+                    "resolution": {
+                      "type": "string",
+                      "description": "逻辑分辨率名称"
+                    },
+                    "ratio": {
+                      "type": "string",
+                      "description": "视频画幅"
                     },
                     "completed_at": {
                       "type": "integer",
@@ -735,6 +937,18 @@
                     },
                     "seconds": {
                       "type": "string"
+                    },
+                    "duration": {
+                      "type": "integer",
+                      "description": "标准化后的整数视频时长"
+                    },
+                    "resolution": {
+                      "type": "string",
+                      "description": "逻辑分辨率名称"
+                    },
+                    "ratio": {
+                      "type": "string",
+                      "description": "视频画幅"
                     },
                     "url": {
                       "type": "string",
@@ -4500,6 +4714,18 @@
           "seconds": {
             "type": "string",
             "description": "视频时长"
+          },
+          "duration": {
+            "type": "integer",
+            "description": "标准化后的整数视频时长"
+          },
+          "resolution": {
+            "type": "string",
+            "description": "逻辑分辨率名称"
+          },
+          "ratio": {
+            "type": "string",
+            "description": "视频画幅"
           },
           "size": {
             "type": "string",

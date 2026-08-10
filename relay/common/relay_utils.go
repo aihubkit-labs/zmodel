@@ -160,25 +160,45 @@ func validateTaskDurationBounds(req TaskSubmitReq) *dto.TaskError {
 
 func validateMultipartTaskRequest(c *gin.Context, info *RelayInfo, action string) (TaskSubmitReq, error) {
 	var req TaskSubmitReq
-	if _, err := c.MultipartForm(); err != nil {
+	form, err := common.ParseMultipartFormReusable(c)
+	if err != nil {
+		return req, err
+	}
+	defer form.RemoveAll()
+
+	formData := form.Value
+	req = TaskSubmitReq{
+		Prompt:              firstMultipartValue(formData, "prompt"),
+		Model:               firstMultipartValue(formData, "model"),
+		Mode:                firstMultipartValue(formData, "mode"),
+		Image:               firstMultipartValue(formData, "image"),
+		ReferenceImages:     append([]string(nil), formData["referenceImages"]...),
+		ReferenceVideos:     append([]string(nil), formData["referenceVideos"]...),
+		ReferenceAudios:     append([]string(nil), formData["referenceAudios"]...),
+		FirstImage:          firstMultipartValue(formData, "first_image"),
+		LastImage:           firstMultipartValue(formData, "last_image"),
+		Size:                firstMultipartValue(formData, "size"),
+		Resolution:          firstMultipartValue(formData, "resolution"),
+		Ratio:               firstMultipartValue(formData, "ratio"),
+		Metadata:            make(map[string]interface{}),
+		ReferenceImageFiles: len(form.File["referenceImageFiles"]),
+		ReferenceVideoFiles: len(form.File["referenceVideoFiles"]),
+		ReferenceAudioFiles: len(form.File["referenceAudioFiles"]),
+		FirstImageFile:      len(form.File["first_image"]) > 0,
+		LastImageFile:       len(form.File["last_image"]) > 0,
+	}
+	req.GenerateAudio, err = optionalMultipartBool(formData, "generate_audio")
+	if err != nil {
+		return req, err
+	}
+	req.Watermark, err = optionalMultipartBool(formData, "watermark")
+	if err != nil {
 		return req, err
 	}
 
-	formData := c.Request.PostForm
-	req = TaskSubmitReq{
-		Prompt:     formData.Get("prompt"),
-		Model:      formData.Get("model"),
-		Mode:       formData.Get("mode"),
-		Image:      formData.Get("image"),
-		Size:       formData.Get("size"),
-		Resolution: formData.Get("resolution"),
-		Ratio:      formData.Get("ratio"),
-		Metadata:   make(map[string]interface{}),
-	}
-
-	durationStr := formData.Get("duration")
+	durationStr := firstMultipartValue(formData, "duration")
 	if durationStr == "" {
-		durationStr = formData.Get("seconds")
+		durationStr = firstMultipartValue(formData, "seconds")
 	}
 	if durationStr != "" {
 		if duration, err := strconv.Atoi(durationStr); err == nil {
@@ -206,6 +226,28 @@ func validateMultipartTaskRequest(c *gin.Context, info *RelayInfo, action string
 	return req, nil
 }
 
+func firstMultipartValue(values map[string][]string, name string) string {
+	if len(values[name]) == 0 {
+		return ""
+	}
+	return values[name][0]
+}
+
+func optionalMultipartBool(values map[string][]string, name string) (*bool, error) {
+	items := values[name]
+	if len(items) == 0 {
+		return nil, nil
+	}
+	if len(items) != 1 {
+		return nil, fmt.Errorf("%s must be provided once", name)
+	}
+	value, err := strconv.ParseBool(strings.TrimSpace(items[0]))
+	if err != nil {
+		return nil, fmt.Errorf("%s must be a boolean", name)
+	}
+	return &value, nil
+}
+
 func ValidateMultipartDirect(c *gin.Context, info *RelayInfo) *dto.TaskError {
 	var prompt string
 	var model string
@@ -214,7 +256,14 @@ func ValidateMultipartDirect(c *gin.Context, info *RelayInfo) *dto.TaskError {
 	var hasInputReference bool
 
 	var req TaskSubmitReq
-	if err := common.UnmarshalBodyReusable(c, &req); err != nil {
+	contentType := c.GetHeader("Content-Type")
+	if strings.Contains(strings.ToLower(contentType), gin.MIMEMultipartPOSTForm) {
+		var err error
+		req, err = validateMultipartTaskRequest(c, info, "")
+		if err != nil {
+			return createTaskError(err, "invalid_multipart_form", http.StatusBadRequest, true)
+		}
+	} else if err := common.UnmarshalBodyReusable(c, &req); err != nil {
 		return createTaskError(err, "invalid_json", http.StatusBadRequest, true)
 	}
 
@@ -289,6 +338,13 @@ func isKnownTaskField(field string) bool {
 		"resolution":      true,
 		"ratio":           true,
 		"input_reference": true, // Sora 特有字段
+		"referenceImages": true,
+		"referenceVideos": true,
+		"referenceAudios": true,
+		"first_image":     true,
+		"last_image":      true,
+		"generate_audio":  true,
+		"watermark":       true,
 	}
 	return knownFields[field]
 }

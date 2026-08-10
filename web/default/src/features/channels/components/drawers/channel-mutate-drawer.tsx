@@ -4210,11 +4210,68 @@ export function ChannelMutateDrawer({
                                             label: t('seedance(megabyai)'),
                                           },
                                           {
+                                            value: 'minimax-h3(megabyai)',
+                                            label: t('minimax-h3(megabyai)'),
+                                          },
+                                          {
                                             value: 'agnes_video_v2',
                                             label: t('Agnes Video V2'),
                                           },
                                         ]}
-                                        onValueChange={field.onChange}
+                                        onValueChange={(value) => {
+                                          field.onChange(value)
+                                          if (
+                                            value !== 'minimax-h3(megabyai)'
+                                          ) {
+                                            return
+                                          }
+                                          const capabilities =
+                                            form.getValues(
+                                              'video_model_capabilities'
+                                            ) || []
+                                          form.setValue(
+                                            'video_model_capabilities',
+                                            capabilities.map((capability) => {
+                                              const supportsGenerateAudio =
+                                                capability.supports_generate_audio ??
+                                                true
+                                              const supportsFirstFrame =
+                                                capability.supports_first_frame ??
+                                                true
+                                              const supportsLastFrame =
+                                                capability.supports_last_frame ??
+                                                true
+
+                                              return {
+                                                ...capability,
+                                                supports_generate_audio:
+                                                  supportsGenerateAudio,
+                                                generate_audio_required:
+                                                  supportsGenerateAudio
+                                                    ? (capability.generate_audio_required ??
+                                                      true)
+                                                    : false,
+                                                supports_first_frame:
+                                                  supportsFirstFrame,
+                                                supports_last_frame:
+                                                  supportsLastFrame,
+                                                last_frame_requires_first_frame:
+                                                  supportsFirstFrame &&
+                                                  supportsLastFrame
+                                                    ? (capability.last_frame_requires_first_frame ??
+                                                      true)
+                                                    : false,
+                                                reference_images_incompatible_with_frames:
+                                                  capability.reference_images_incompatible_with_frames ??
+                                                  true,
+                                                audio_reference_requires_visual_reference:
+                                                  capability.audio_reference_requires_visual_reference ??
+                                                  true,
+                                              }
+                                            }),
+                                            { shouldValidate: true }
+                                          )
+                                        }}
                                         value={field.value || null}
                                       >
                                         <FormControl>
@@ -4237,6 +4294,9 @@ export function ChannelMutateDrawer({
                                             </SelectItem>
                                             <SelectItem value='seedance(megabyai)'>
                                               {t('seedance(megabyai)')}
+                                            </SelectItem>
+                                            <SelectItem value='minimax-h3(megabyai)'>
+                                              {t('minimax-h3(megabyai)')}
                                             </SelectItem>
                                             <SelectItem value='agnes_video_v2'>
                                               {t('Agnes Video V2')}

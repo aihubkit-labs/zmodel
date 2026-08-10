@@ -1681,6 +1681,199 @@ Object.assign(newKeys.vi, {
   'Transport error': 'Lỗi truyền tải',
 })
 
+Object.assign(newKeys.en, {
+  'minimax-h3(megabyai)': 'minimax-h3(megabyai)',
+  'Supported aspect ratios': 'Supported aspect ratios',
+  'Add an aspect ratio, for example 16:9':
+    'Add an aspect ratio, for example 16:9',
+  'Press Enter or comma to add aspect ratios':
+    'Press Enter or comma to add aspect ratios',
+  'Supports native audio': 'Supports native audio',
+  'Require generate_audio=true': 'Require generate_audio=true',
+  'Supports first frame': 'Supports first frame',
+  'Supports last frame': 'Supports last frame',
+  'Last frame requires first frame': 'Last frame requires first frame',
+  'Reference images cannot be combined with frames':
+    'Reference images cannot be combined with frames',
+  'Reference audio requires a reference image':
+    'Reference audio requires a reference image',
+  'Configure at least one ratio': 'Configure at least one ratio',
+  'This capability setting is required': 'This capability setting is required',
+  'Required native audio must also be supported':
+    'Required native audio must also be supported',
+  'First frame support is required when the last frame depends on it':
+    'First frame support is required when the last frame depends on it',
+})
+Object.assign(newKeys.zh, {
+  'minimax-h3(megabyai)': 'minimax-h3(megabyai)',
+  'Supported aspect ratios': '支持的宽高比',
+  'Add an aspect ratio, for example 16:9': '添加宽高比，例如 16:9',
+  'Press Enter or comma to add aspect ratios': '按回车或逗号添加宽高比',
+  'Supports native audio': '支持原生音频',
+  'Require generate_audio=true': '要求 generate_audio=true',
+  'Supports first frame': '支持首帧',
+  'Supports last frame': '支持尾帧',
+  'Last frame requires first frame': '尾帧必须搭配首帧',
+  'Reference images cannot be combined with frames':
+    '普通参考图不能与首尾帧同时使用',
+  'Reference audio requires a reference image': '参考音频必须搭配普通参考图',
+  'Configure at least one ratio': '请至少配置一个宽高比',
+  'This capability setting is required': '此能力设置为必填项',
+  'Required native audio must also be supported':
+    '要求原生音频时必须同时启用原生音频支持',
+  'First frame support is required when the last frame depends on it':
+    '尾帧依赖首帧时必须支持首帧',
+})
+Object.assign(newKeys['zh-TW'], {
+  'minimax-h3(megabyai)': 'minimax-h3(megabyai)',
+  'Supported aspect ratios': '支援的長寬比',
+  'Add an aspect ratio, for example 16:9': '新增長寬比，例如 16:9',
+  'Press Enter or comma to add aspect ratios': '按 Enter 或逗號新增長寬比',
+  'Supports native audio': '支援原生音訊',
+  'Require generate_audio=true': '要求 generate_audio=true',
+  'Supports first frame': '支援首幀',
+  'Supports last frame': '支援尾幀',
+  'Last frame requires first frame': '尾幀必須搭配首幀',
+  'Reference images cannot be combined with frames':
+    '一般參考圖不能與首尾幀同時使用',
+  'Reference audio requires a reference image': '參考音訊必須搭配一般參考圖',
+  'Configure at least one ratio': '請至少設定一個長寬比',
+  'This capability setting is required': '此能力設定為必填項目',
+  'Required native audio must also be supported':
+    '要求原生音訊時必須同時啟用原生音訊支援',
+  'First frame support is required when the last frame depends on it':
+    '尾幀依賴首幀時必須支援首幀',
+})
+Object.assign(newKeys.fr, {
+  'minimax-h3(megabyai)': 'minimax-h3(megabyai)',
+  'Supported aspect ratios': "Formats d'image pris en charge",
+  'Add an aspect ratio, for example 16:9':
+    "Ajouter un format d'image, par exemple 16:9",
+  'Press Enter or comma to add aspect ratios':
+    "Appuyez sur Entrée ou une virgule pour ajouter des formats d'image",
+  'Supports native audio': "Prend en charge l'audio natif",
+  'Require generate_audio=true': 'Exiger generate_audio=true',
+  'Supports first frame': 'Prend en charge la première image',
+  'Supports last frame': 'Prend en charge la dernière image',
+  'Last frame requires first frame':
+    'La dernière image exige la première image',
+  'Reference images cannot be combined with frames':
+    'Les images de référence sont incompatibles avec les images de début et de fin',
+  'Reference audio requires a reference image':
+    'Un audio de référence exige une image de référence',
+  'Configure at least one ratio': "Configurez au moins un format d'image",
+  'This capability setting is required':
+    'Ce paramètre de capacité est obligatoire',
+  'Required native audio must also be supported':
+    "L'audio natif requis doit également être pris en charge",
+  'First frame support is required when the last frame depends on it':
+    'La première image doit être prise en charge lorsque la dernière en dépend',
+})
+Object.assign(newKeys.ja, {
+  'minimax-h3(megabyai)': 'minimax-h3(megabyai)',
+  'Supported aspect ratios': '対応アスペクト比',
+  'Add an aspect ratio, for example 16:9': 'アスペクト比を追加（例: 16:9）',
+  'Press Enter or comma to add aspect ratios':
+    'Enter またはカンマでアスペクト比を追加',
+  'Supports native audio': 'ネイティブ音声に対応',
+  'Require generate_audio=true': 'generate_audio=true を必須にする',
+  'Supports first frame': '開始フレームに対応',
+  'Supports last frame': '終了フレームに対応',
+  'Last frame requires first frame': '終了フレームには開始フレームが必要',
+  'Reference images cannot be combined with frames':
+    '参照画像と開始・終了フレームは併用不可',
+  'Reference audio requires a reference image': '参照音声には参照画像が必要',
+  'Configure at least one ratio': 'アスペクト比を1つ以上設定してください',
+  'This capability setting is required': 'この機能設定は必須です',
+  'Required native audio must also be supported':
+    'ネイティブ音声を必須にするには音声対応も有効にしてください',
+  'First frame support is required when the last frame depends on it':
+    '終了フレームが開始フレームに依存する場合、開始フレームへの対応が必要です',
+})
+Object.assign(newKeys.ru, {
+  'minimax-h3(megabyai)': 'minimax-h3(megabyai)',
+  'Supported aspect ratios': 'Поддерживаемые соотношения сторон',
+  'Add an aspect ratio, for example 16:9':
+    'Добавьте соотношение сторон, например 16:9',
+  'Press Enter or comma to add aspect ratios':
+    'Нажмите Enter или запятую, чтобы добавить соотношение сторон',
+  'Supports native audio': 'Поддерживает встроенное аудио',
+  'Require generate_audio=true': 'Требовать generate_audio=true',
+  'Supports first frame': 'Поддерживает первый кадр',
+  'Supports last frame': 'Поддерживает последний кадр',
+  'Last frame requires first frame':
+    'Для последнего кадра требуется первый кадр',
+  'Reference images cannot be combined with frames':
+    'Референсные изображения нельзя сочетать с первым и последним кадрами',
+  'Reference audio requires a reference image':
+    'Для референсного аудио требуется референсное изображение',
+  'Configure at least one ratio': 'Настройте хотя бы одно соотношение сторон',
+  'This capability setting is required':
+    'Этот параметр возможностей обязателен',
+  'Required native audio must also be supported':
+    'Обязательное встроенное аудио должно также поддерживаться',
+  'First frame support is required when the last frame depends on it':
+    'Если последний кадр зависит от первого, первый кадр должен поддерживаться',
+})
+Object.assign(newKeys.vi, {
+  'minimax-h3(megabyai)': 'minimax-h3(megabyai)',
+  'Supported aspect ratios': 'Tỷ lệ khung hình được hỗ trợ',
+  'Add an aspect ratio, for example 16:9': 'Thêm tỷ lệ khung hình, ví dụ 16:9',
+  'Press Enter or comma to add aspect ratios':
+    'Nhấn Enter hoặc dấu phẩy để thêm tỷ lệ khung hình',
+  'Supports native audio': 'Hỗ trợ âm thanh gốc',
+  'Require generate_audio=true': 'Yêu cầu generate_audio=true',
+  'Supports first frame': 'Hỗ trợ khung hình đầu',
+  'Supports last frame': 'Hỗ trợ khung hình cuối',
+  'Last frame requires first frame': 'Khung hình cuối yêu cầu khung hình đầu',
+  'Reference images cannot be combined with frames':
+    'Không thể kết hợp ảnh tham chiếu với khung hình đầu hoặc cuối',
+  'Reference audio requires a reference image':
+    'Âm thanh tham chiếu yêu cầu một ảnh tham chiếu',
+  'Configure at least one ratio': 'Cấu hình ít nhất một tỷ lệ khung hình',
+  'This capability setting is required': 'Thiết lập khả năng này là bắt buộc',
+  'Required native audio must also be supported':
+    'Âm thanh gốc bắt buộc cũng phải được hỗ trợ',
+  'First frame support is required when the last frame depends on it':
+    'Phải hỗ trợ khung hình đầu khi khung hình cuối phụ thuộc vào nó',
+})
+
+Object.assign(newKeys.en, {
+  'Platform Task Data': 'Platform Task Data',
+  'Request Snapshot': 'Request Snapshot',
+  'Task Result': 'Task Result',
+})
+Object.assign(newKeys.zh, {
+  'Platform Task Data': '平台任务数据',
+  'Request Snapshot': '请求快照',
+  'Task Result': '任务结果',
+})
+Object.assign(newKeys['zh-TW'], {
+  'Platform Task Data': '平台任務資料',
+  'Request Snapshot': '請求快照',
+  'Task Result': '任務結果',
+})
+Object.assign(newKeys.fr, {
+  'Platform Task Data': 'Données de la tâche de la plateforme',
+  'Request Snapshot': 'Instantané de la requête',
+  'Task Result': 'Résultat de la tâche',
+})
+Object.assign(newKeys.ja, {
+  'Platform Task Data': 'プラットフォームのタスクデータ',
+  'Request Snapshot': 'リクエストスナップショット',
+  'Task Result': 'タスク結果',
+})
+Object.assign(newKeys.ru, {
+  'Platform Task Data': 'Данные задачи платформы',
+  'Request Snapshot': 'Снимок запроса',
+  'Task Result': 'Результат задачи',
+})
+Object.assign(newKeys.vi, {
+  'Platform Task Data': 'Dữ liệu tác vụ nền tảng',
+  'Request Snapshot': 'Bản chụp yêu cầu',
+  'Task Result': 'Kết quả tác vụ',
+})
+
 async function main() {
   for (const [locale, trans] of Object.entries(newKeys)) {
     const filePath = path.join(LOCALES_DIR, `${locale}.json`)
