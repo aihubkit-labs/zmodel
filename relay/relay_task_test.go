@@ -1,16 +1,87 @@
 package relay
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRelayTaskSubmitValidatesMappedUpstreamVideoCapability(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	req := httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(`{
+		"model":"seedance-2.5",
+		"prompt":"demo",
+		"duration":15,
+		"resolution":"1080p",
+		"ratio":"16:9"
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = req
+	_, err := common.GetBodyStorage(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { common.CleanupBodyStorage(ctx) })
+
+	zero := 0
+	minDuration := 4
+	maxDuration := 30
+	falseValue := false
+	settings := dto.ChannelSettings{
+		VideoProtocol: dto.VideoProtocolGlobalAIOpc,
+		VideoModelCapabilities: map[string]dto.VideoModelCapability{
+			"seedance-2.5-c1": {
+				Resolutions:                           []string{"480p", "720p"},
+				Ratios:                                []string{"16:9"},
+				RatioRequired:                         &falseValue,
+				MinReferenceImages:                    &zero,
+				MaxReferenceImages:                    &zero,
+				MinReferenceVideos:                    &zero,
+				MaxReferenceVideos:                    &zero,
+				MinReferenceAudios:                    &zero,
+				MaxReferenceAudios:                    &zero,
+				SupportsDuration:                      common.GetPointer(true),
+				DurationRequired:                      common.GetPointer(true),
+				MinDurationSeconds:                    &minDuration,
+				MaxDurationSeconds:                    &maxDuration,
+				SupportsGenerateAudio:                 &falseValue,
+				GenerateAudioRequired:                 &falseValue,
+				SupportsFirstFrame:                    common.GetPointer(true),
+				SupportsLastFrame:                     common.GetPointer(true),
+				LastFrameRequiresFirstFrame:           &falseValue,
+				ReferenceImagesIncompatibleWithFrames: &falseValue,
+				AudioReferenceRequiresVisualReference: &falseValue,
+			},
+		},
+	}
+	common.SetContextKey(ctx, constant.ContextKeyChannelType, constant.ChannelTypeOpenAI)
+	common.SetContextKey(ctx, constant.ContextKeyChannelSetting, settings)
+	common.SetContextKey(ctx, constant.ContextKeyChannelModelMapping, `{"seedance-2.5":"seedance-2.5-c1"}`)
+
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "seedance-2.5",
+		TaskRelayInfo:   &relaycommon.TaskRelayInfo{},
+	}
+	_, taskErr := RelayTaskSubmit(ctx, info)
+
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "invalid_resolution", taskErr.Code)
+	assert.Contains(t, taskErr.Message, `video model "seedance-2.5"`)
+	assert.NotContains(t, taskErr.Message, "seedance-2.5-c1")
+	assert.Equal(t, "seedance-2.5-c1", info.UpstreamModelName)
+}
 
 func TestTaskModel2DtoUsesPublicContentURLForVideoTask(t *testing.T) {
 	common.OptionMapRWMutex.Lock()

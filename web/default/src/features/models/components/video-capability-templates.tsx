@@ -405,8 +405,8 @@ export function VideoCapabilityTemplates() {
   }
 
   return (
-    <div className='space-y-4'>
-      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+    <div className='flex h-full min-h-0 flex-col gap-4'>
+      <div className='flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
         <div className='flex flex-1 flex-col gap-2 sm:flex-row'>
           <Input
             className='sm:max-w-sm'
@@ -472,6 +472,7 @@ export function VideoCapabilityTemplates() {
       </div>
 
       <StaticDataTable
+        className='min-h-0 flex-1 overflow-auto'
         data={templates}
         getRowKey={(template) => template.id}
         empty={templatesQuery.isLoading || templates.length === 0}
