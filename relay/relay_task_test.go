@@ -65,6 +65,23 @@ func TestTaskModel2DtoProvidesReadablePlatformName(t *testing.T) {
 	assert.Equal(t, "OpenAI", dtoTask.PlatformName)
 }
 
+func TestTaskModel2DtoHidesUpstreamModel(t *testing.T) {
+	task := &model.Task{
+		Properties: model.Properties{
+			OriginModelName:   "public-model",
+			UpstreamModelName: "provider-model-id",
+		},
+	}
+
+	dtoTask := TaskModel2Dto(task)
+
+	properties, ok := dtoTask.Properties.(model.Properties)
+	require.True(t, ok)
+	assert.Equal(t, "public-model", properties.OriginModelName)
+	assert.Empty(t, properties.UpstreamModelName)
+	assert.Equal(t, "provider-model-id", task.Properties.UpstreamModelName)
+}
+
 func TestTaskModel2DtoReportsTerminalTasksAsComplete(t *testing.T) {
 	for _, status := range []model.TaskStatus{model.TaskStatusSuccess, model.TaskStatusFailure} {
 		t.Run(string(status), func(t *testing.T) {

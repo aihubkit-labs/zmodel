@@ -74,6 +74,29 @@ func TestTasksToDtoIncludesChannelNameForAdminOnly(t *testing.T) {
 	assert.Empty(t, userTasks[0].ChannelName)
 }
 
+func TestTasksToDtoIncludesUpstreamModelForAdminOnly(t *testing.T) {
+	setupTaskControllerTestDB(t)
+	task := &model.Task{
+		Properties: model.Properties{
+			OriginModelName:   "public-model",
+			UpstreamModelName: "provider-model-id",
+		},
+	}
+
+	adminTasks := tasksToDto([]*model.Task{task}, true)
+	userTasks := tasksToDto([]*model.Task{task}, false)
+
+	require.Len(t, adminTasks, 1)
+	adminProperties, ok := adminTasks[0].Properties.(model.Properties)
+	require.True(t, ok)
+	assert.Equal(t, "provider-model-id", adminProperties.UpstreamModelName)
+	require.Len(t, userTasks, 1)
+	userProperties, ok := userTasks[0].Properties.(model.Properties)
+	require.True(t, ok)
+	assert.Equal(t, "public-model", userProperties.OriginModelName)
+	assert.Empty(t, userProperties.UpstreamModelName)
+}
+
 func TestTasksToDtoIncludesFailureHTTPTraceForAdminOnly(t *testing.T) {
 	setupTaskControllerTestDB(t)
 	trace := &dto.TaskUpstreamHTTPTrace{

@@ -144,6 +144,8 @@ func tasksToDto(tasks []*model.Task, fillUser bool) []*dto.TaskDto {
 		}
 		result[i] = relay.TaskModel2Dto(&taskForDTO)
 		if fillUser {
+			// The admin task endpoint may expose provider routing metadata.
+			result[i].Properties = task.Properties
 			if channel := channelMap[task.ChannelId]; channel != nil {
 				result[i].ChannelName = channel.Name
 			}

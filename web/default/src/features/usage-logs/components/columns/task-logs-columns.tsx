@@ -255,12 +255,12 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
       header: t('Model'),
       accessorFn: (row) =>
         row.properties?.origin_model_name ||
-        row.properties?.upstream_model_name ||
+        (isAdmin ? row.properties?.upstream_model_name : '') ||
         '',
       cell: ({ row }) => {
         const model =
           row.original.properties?.origin_model_name ||
-          row.original.properties?.upstream_model_name
+          (isAdmin ? row.original.properties?.upstream_model_name : undefined)
         return model ? (
           <span
             className='block min-w-0 truncate font-mono text-xs'

@@ -90,6 +90,16 @@ func TestTaskUserQueryKeepsOwnerBoundaryWithGroupAndModelFilters(t *testing.T) {
 	assert.Equal(t, int64(1), TaskCountAllUserTask(101, params))
 }
 
+func TestTaskUserQueryDoesNotExposeUpstreamOnlyModel(t *testing.T) {
+	setupTaskQueryTest(t)
+
+	params := SyncTaskQueryParams{Model: "upstream-only-model"}
+	tasks := TaskGetAllUserTask(102, 0, 20, params)
+
+	assert.Empty(t, tasks)
+	assert.Zero(t, TaskCountAllUserTask(102, params))
+}
+
 func TestTaskFilterOptionsRespectUserScope(t *testing.T) {
 	setupTaskQueryTest(t)
 
@@ -105,4 +115,9 @@ func TestTaskFilterOptionsRespectUserScope(t *testing.T) {
 	assert.Empty(t, userOptions.Usernames)
 	assert.Equal(t, []string{"default", "vip"}, userOptions.Groups)
 	assert.Equal(t, []string{"video-model-a", "video-model-b"}, userOptions.Models)
+
+	userID = 102
+	userOptions, err = GetTaskFilterOptions(&userID)
+	require.NoError(t, err)
+	assert.NotContains(t, userOptions.Models, "upstream-only-model")
 }
