@@ -170,6 +170,13 @@ func (t *Task) GetResultURL() string {
 	return t.FailReason
 }
 
+func (t *Task) GetVideoProtocol() dto.VideoProtocol {
+	if t == nil || t.PrivateData.BillingContext == nil {
+		return ""
+	}
+	return t.PrivateData.BillingContext.VideoProtocol
+}
+
 // GenerateTaskID 生成对外暴露的 task_xxxx 格式 ID
 func GenerateTaskID() string {
 	key, _ := common.GenerateRandomCharsKey(32)

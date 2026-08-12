@@ -299,6 +299,7 @@ func migrateDB() error {
 		&SystemTaskLock{},
 		&AsyncImageTask{},
 		&StorageObject{},
+		&VideoModelCapabilityTemplate{},
 		&CasbinRule{},
 		&AuthzRole{},
 	)
@@ -314,7 +315,7 @@ func migrateDB() error {
 			return err
 		}
 	}
-	return nil
+	return SeedVideoModelCapabilityTemplates()
 }
 
 func migrateDBFast() error {
@@ -355,6 +356,7 @@ func migrateDBFast() error {
 		{&SystemTaskLock{}, "SystemTaskLock"},
 		{&AsyncImageTask{}, "AsyncImageTask"},
 		{&StorageObject{}, "StorageObject"},
+		{&VideoModelCapabilityTemplate{}, "VideoModelCapabilityTemplate"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))
@@ -387,6 +389,9 @@ func migrateDBFast() error {
 		if err := DB.AutoMigrate(&SubscriptionPlan{}); err != nil {
 			return err
 		}
+	}
+	if err := SeedVideoModelCapabilityTemplates(); err != nil {
+		return err
 	}
 	common.SysLog("database migrated")
 	return nil

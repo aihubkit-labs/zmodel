@@ -9,19 +9,15 @@
 业务语义相同，但时长线协议字段和专属参数存在差异，需要在 OpenAI/Sora task adaptor 边界内转换。
 本文档描述协议兼容层和维护约束，不记录任何真实 API Key。
 
+面向客户的接口、字段、响应和错误定义统一见
+[`视频生成 API`](../openapi/public-video-api.md)，本文不重复定义客户合同。
+
 代码和自动化测试是行为真相；本文档用于解释设计背景、关键契约和后续维护方式。
 
 ## 2. 背景与问题
 
-上游提供以下 OpenAI Video 兼容接口：
-
-```text
-POST /v1/videos
-GET  /v1/videos/{task_id}
-GET  /v1/videos/{task_id}/content
-```
-
-创建任务和查询任务均需要上游 API Key。任务完成后，上游响应可能在以下字段返回受鉴权保护的下载地址：
+上游提供异步任务创建、任务查询和视频内容下载三类 OpenAI Video 兼容能力。创建任务和查询任务均
+需要上游 API Key。任务完成后，上游响应可能在以下字段返回受鉴权保护的下载地址：
 
 ```text
 url
@@ -52,27 +48,48 @@ metadata.url
 - 不直接实现 Seedance 海外官方协议。
 - 不新增视频提交、查询或内容下载路由。
 
-所有模型复用所选视频协议，模型差异完全由渠道的 `video_model_capabilities` 定义，不通过模型名称或供应商域名分支实现。启用视频协议后，管理员必须从当前渠道的上游模型列表中选择模型，并配置分辨率及三类参考素材数量上限；Seedance 和 MiniMax H3 模型还必须配置最小和最大时长。模型映射场景按映射后的上游模型 ID 查询能力，未配置的模型会被拒绝。
+视频协议按上游渠道定义，`megabyai` 和 `globalaiopc` 各自覆盖该上游使用同一套任务传输合同的所有视频模型。模型差异完全由渠道的 `video_model_capabilities` 定义，不通过模型名称分支实现。启用视频协议后，管理员必须从当前渠道的上游模型列表中选择模型并配置能力；模型映射场景按映射后的上游模型 ID 查询能力，未配置的模型会被拒绝。
 
 对应的渠道 `setting` 数据结构如下，管理后台会以模型行、动态分辨率标签和数量输入框维护该结构：
 
 ```json
 {
-  "video_protocol": "seedance(megabyai)",
+  "video_protocol": "megabyai",
   "video_model_capabilities": {
     "upstream-video-model": {
       "resolutions": ["720p", "1080p", "1440p"],
+      "ratios": ["16:9", "9:16"],
+      "ratio_required": true,
+      "min_reference_images": 0,
       "max_reference_images": 2,
+      "min_reference_videos": 0,
       "max_reference_videos": 1,
+      "min_reference_audios": 0,
       "max_reference_audios": 0,
+      "supports_duration": true,
+      "duration_required": true,
       "min_duration_seconds": 4,
-      "max_duration_seconds": 29
+      "max_duration_seconds": 29,
+      "supports_generate_audio": false,
+      "generate_audio_required": false,
+      "supports_first_frame": false,
+      "first_frame_required": false,
+      "supports_last_frame": false,
+      "last_frame_required": false,
+      "last_frame_requires_first_frame": false,
+      "reference_images_incompatible_with_frames": false,
+      "audio_reference_requires_visual_reference": false,
+      "reference_media_incompatible_with_frames": false,
+      "supports_seed": false,
+      "supports_watermark": false
     }
   }
 }
 ```
 
-所有视频协议都要求每个模型至少配置一个分辨率。分辨率名称不使用全局白名单，由管理员按上游实际值填写；参考素材上限必须显式配置，`0` 表示该模型不支持对应素材。Seedance 和 MiniMax H3 的 `min_duration_seconds`、`max_duration_seconds` 均按模型配置，例如 Seedance 2.0 可配置为 4–15，Seedance 2.5 可配置为 4–29，当前 MiniMax H3 可配置为 5–15。任务提交时会冻结最终命中的分辨率和时长能力，后续渠道配置变更不会改变进行中任务的结算规则。
+所有视频协议都要求每个模型至少配置一个分辨率。公共分辨率名称不使用全局白名单，`resolution_mappings` 可将 `1440p` 等稳定公共名称转换为上游的 `2k`、`1440P` 等值。参考素材最小值和最大值必须显式配置，最大值 `0` 表示该模型不支持对应素材。是否支持时长、时长是否必填以及范围也全部按模型配置。任务提交时会冻结最终命中的分辨率和时长计费能力，后续渠道配置变更不会改变进行中任务的结算规则。
+
+管理端从视频能力模板接口加载与渠道协议匹配的模板。选择上游模型 ID 时会自动应用精确匹配模板，也可复制相似模板、批量应用所有匹配模型，并将调整后的能力保存为自定义模板。内置模板来自当前上游文档，只是可编辑的配置草稿，不参与公共模型路由；平台不会使用上游 `/v1/models` 自动修改客户模型合同。
 
 统一视频请求支持以下 JSON 素材字段。zmodel 在调用上游前按模型能力校验数量，并保持字段名、数组顺序和 URL 原样透传：
 
@@ -86,8 +103,8 @@ referenceAudios
 
 ### 3.2 统一视频参数与协议选择
 
-客户端继续通过统一的 `POST /v1/videos` 接口调用视频模型。公共业务语义使用稳定字段，例如时长统一
-使用整数 `duration`；上游字段名不同不要求客户端切换公共参数。
+客户端参数以[`视频生成 API`](../openapi/public-video-api.md)为准。适配器在渠道选定后读取视频协议和
+模型能力，把统一字段转换为上游字段；任何协议差异都不得改变公共路由、任务状态或响应结构。
 
 渠道 `setting` 只使用一个协议字段：
 
@@ -97,51 +114,19 @@ referenceAudios
 }
 ```
 
-有效协议为 `openai_video`、`seedance(megabyai)`、`minimax-h3(megabyai)` 和 `agnes_video_v2`。协议决定请求校验、公共字段转换和扩展
+有效协议为 `openai_video`、`megabyai`、`globalaiopc` 和 `agnes_video_v2`。协议决定上游鉴权、任务端点、公共字段转换、状态解析和内容实时获取。
 参数命名空间。空或缺失保持发布前的历史请求逻辑，不做隐式协议推断或数据迁移。管理后台只提供
 “视频协议”下拉框，不提供严格、供应商选项或透传模式，也没有供应商命名空间输入框。
 
-供应商专属参数使用命名空间传入：
+内部扩展参数仍在协议适配层完成白名单、深度和敏感字段校验，但不属于稳定客户合同，也不能选择
+渠道或覆盖公共参数、计费、回调、鉴权和上游地址。面向客户的参数错误只返回稳定错误码和通用模型
+表述，不返回渠道内部的 `video_protocol` 值或供应商命名空间。
 
-```json
-{
-  "model": "public-agnes-model",
-  "prompt": "A cinematic sunrise over a quiet lake",
-  "duration": 10,
-  "provider_options": {
-    "agnes": {
-      "<agnes-specific-option>": "<value>"
-    }
-  }
-}
-```
+### 3.3 MegabyAI
 
-`provider_options` 是请求字段，不是渠道模式。命名空间由协议固定派生：`openai_video` 使用
-`openai`，`seedance(megabyai)` 使用 `seedance(megabyai)`，`minimax-h3(megabyai)` 使用 `minimax-h3(megabyai)`，`agnes_video_v2` 使用 `agnes`。该字段只接受 JSON 请求；
-选中值必须是 JSON object。发送上游前移除命名空间包装，并保持字符串、数字、布尔值、对象和数组
-的原始 JSON 类型。供应商选项不能覆盖公共请求、时长、分辨率、输出数量、计费、回调、鉴权、
-上游地址或其他安全敏感字段，也不能与已有顶层字段重名。嵌套对象和数组执行同类检查，最大深度为
-16。冲突请求在调用上游和产生费用前返回 HTTP 400。
+`megabyai` 是 MegabyAI 渠道级视频协议，Seedance、MiniMax H3 以及后续采用相同任务接口的模型都复用该协议。平台不会在运行时调用上游 `GET /v1/models`，也不会把上游动态模型 ID 直接暴露给客户；管理员可在线下查询上游模型目录，确认变化后在渠道的模型映射与模型能力中更新上游 ID。
 
-面向客户的参数校验错误只返回错误字段、稳定错误码和通用渠道表述，不返回渠道内部的 `video_protocol` 值或由其派生的供应商命名空间。
-
-`provider_options` 不负责选择渠道。系统仍先按公开模型、分组、优先级和模型映射选定渠道，再根据
-该渠道配置校验和转换参数。同一公开模型指向多个供应商时，应通过既有路由配置或独立公开模型别名
-消除歧义。
-
-### 3.3 MiniMax H3 (MegabyAI)
-
-`minimax-h3(megabyai)` 与 `seedance(megabyai)` 复用同一套 OpenAI/Sora 异步任务创建、查询、响应转换和内容下载流程，但保留独立协议标识和请求合同，避免上游将来调整任一模型族时互相影响。平台不会在运行时调用上游 `GET /v1/models`，也不会把上游动态模型 ID 直接暴露给客户；管理员可在线下查询上游模型目录，确认变化后在渠道的模型映射与模型能力中更新上游 ID。
-
-MiniMax 公共 JSON 字段为：
-
-```text
-model, prompt, duration, resolution, ratio
-referenceImages, referenceVideos, referenceAudios
-generate_audio, watermark, first_image, last_image
-```
-
-不接受 `generation_mode`、`references`、`extra_params` 或上游字段别名。`duration`、`resolution`、`ratio` 和三类素材数量均按当前上游模型 ID 的后台能力配置校验。首尾帧、原生音频和素材组合规则也由以下模型能力开关控制：
+适配器按当前上游模型 ID 的后台能力配置校验时长、分辨率、画幅、三类素材数量、首尾帧、原生音频、随机种子、水印和素材组合规则。能力开关不绑定特定模型名称，包括：
 
 ```text
 supports_generate_audio
@@ -153,11 +138,27 @@ reference_images_incompatible_with_frames
 audio_reference_requires_visual_reference
 ```
 
-这7个开关全部由管理员按上游 `/v1/models` 和接口文档维护。新增 MiniMax H3 模型能力时默认全部开启，以符合当前上游合同，但允许后续直接调整；后端只校验组合关系，例如要求 `generate_audio=true` 时必须同时支持原生音频，尾帧依赖首帧时也必须支持首帧。当前 H3 的其他配置应反映上游文档：`1440p`、5–15 秒、普通参考图最多5张、不支持普通参考视频、参考音频最多3个。这些数值不是代码中的模型名单或固定参数，后续以上游确认结果更新后台配置。
+这些开关全部由管理员按上游 `/v1/models` 和接口文档维护；后端只校验组合关系，例如要求 `generate_audio=true` 时必须同时支持原生音频，尾帧依赖首帧时也必须支持首帧。模型数值不是协议代码中的名单或固定参数，后续以上游确认结果更新后台配置或能力模板。
 
-JSON 可使用 HTTP/HTTPS URL。multipart 可用 `referenceImageFiles`、`referenceVideoFiles`、`referenceAudioFiles` 上传本地素材，并用 `first_image`、`last_image` 上传单个首尾帧；URL 与文件合并计数。平台向上游发送的 `Idempotency-Key` 固定为 `zmodel:{public_task_id}`，不会透传客户请求头，因此重试同一个平台任务时上游幂等边界稳定，也不会让不同客户通过自定义键互相碰撞。
+平台向上游发送的 `Idempotency-Key` 固定为 `zmodel:{public_task_id}`，不会透传客户请求头，因此重试同一个平台任务时上游幂等边界稳定，也不会让不同客户通过自定义键互相碰撞。
 
-### 3.4 Agnes 时长协议转换
+### 3.4 GlobalAiOpc
+
+`globalaiopc` 与其他协议共用平台的创建、查询、内容、下载和任务 ID 合同，但在适配器内部使用 globalaiopc 的任务接口：
+
+```text
+POST /kyyReactApiServer/v2/model-center/tasks
+GET  /kyyReactApiServer/v2/model-center/tasks/{upstream_task_id}
+```
+
+内部字段转换为：`ratio` 到 `aspect_ratio`，三类 camelCase 素材字段到对应 snake_case 上游字段；
+分辨率按模型能力的 `resolution_mappings` 转换，例如 MiniMax H3 的公共 `1440p` 转为上游 `2k`。`generate_audio`、`seed` 和 `watermark` 仅在模型能力声明支持且客户显式传入时发送；`size` 不发送，避免与 `aspect_ratio` 冲突。
+
+该协议当前只接受 `application/json` 和上游可访问的 HTTP/HTTPS 素材 URL，不支持 multipart 文件。渠道 Base URL 可配置为 `https://zcbservice.aizfw.cn` 或带 `/kyyReactApiServer` 前缀的地址，适配器会统一规范化。首批内置模板覆盖当前文档中的20个模型，所有模板应用后仍可由管理员调整。
+
+不论实际命中哪个视频协议，平台对客户重新构造统一响应，只保留平台字段。上游任务 ID、`result_url`、`amount`、`actualDuration`、供应商扩展 `metadata` 和真实下载 URL不会出现在创建或查询响应中。完成后的 `url` 与 `video_url` 始终指向平台 `/v1/videos/{public_task_id}/content`；S3 优先、平台代理或上游重定向仅由内容接口在访问时决定。
+
+### 3.5 Agnes 时长协议转换
 
 Agnes 渠道通过 `video_protocol=agnes_video_v2` 启用轻量转换，不按 Agnes 模型名称硬编码判断：
 
@@ -195,7 +196,7 @@ Agnes 官方创建任务参数不包含 `seconds`；实际时长由 `num_frames`
 `provider_options.agnes`，也不能覆盖公共时长。只有无法归一为公共业务语义的 Agnes 专属能力才
 放入供应商选项。
 
-### 3.5 Agnes 分辨率协议转换
+### 3.6 Agnes 分辨率协议转换
 
 用户使用公共 `resolution` 和 `ratio`：
 
@@ -215,9 +216,9 @@ Agnes 适配器将其转换为 `width: 1280`、`height: 720`。分辨率名称�
 Agnes 统一模式不接受公共 `size`，也不允许 `provider_options.agnes` 覆盖 `width`、`height`、
 `resolution` 或 `ratio`，避免请求、实际输出和计费使用不同分辨率。
 
-### 3.6 统一参考图字段
+### 3.7 统一参考图字段
 
-用户统一使用 `referenceImages` 表达视频参考图片。`seedance(megabyai)` 和 `minimax-h3(megabyai)` 协议保持该数组字段和顺序发送上游；MiniMax 还按模型能力校验普通参考图与首尾帧的组合。Agnes Video V2 只支持0或1张参考图，单张时由适配器转换为 Agnes 的顶层 `image` URL。
+用户统一使用 `referenceImages` 表达视频参考图片。`megabyai` 保持该数组字段和顺序发送上游；`globalaiopc` 转换为 `reference_images`。素材组合规则按模型能力校验。Agnes Video V2 只支持0或1张参考图，单张时由适配器转换为 Agnes 的顶层 `image` URL。
 Agnes 请求不接受顶层 `image`、`images` 或 `input_reference`，也不允许通过
 `provider_options.agnes` 覆盖参考图字段。多图、空 URL 或非 HTTP/HTTPS URL 在调用上游前返回
 HTTP 400 和 `invalid_reference_images`。
@@ -225,7 +226,7 @@ HTTP 400 和 `invalid_reference_images`。
 Agnes 当前仅保证 `application/json` 中的图片 URL，不保证 multipart 本地文件上传。图片地址必须
 能由 Agnes 上游直接访问。
 
-### 3.7 区分公开任务 ID和上游任务 ID
+### 3.8 区分公开任务 ID和上游任务 ID
 
 任务包含两个不同用途的 ID：
 
@@ -238,7 +239,7 @@ Agnes 当前仅保证 `application/json` 中的图片 URL，不保证 multipart 
 
 历史任务可能没有 `UpstreamTaskID`。此时 `Task.GetUpstreamTaskID()` 回退使用 `TaskID`，保持旧数据兼容。
 
-### 3.8 保存任务实际使用的上游密钥
+### 3.9 保存任务实际使用的上游密钥
 
 异步任务从创建到下载可能跨越较长时间。在此期间，渠道密钥可能发生以下变化：
 
@@ -265,7 +266,7 @@ RelayInfo.ChannelMeta.ApiKey
 Task.PrivateData.Key != "" ? Task.PrivateData.Key : Channel.Key
 ```
 
-### 3.9 视频交付与 S3 归档独立配置
+### 3.10 视频交付与 S3 归档独立配置
 
 渠道包含三个相互独立的布尔配置：
 
@@ -343,7 +344,7 @@ S3 优先且对象可用 -> S3 临时签名地址
   -> 校验任务归属和完成状态
   -> 查询任务对应渠道的当前配置
   -> 当前开启 S3 优先且对象可用时重定向到 S3 签名地址
-  -> 否则使用 UpstreamTaskID 和任务保存的上游密钥解析上游视频地址
+  -> 否则使用 UpstreamTaskID 和任务保存的上游密钥实时查询当前有效的上游视频地址
   -> 当前关闭代理视频内容时重定向到上游 HTTPS 地址
   -> 当前开启代理视频内容时由 zmodel 流式返回内容
 ```
@@ -357,6 +358,8 @@ S3 优先且对象可用 -> S3 临时签名地址
 对外复制视频地址、播放器 `src` 和下载入口都必须使用
 `/v1/videos/{public_task_id}/content`。下载时可以追加 `download_name` 查询参数，但不得把解析出的
 S3 签名地址或上游视频地址暴露为可复制、可保存的业务地址；这些地址只作为内容接口内部的临时交付目标。
+
+OpenAI/Sora 视频渠道不会把轮询时取得的上游真实视频地址持久化为后续交付依据，因为该地址可能带有有效期。平台内容地址也不需要入库，始终根据公开任务 ID按 `/v1/videos/{public_task_id}/content` 规则生成。自动 S3 归档使用任务完成轮询当次返回的新鲜地址；`/content` 和后台手动上传 S3 则在实际执行时按所选视频协议重新查询上游任务详情。数据库只长期保存实时查询所需的上游任务 ID和实际任务密钥。
 
 ### 4.4 失败任务的上游 HTTP 诊断
 
@@ -383,89 +386,17 @@ URL 查询参数中的敏感值必须在写入数据库前脱敏；诊断数据�
 凭据和敏感查询参数已经脱敏，JSON Body 会格式化，上述内容属于可与上游直接核对的规范化报文，
 不是网络抓包的原始字节；HTTP/2 等二进制协议也统一以可读的 HTTP 报文形式展示。
 
-## 5. 查询响应转换契约
+## 5. 查询响应转换约束
 
-OpenAI/Sora task adaptor 的 `ConvertToOpenAIVideo` 负责转换任务响应。
+完整客户响应合同见[`视频生成 API`](../openapi/public-video-api.md)。OpenAI/Sora task adaptor 的
+`ConvertToOpenAIVideo` 负责落实以下内部约束：
 
-### 5.1 所有状态
-
-以下字段必须改为 zmodel 公开任务 ID：
-
-```text
-id
-task_id
-```
-
-响应中不得残留上游任务 ID。
-
-视频协议适配器同时提供稳定公共字段：
-
-| 字段 | 公共语义 |
-| --- | --- |
-| `model` | 用户请求的公开模型名 |
-| `status` | `queued`、`in_progress`、`completed`、`failed` |
-| `progress` | 0–100 的整数，终态为 100 |
-| `duration` | 整数秒；查询时实际值优先，请求快照回退 |
-| `resolution` | `480p`、`720p`、`1080p`、`4k` 等逻辑档位 |
-| `ratio` | 公共宽高比；供应商未返回时使用请求快照 |
-
-`seconds` 和 `size` 是兼容字段，不是 Agnes 专属字段。Seedance 的部分 OpenAI Video/Sora 兼容
-服务也可能返回，但客户端不能假设一定存在。平台在已知时长时把 `seconds` 规范为整数字符串；
-`size` 保留具体像素尺寸，例如 `1280x720`，不会代替逻辑档位 `resolution`。其他非敏感供应商
-扩展字段继续保留。
-
-### 5.2 成功状态
-
-任务状态为 `TaskStatusSuccess` 时，以下顶层字段必须改为同一个 zmodel 内容接口地址：
-
-```text
-url
-video_url
-metadata.url
-```
-
-如果上游 `metadata` 原本包含以下扩展字段，也必须重写为同一个 zmodel 内容接口地址：
-
-```text
-metadata.content_url
-metadata.local_url
-metadata.video_url
-metadata.final_video_url
-```
-
-`metadata.origin_video_url` 不属于稳定的最终结果下载契约，成功和非成功状态下均删除，避免暴露原始素材或上游存储地址。其他非 URL 元数据保持原样，例如 `cached`、`expires_in` 和 `cost_credits`。这样既兼容供应商扩展字段，也不在通用层引入供应商判断。
-
-无论渠道当前选择 S3、平台代理还是上游重定向，任务查询中的这些字段均保持以下形式：
-
-```json
-{
-  "id": "task_zmodel_xxx",
-  "task_id": "task_zmodel_xxx",
-  "status": "completed",
-  "url": "https://zmodel.example.com/v1/videos/task_zmodel_xxx/content",
-  "video_url": "https://zmodel.example.com/v1/videos/task_zmodel_xxx/content",
-  "metadata": {
-    "url": "https://zmodel.example.com/v1/videos/task_zmodel_xxx/content"
-  }
-}
-```
-
-### 5.3 非成功状态
-
-任务未完成或失败时，必须删除以下字段中的上游下载地址：
-
-```text
-url
-video_url
-metadata.url
-metadata.content_url
-metadata.local_url
-metadata.video_url
-metadata.final_video_url
-metadata.origin_video_url
-```
-
-删除 metadata URL 时必须保留 `metadata` 中的其他字段。这样既避免上游信息泄露，也不破坏其他响应元数据。
+- `id` 和 `task_id` 均改写为平台公开任务 ID；
+- 上游状态归一为四种平台状态；
+- 完成任务的 `url` 和 `video_url` 均按公开任务 ID 动态构造为平台 `/content` 地址；
+- 非完成任务不返回视频 URL；
+- 不返回上游任务 ID、真实视频 URL、`metadata`、`result_url` 或供应商响应扩展；
+- 已知时长、分辨率和画幅优先取实际结果，否则使用任务请求快照。
 
 ## 6. 视频内容代理契约
 
@@ -693,14 +624,14 @@ Task.Data
 | Agnes 同时收到不一致的 `duration` 和 `seconds` | 返回 `duration_conflict`，不调用上游 |
 | Agnes 更换或新增模型名称 | 继续按渠道 `video_protocol` 转换，无需修改模型名单 |
 | 成功任务查询 | `id` 和 `task_id` 为公开 ID |
-| 成功任务查询 | 顶层和 metadata 下载 URL 均为 zmodel `/v1/videos/{task_id}/content` 地址 |
+| 成功任务查询 | 顶层 `url` 和兼容字段 `video_url` 均为 zmodel `/v1/videos/{task_id}/content` 地址，不返回 `metadata` |
 | 已提交任务对应渠道的 S3 优先或代理开关发生变化 | 任务查询 URL 保持不变；下一次访问内容接口立即按渠道当前值选择交付方式 |
 | 内容接口访问，S3 优先开启且对象可用 | 重定向到 S3 签名地址 |
 | 内容接口访问，S3 不可用且代理开启 | 由 zmodel 流式代理上游视频 |
 | 内容接口访问，S3 不可用且代理关闭 | 重定向到上游 HTTPS 视频地址 |
 | 成功任务响应 | `id` 和 `task_id` 不包含上游任务 ID |
 | 未完成或失败任务查询 | 删除所有上游下载 URL |
-| 未完成或失败任务查询 | 保留 `metadata` 中其他字段 |
+| 未完成或失败任务查询 | 不返回 `metadata` 或任何上游下载 URL |
 | OpenAI 任务创建 | 保存请求上下文中的最终上游密钥 |
 | 任务落库后重读 | 私有数据中的密钥保持不变 |
 | 新任务下载 | 使用任务保存的密钥，而不是渠道当前密钥 |
@@ -808,7 +739,7 @@ GOCACHE=/tmp/zmodel-go-build go test -count=1 -v \
 3. 轮询任务直至 `completed`，失败或超时则测试失败。
 4. zmodel 目标的查询响应始终使用公开任务 ID。
 5. zmodel 目标在非完成状态不返回下载 URL。
-6. 使用代理交付配置时，zmodel 完成响应中的顶层 URL 和上游实际返回的 metadata URL 均指向 zmodel 内容入口。
+6. 使用代理交付配置时，zmodel 完成响应中的顶层 `url` 和 `video_url` 均指向 zmodel 内容入口，且不返回上游 `metadata`。
 7. 内容接口接受 zmodel Token 或上游密钥，并发送 `Range: bytes=0-1023`。
 8. 代理交付配置下，内容接口返回 `200` 或 `206` 以及非空视频字节；返回 `206` 时同时验证 `Content-Range` 和 `Accept-Ranges`。
 

@@ -177,6 +177,7 @@ type RelayInfo struct {
 	VideoAllowedResolutions []string
 	VideoMinDurationSeconds int
 	VideoMaxDurationSeconds int
+	VideoDurationRequired   bool
 
 	Request dto.Request
 
@@ -202,6 +203,7 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	info.VideoAllowedResolutions = nil
 	info.VideoMinDurationSeconds = 0
 	info.VideoMaxDurationSeconds = 0
+	info.VideoDurationRequired = false
 	channelType := common.GetContextKeyInt(c, constant.ContextKeyChannelType)
 	paramOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelParamOverride)
 	headerOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelHeaderOverride)
@@ -708,6 +710,7 @@ type TaskSubmitReq struct {
 	LastImage           string                 `json:"last_image,omitempty"`
 	GenerateAudio       *bool                  `json:"generate_audio,omitempty"`
 	Watermark           *bool                  `json:"watermark,omitempty"`
+	Seed                *int64                 `json:"seed,omitempty"`
 	Size                string                 `json:"size,omitempty"`
 	Duration            int                    `json:"duration,omitempty"`
 	Seconds             string                 `json:"seconds,omitempty"`
@@ -743,6 +746,7 @@ type TaskRequestSnapshot struct {
 	LastImage       string                 `json:"last_image,omitempty"`
 	GenerateAudio   *bool                  `json:"generate_audio,omitempty"`
 	Watermark       *bool                  `json:"watermark,omitempty"`
+	Seed            *int64                 `json:"seed,omitempty"`
 	Size            string                 `json:"size,omitempty"`
 	Duration        int                    `json:"duration,omitempty"`
 	Seconds         string                 `json:"seconds,omitempty"`
@@ -789,6 +793,7 @@ func (t TaskSubmitReq) Snapshot() TaskRequestSnapshot {
 		LastImage:       taskSnapshotMediaURL(t.LastImage),
 		GenerateAudio:   t.GenerateAudio,
 		Watermark:       t.Watermark,
+		Seed:            t.Seed,
 		Size:            sanitizeTaskSnapshotText(t.Size, 1024),
 		Duration:        t.Duration,
 		Seconds:         sanitizeTaskSnapshotText(t.Seconds, 1024),

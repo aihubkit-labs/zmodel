@@ -461,22 +461,16 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 }
 
 func rewriteStoredVideoURLs(data []byte, publicURL string) ([]byte, error) {
-	updated, err := sjson.SetBytes(data, "metadata.url", publicURL)
+	updated, err := sjson.SetBytes(data, "url", publicURL)
 	if err != nil {
 		return nil, err
 	}
-	for _, path := range []string{
-		"url",
-		"video_url",
-		"metadata.content_url",
-		"metadata.local_url",
-		"metadata.video_url",
-		"metadata.final_video_url",
-	} {
-		if !gjson.GetBytes(updated, path).Exists() {
-			continue
-		}
-		updated, err = sjson.SetBytes(updated, path, publicURL)
+	updated, err = sjson.SetBytes(updated, "video_url", publicURL)
+	if err != nil {
+		return nil, err
+	}
+	if gjson.GetBytes(updated, "metadata").Exists() {
+		updated, err = sjson.DeleteBytes(updated, "metadata")
 		if err != nil {
 			return nil, err
 		}
@@ -507,8 +501,9 @@ func tryRealtimeFetch(task *model.Task, isOpenAIVideoAPI bool) []byte {
 	}
 
 	resp, err := adaptor.FetchTask(baseURL, channelModel.Key, map[string]any{
-		"task_id": task.GetUpstreamTaskID(),
-		"action":  task.Action,
+		"task_id":        task.GetUpstreamTaskID(),
+		"action":         task.Action,
+		"video_protocol": task.GetVideoProtocol(),
 	}, proxy)
 	if err != nil {
 		var requestErr *relaycommon.UpstreamRequestError

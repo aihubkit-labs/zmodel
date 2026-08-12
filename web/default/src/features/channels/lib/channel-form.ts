@@ -150,18 +150,38 @@ const videoModelCapabilitySchema = z.object({
     .min(1, 'Configure at least one resolution')
     .max(MAX_VIDEO_MODEL_RESOLUTIONS),
   ratios: z.array(videoRatioSchema).max(MAX_VIDEO_MODEL_RATIOS).optional(),
+  resolution_mappings: z.record(z.string(), z.string()).optional(),
+  ratio_required: z.boolean().optional(),
+  min_reference_images: z.number().int().min(0).max(MAX_VIDEO_REFERENCE_COUNT).optional(),
   max_reference_images: z.number().int().min(0).max(MAX_VIDEO_REFERENCE_COUNT),
+  min_reference_videos: z.number().int().min(0).max(MAX_VIDEO_REFERENCE_COUNT).optional(),
   max_reference_videos: z.number().int().min(0).max(MAX_VIDEO_REFERENCE_COUNT),
+  min_reference_audios: z.number().int().min(0).max(MAX_VIDEO_REFERENCE_COUNT).optional(),
   max_reference_audios: z.number().int().min(0).max(MAX_VIDEO_REFERENCE_COUNT),
+  supports_duration: z.boolean().optional(),
+  duration_required: z.boolean().optional(),
   min_duration_seconds: videoDurationSchema.optional(),
   max_duration_seconds: videoDurationSchema.optional(),
   supports_generate_audio: z.boolean().optional(),
   generate_audio_required: z.boolean().optional(),
   supports_first_frame: z.boolean().optional(),
+  first_frame_required: z.boolean().optional(),
   supports_last_frame: z.boolean().optional(),
+  last_frame_required: z.boolean().optional(),
   last_frame_requires_first_frame: z.boolean().optional(),
   reference_images_incompatible_with_frames: z.boolean().optional(),
   audio_reference_requires_visual_reference: z.boolean().optional(),
+  reference_media_incompatible_with_frames: z.boolean().optional(),
+  supports_seed: z.boolean().optional(),
+  min_seed: z.number().int().min(-1).max(2147483647).optional(),
+  max_seed: z.number().int().min(-1).max(2147483647).optional(),
+  supports_watermark: z.boolean().optional(),
+  auto_reference_mode: z.boolean().optional(),
+  reference_mode_for_references: z.string().optional(),
+  reference_mode_for_frames: z.string().optional(),
+  frames_as_reference_images: z.boolean().optional(),
+  omit_parameters: z.array(z.string()).optional(),
+  fixed_parameters: z.record(z.string(), z.unknown()).optional(),
 })
 
 export type VideoResolution = z.infer<typeof videoResolutionSchema>
@@ -212,24 +232,56 @@ function parseVideoModelCapabilities(
       model: model.trim(),
       resolutions,
       ratios,
+      resolution_mappings: isJsonObjectValue(rawCapability.resolution_mappings)
+        ? Object.fromEntries(
+            Object.entries(rawCapability.resolution_mappings)
+              .filter(([, mapped]) => typeof mapped === 'string')
+              .map(([resolution, mapped]) => [resolution, String(mapped)])
+          )
+        : undefined,
+      ratio_required: parseVideoCapabilityFlag(rawCapability.ratio_required),
+      min_reference_images:
+        Number.isInteger(rawCapability.min_reference_images) &&
+        Number(rawCapability.min_reference_images) >= 0 &&
+        Number(rawCapability.min_reference_images) <= MAX_VIDEO_REFERENCE_COUNT
+          ? Number(rawCapability.min_reference_images)
+          : undefined,
       max_reference_images:
         Number.isInteger(rawCapability.max_reference_images) &&
         Number(rawCapability.max_reference_images) >= 0 &&
         Number(rawCapability.max_reference_images) <= MAX_VIDEO_REFERENCE_COUNT
           ? Number(rawCapability.max_reference_images)
           : 0,
+      min_reference_videos:
+        Number.isInteger(rawCapability.min_reference_videos) &&
+        Number(rawCapability.min_reference_videos) >= 0 &&
+        Number(rawCapability.min_reference_videos) <= MAX_VIDEO_REFERENCE_COUNT
+          ? Number(rawCapability.min_reference_videos)
+          : undefined,
       max_reference_videos:
         Number.isInteger(rawCapability.max_reference_videos) &&
         Number(rawCapability.max_reference_videos) >= 0 &&
         Number(rawCapability.max_reference_videos) <= MAX_VIDEO_REFERENCE_COUNT
           ? Number(rawCapability.max_reference_videos)
           : 0,
+      min_reference_audios:
+        Number.isInteger(rawCapability.min_reference_audios) &&
+        Number(rawCapability.min_reference_audios) >= 0 &&
+        Number(rawCapability.min_reference_audios) <= MAX_VIDEO_REFERENCE_COUNT
+          ? Number(rawCapability.min_reference_audios)
+          : undefined,
       max_reference_audios:
         Number.isInteger(rawCapability.max_reference_audios) &&
         Number(rawCapability.max_reference_audios) >= 0 &&
         Number(rawCapability.max_reference_audios) <= MAX_VIDEO_REFERENCE_COUNT
           ? Number(rawCapability.max_reference_audios)
           : 0,
+      supports_duration: parseVideoCapabilityFlag(
+        rawCapability.supports_duration
+      ),
+      duration_required: parseVideoCapabilityFlag(
+        rawCapability.duration_required
+      ),
       min_duration_seconds:
         Number.isInteger(rawCapability.min_duration_seconds) &&
         Number(rawCapability.min_duration_seconds) >= 1 &&
@@ -251,8 +303,14 @@ function parseVideoModelCapabilities(
       supports_first_frame: parseVideoCapabilityFlag(
         rawCapability.supports_first_frame
       ),
+      first_frame_required: parseVideoCapabilityFlag(
+        rawCapability.first_frame_required
+      ),
       supports_last_frame: parseVideoCapabilityFlag(
         rawCapability.supports_last_frame
+      ),
+      last_frame_required: parseVideoCapabilityFlag(
+        rawCapability.last_frame_required
       ),
       last_frame_requires_first_frame: parseVideoCapabilityFlag(
         rawCapability.last_frame_requires_first_frame
@@ -263,6 +321,39 @@ function parseVideoModelCapabilities(
       audio_reference_requires_visual_reference: parseVideoCapabilityFlag(
         rawCapability.audio_reference_requires_visual_reference
       ),
+      reference_media_incompatible_with_frames: parseVideoCapabilityFlag(
+        rawCapability.reference_media_incompatible_with_frames
+      ),
+      supports_seed: parseVideoCapabilityFlag(rawCapability.supports_seed),
+      min_seed: Number.isInteger(rawCapability.min_seed)
+        ? Number(rawCapability.min_seed)
+        : undefined,
+      max_seed: Number.isInteger(rawCapability.max_seed)
+        ? Number(rawCapability.max_seed)
+        : undefined,
+      supports_watermark: parseVideoCapabilityFlag(
+        rawCapability.supports_watermark
+      ),
+      auto_reference_mode: parseVideoCapabilityFlag(
+        rawCapability.auto_reference_mode
+      ),
+      reference_mode_for_references:
+        typeof rawCapability.reference_mode_for_references === 'string'
+          ? rawCapability.reference_mode_for_references
+          : undefined,
+      reference_mode_for_frames:
+        typeof rawCapability.reference_mode_for_frames === 'string'
+          ? rawCapability.reference_mode_for_frames
+          : undefined,
+      frames_as_reference_images: parseVideoCapabilityFlag(
+        rawCapability.frames_as_reference_images
+      ),
+      omit_parameters: Array.isArray(rawCapability.omit_parameters)
+        ? rawCapability.omit_parameters.map(String)
+        : undefined,
+      fixed_parameters: isJsonObjectValue(rawCapability.fixed_parameters)
+        ? rawCapability.fixed_parameters
+        : undefined,
     })
   }
   return capabilities
@@ -335,8 +426,8 @@ export const channelFormSchema = z
       .enum([
         '',
         'openai_video',
-        'seedance(megabyai)',
-        'minimax-h3(megabyai)',
+        'megabyai',
+        'globalaiopc',
         'agnes_video_v2',
       ])
       .optional(),
@@ -473,18 +564,62 @@ export const channelFormSchema = z
       }
       configuredModels.add(normalizedModel)
 
-      if (
-        data.video_protocol === 'seedance(megabyai)' ||
-        data.video_protocol === 'minimax-h3(megabyai)'
-      ) {
-        if (capability.min_duration_seconds === undefined) {
+      const usesExtendedCapabilities =
+        data.video_protocol === 'megabyai' ||
+        data.video_protocol === 'globalaiopc'
+      if (usesExtendedCapabilities) {
+        for (const name of [
+          'ratio_required',
+          'supports_duration',
+          'duration_required',
+          'supports_generate_audio',
+          'generate_audio_required',
+          'supports_first_frame',
+          'first_frame_required',
+          'supports_last_frame',
+          'last_frame_required',
+          'last_frame_requires_first_frame',
+          'reference_images_incompatible_with_frames',
+          'audio_reference_requires_visual_reference',
+          'reference_media_incompatible_with_frames',
+          'supports_seed',
+          'supports_watermark',
+        ] as const) {
+          if (capability[name] === undefined) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['video_model_capabilities', index, name],
+              message: 'This capability setting is required',
+            })
+          }
+        }
+        for (const name of [
+          'min_reference_images',
+          'min_reference_videos',
+          'min_reference_audios',
+        ] as const) {
+          if (capability[name] === undefined) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['video_model_capabilities', index, name],
+              message: 'This capability setting is required',
+            })
+          }
+        }
+        if (
+          capability.supports_duration &&
+          capability.min_duration_seconds === undefined
+        ) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['video_model_capabilities', index, 'min_duration_seconds'],
             message: 'Minimum duration is required',
           })
         }
-        if (capability.max_duration_seconds === undefined) {
+        if (
+          capability.supports_duration &&
+          capability.max_duration_seconds === undefined
+        ) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['video_model_capabilities', index, 'max_duration_seconds'],
@@ -502,31 +637,19 @@ export const channelFormSchema = z
             message: 'Minimum duration cannot exceed maximum duration',
           })
         }
-      }
-      if (data.video_protocol === 'minimax-h3(megabyai)') {
-        if (!capability.ratios?.length) {
+        if (capability.duration_required && !capability.supports_duration) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['video_model_capabilities', index, 'duration_required'],
+            message: 'Required duration must also be supported',
+          })
+        }
+        if (capability.ratio_required && !capability.ratios?.length) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['video_model_capabilities', index, 'ratios'],
             message: 'Configure at least one ratio',
           })
-        }
-        for (const name of [
-          'supports_generate_audio',
-          'generate_audio_required',
-          'supports_first_frame',
-          'supports_last_frame',
-          'last_frame_requires_first_frame',
-          'reference_images_incompatible_with_frames',
-          'audio_reference_requires_visual_reference',
-        ] as const) {
-          if (capability[name] === undefined) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: ['video_model_capabilities', index, name],
-              message: 'This capability setting is required',
-            })
-          }
         }
         if (
           capability.generate_audio_required &&
@@ -556,6 +679,30 @@ export const channelFormSchema = z
             ],
             message:
               'First frame support is required when the last frame depends on it',
+          })
+        }
+        if (capability.first_frame_required && !capability.supports_first_frame) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['video_model_capabilities', index, 'first_frame_required'],
+            message: 'Required first frame must also be supported',
+          })
+        }
+        if (capability.last_frame_required && !capability.supports_last_frame) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['video_model_capabilities', index, 'last_frame_required'],
+            message: 'Required last frame must also be supported',
+          })
+        }
+        if (
+          capability.supports_seed &&
+          (capability.min_seed === undefined || capability.max_seed === undefined)
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['video_model_capabilities', index, 'min_seed'],
+            message: 'Seed range is required when seed is supported',
           })
         }
       }
@@ -656,8 +803,8 @@ export function transformChannelToFormDefaults(
       const parsed = JSON.parse(channel.setting)
       const videoProtocol = [
         'openai_video',
-        'seedance(megabyai)',
-        'minimax-h3(megabyai)',
+        'megabyai',
+        'globalaiopc',
         'agnes_video_v2',
       ].includes(parsed.video_protocol)
         ? parsed.video_protocol
@@ -796,34 +943,44 @@ function buildSettingJSON(formData: ChannelFormValues): string {
           resolutions: capability.resolutions.map((resolution) =>
             resolution.toLowerCase()
           ),
+          ratios: (capability.ratios || []).map((ratio) => ratio.toLowerCase()),
+          resolution_mappings: capability.resolution_mappings,
+          ratio_required: capability.ratio_required,
+          min_reference_images: capability.min_reference_images,
           max_reference_images: capability.max_reference_images,
+          min_reference_videos: capability.min_reference_videos,
           max_reference_videos: capability.max_reference_videos,
+          min_reference_audios: capability.min_reference_audios,
           max_reference_audios: capability.max_reference_audios,
-          ...(['seedance(megabyai)', 'minimax-h3(megabyai)'].includes(
-            formData.video_protocol || ''
-          )
-            ? {
-                min_duration_seconds: capability.min_duration_seconds,
-                max_duration_seconds: capability.max_duration_seconds,
-              }
-            : {}),
-          ...(formData.video_protocol === 'minimax-h3(megabyai)'
-            ? {
-                ratios: (capability.ratios || []).map((ratio) =>
-                  ratio.toLowerCase()
-                ),
-                supports_generate_audio: capability.supports_generate_audio,
-                generate_audio_required: capability.generate_audio_required,
-                supports_first_frame: capability.supports_first_frame,
-                supports_last_frame: capability.supports_last_frame,
-                last_frame_requires_first_frame:
-                  capability.last_frame_requires_first_frame,
-                reference_images_incompatible_with_frames:
-                  capability.reference_images_incompatible_with_frames,
-                audio_reference_requires_visual_reference:
-                  capability.audio_reference_requires_visual_reference,
-              }
-            : {}),
+          supports_duration: capability.supports_duration,
+          duration_required: capability.duration_required,
+          min_duration_seconds: capability.min_duration_seconds,
+          max_duration_seconds: capability.max_duration_seconds,
+          supports_generate_audio: capability.supports_generate_audio,
+          generate_audio_required: capability.generate_audio_required,
+          supports_first_frame: capability.supports_first_frame,
+          first_frame_required: capability.first_frame_required,
+          supports_last_frame: capability.supports_last_frame,
+          last_frame_required: capability.last_frame_required,
+          last_frame_requires_first_frame:
+            capability.last_frame_requires_first_frame,
+          reference_images_incompatible_with_frames:
+            capability.reference_images_incompatible_with_frames,
+          audio_reference_requires_visual_reference:
+            capability.audio_reference_requires_visual_reference,
+          reference_media_incompatible_with_frames:
+            capability.reference_media_incompatible_with_frames,
+          supports_seed: capability.supports_seed,
+          min_seed: capability.min_seed,
+          max_seed: capability.max_seed,
+          supports_watermark: capability.supports_watermark,
+          auto_reference_mode: capability.auto_reference_mode,
+          reference_mode_for_references:
+            capability.reference_mode_for_references,
+          reference_mode_for_frames: capability.reference_mode_for_frames,
+          frames_as_reference_images: capability.frames_as_reference_images,
+          omit_parameters: capability.omit_parameters,
+          fixed_parameters: capability.fixed_parameters,
         },
       ])
   )

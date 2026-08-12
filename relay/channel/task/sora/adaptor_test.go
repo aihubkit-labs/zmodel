@@ -67,9 +67,7 @@ func TestDoResponseNormalizesAgnesCreateResponse(t *testing.T) {
 	assert.Equal(t, "720p", payload["resolution"])
 	assert.Equal(t, "16:9", payload["ratio"])
 	assert.Equal(t, "1280x720", payload["size"])
-	metadata, ok := payload["metadata"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "req_agnes_123", metadata["provider_request_id"])
+	assert.NotContains(t, payload, "metadata")
 }
 
 func TestDoResponseNormalizesSeedanceWithoutCompatibilityFields(t *testing.T) {
@@ -150,9 +148,7 @@ func TestConvertToOpenAIVideoNormalizesAgnesQueryResponse(t *testing.T) {
 	assert.Equal(t, "1280x720", payload["size"])
 	assert.Equal(t, float64(task.SubmitTime), payload["created_at"])
 	assert.Equal(t, float64(task.FinishTime), payload["completed_at"])
-	metadata, ok := payload["metadata"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "req_agnes_123", metadata["provider_request_id"])
+	assert.NotContains(t, payload, "metadata")
 }
 
 func TestConvertToOpenAIVideoAddsSeedanceResolutionFromRequestSnapshot(t *testing.T) {
@@ -165,7 +161,7 @@ func TestConvertToOpenAIVideoAddsSeedanceResolutionFromRequestSnapshot(t *testin
 			Input:           `{"model":"public-seedance-model","duration":10,"resolution":"720p"}`,
 		},
 		PrivateData: model.TaskPrivateData{
-			BillingContext: &model.TaskBillingContext{VideoProtocol: dto.VideoProtocolSeedanceMegabyAI},
+			BillingContext: &model.TaskBillingContext{VideoProtocol: dto.VideoProtocolMegabyAI},
 		},
 		Data: []byte(`{
 			"id":"task_seedance_upstream",
@@ -259,37 +255,15 @@ func TestConvertToOpenAIVideoRewritesTaskIdentityAndURLs(t *testing.T) {
 	result, err := (&TaskAdaptor{}).ConvertToOpenAIVideo(task)
 	require.NoError(t, err)
 
-	var payload struct {
-		ID       string `json:"id"`
-		TaskID   string `json:"task_id"`
-		URL      string `json:"url"`
-		VideoURL string `json:"video_url"`
-		Metadata struct {
-			URL         string `json:"url"`
-			ContentURL  string `json:"content_url"`
-			LocalURL    string `json:"local_url"`
-			VideoURL    string `json:"video_url"`
-			FinalURL    string `json:"final_video_url"`
-			OriginURL   string `json:"origin_video_url"`
-			Cached      bool   `json:"cached"`
-			CostCredits int    `json:"cost_credits"`
-		} `json:"metadata"`
-	}
+	var payload map[string]any
 	require.NoError(t, common.Unmarshal(result, &payload))
 
 	expectedURL := "https://api.example.com/v1/videos/task_zmodel_public/content"
-	assert.Equal(t, task.TaskID, payload.ID)
-	assert.Equal(t, task.TaskID, payload.TaskID)
-	assert.Equal(t, expectedURL, payload.URL)
-	assert.Equal(t, expectedURL, payload.VideoURL)
-	assert.Equal(t, expectedURL, payload.Metadata.URL)
-	assert.Equal(t, expectedURL, payload.Metadata.ContentURL)
-	assert.Equal(t, expectedURL, payload.Metadata.LocalURL)
-	assert.Equal(t, expectedURL, payload.Metadata.VideoURL)
-	assert.Equal(t, expectedURL, payload.Metadata.FinalURL)
-	assert.Empty(t, payload.Metadata.OriginURL)
-	assert.True(t, payload.Metadata.Cached)
-	assert.Equal(t, 70, payload.Metadata.CostCredits)
+	assert.Equal(t, task.TaskID, payload["id"])
+	assert.Equal(t, task.TaskID, payload["task_id"])
+	assert.Equal(t, expectedURL, payload["url"])
+	assert.Equal(t, expectedURL, payload["video_url"])
+	assert.NotContains(t, payload, "metadata")
 	assert.NotContains(t, string(result), upstreamTaskID)
 	assert.NotContains(t, string(result), "api.frimodel.com")
 	assert.NotContains(t, string(result), "newapi.megabyai.cc")
@@ -328,15 +302,7 @@ func TestConvertToOpenAIVideoRemovesUpstreamURLsBeforeCompletion(t *testing.T) {
 	assert.NotContains(t, payload, "url")
 	assert.NotContains(t, payload, "video_url")
 
-	metadata, ok := payload["metadata"].(map[string]any)
-	require.True(t, ok)
-	assert.NotContains(t, metadata, "url")
-	assert.NotContains(t, metadata, "content_url")
-	assert.NotContains(t, metadata, "local_url")
-	assert.NotContains(t, metadata, "video_url")
-	assert.NotContains(t, metadata, "final_video_url")
-	assert.NotContains(t, metadata, "origin_video_url")
-	assert.Equal(t, "req_123", metadata["request_id"])
+	assert.NotContains(t, payload, "metadata")
 	assert.NotContains(t, string(result), "api.frimodel.com")
 	assert.NotContains(t, string(result), "newapi.megabyai.cc")
 	assert.NotContains(t, string(result), "megavideos.example")
@@ -365,12 +331,7 @@ func TestConvertToOpenAIVideoDoesNotAddAbsentMetadataVariants(t *testing.T) {
 
 	var payload map[string]any
 	require.NoError(t, common.Unmarshal(result, &payload))
-	metadata, ok := payload["metadata"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "https://apimodel.aihubkit.com/v1/videos/task_zmodel_public/content", metadata["url"])
-	assert.NotContains(t, metadata, "content_url")
-	assert.NotContains(t, metadata, "local_url")
-	assert.NotContains(t, metadata, "video_url")
-	assert.NotContains(t, metadata, "final_video_url")
-	assert.NotContains(t, metadata, "origin_video_url")
+	assert.Equal(t, "https://apimodel.aihubkit.com/v1/videos/task_zmodel_public/content", payload["url"])
+	assert.Equal(t, payload["url"], payload["video_url"])
+	assert.NotContains(t, payload, "metadata")
 }

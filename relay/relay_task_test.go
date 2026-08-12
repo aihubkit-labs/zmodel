@@ -187,7 +187,7 @@ func TestTaskModel2DtoKeepsInvalidVideoDataUnchanged(t *testing.T) {
 	assert.Equal(t, task.Data, dtoTask.Data)
 }
 
-func TestRewriteStoredVideoURLsReplacesEveryPublicVideoLocation(t *testing.T) {
+func TestRewriteStoredVideoURLsKeepsOnlyCanonicalPublicVideoLocations(t *testing.T) {
 	data := []byte(`{
 		"url":"https://upstream.example/video.mp4",
 		"video_url":"https://upstream.example/video.mp4",
@@ -206,9 +206,5 @@ func TestRewriteStoredVideoURLsReplacesEveryPublicVideoLocation(t *testing.T) {
 	require.NoError(t, common.Unmarshal(updated, &payload))
 	assert.Equal(t, publicURL, payload["url"])
 	assert.Equal(t, publicURL, payload["video_url"])
-	metadata, ok := payload["metadata"].(map[string]any)
-	require.True(t, ok)
-	for _, key := range []string{"url", "content_url", "local_url", "video_url", "final_video_url"} {
-		assert.Equal(t, publicURL, metadata[key])
-	}
+	assert.NotContains(t, payload, "metadata")
 }

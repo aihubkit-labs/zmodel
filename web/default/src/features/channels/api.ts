@@ -38,6 +38,9 @@ import type {
   SearchChannelsParams,
   SearchChannelsResponse,
   TagOperationParams,
+  VideoModelCapabilityTemplate,
+  VideoModelCapabilityTemplatesResponse,
+  VideoProtocol,
 } from './types'
 
 const channelActionConfig = (
@@ -110,6 +113,41 @@ export async function getChannel(id: number): Promise<GetChannelResponse> {
  */
 export async function getChannelOps(): Promise<ChannelOpsResponse> {
   const res = await api.get('/api/channel/ops', channelActionConfig())
+  return res.data
+}
+
+export async function getVideoModelCapabilityTemplates(
+  videoProtocol: VideoProtocol
+): Promise<VideoModelCapabilityTemplatesResponse> {
+  const res = await api.get('/api/channel/video_capability_templates', {
+    params: { video_protocol: videoProtocol },
+  })
+  return res.data
+}
+
+export async function saveVideoModelCapabilityTemplate(
+  data: Omit<VideoModelCapabilityTemplate, 'created_time' | 'updated_time'>
+): Promise<{
+  success: boolean
+  message?: string
+  data?: VideoModelCapabilityTemplate
+}> {
+  const res = await api.post(
+    '/api/channel/video_capability_templates',
+    data,
+    channelActionConfig()
+  )
+  return res.data
+}
+
+export async function deleteVideoModelCapabilityTemplate(id: number): Promise<{
+  success: boolean
+  message?: string
+}> {
+  const res = await api.delete(
+    `/api/channel/video_capability_templates/${id}`,
+    channelActionConfig()
+  )
   return res.data
 }
 

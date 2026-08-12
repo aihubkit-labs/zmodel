@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
@@ -680,6 +681,11 @@ func TestFetchOpenAIVideoTaskURLSupportsKnownCompatibleFields(t *testing.T) {
 			expected: "https://video.example/top-level.mp4",
 		},
 		{
+			name:     "top-level result_url",
+			response: `{"result_url":"https://video.example/result-url.mp4"}`,
+			expected: "https://video.example/result-url.mp4",
+		},
+		{
 			name:     "metadata content_url",
 			response: `{"metadata":{"content_url":"https://video.example/content.mp4"}}`,
 			expected: "https://video.example/content.mp4",
@@ -730,12 +736,42 @@ func TestFetchOpenAIVideoTaskURLSupportsKnownCompatibleFields(t *testing.T) {
 				"task_upstream",
 				"channel-key",
 				"",
+				"",
 			)
 
 			require.NoError(t, err)
 			assert.Equal(t, test.expected, videoURL)
 		})
 	}
+}
+
+func TestFetchOpenAIVideoTaskURLUsesGlobalAIOpcQueryPath(t *testing.T) {
+	setupVideoProxyTest(t)
+	var requestedPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"result_url":"https://video.example/fresh.mp4"}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task_public/content", nil)
+
+	videoURL, err := fetchOpenAIVideoTaskURL(
+		context,
+		service.GetSSRFProtectedHTTPClient(),
+		upstream.URL+"/kyyReactApiServer",
+		"task_upstream",
+		"channel-key",
+		"",
+		dto.VideoProtocolGlobalAIOpc,
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "/kyyReactApiServer/v2/model-center/tasks/task_upstream", requestedPath)
+	assert.Equal(t, "https://video.example/fresh.mp4", videoURL)
 }
 
 func TestVideoProxyRejectsUnrecognizedTaskDetailURLs(t *testing.T) {
