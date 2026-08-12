@@ -33,6 +33,7 @@ type taskPollingFetchAdaptor struct {
 	releaseBlock chan struct{}
 	blockOnce    sync.Once
 	fetchErr     error
+	protocols    []dto.VideoProtocol
 }
 
 func (a *taskPollingFetchAdaptor) Init(_ *relaycommon.RelayInfo) {}
@@ -50,6 +51,9 @@ func (a *taskPollingFetchAdaptor) FetchTask(_ string, _ string, body map[string]
 
 	a.mu.Lock()
 	a.taskIDs = append(a.taskIDs, taskID)
+	if protocol, ok := body["video_protocol"].(dto.VideoProtocol); ok {
+		a.protocols = append(a.protocols, protocol)
+	}
 	a.mu.Unlock()
 	if a.fetched != nil {
 		select {
@@ -362,6 +366,57 @@ func TestS3EnabledVideoTaskSettlesWhenArchiveFails(t *testing.T) {
 	assert.Equal(t, taskcommon.ProgressComplete, stored.Progress)
 	assert.Equal(t, "https://video.example/result.mp4", stored.GetResultURL())
 	assert.Equal(t, 1, archiveCalls)
+}
+
+func TestOpenAIVideoPollingDoesNotPersistDerivedOrTemporaryURLs(t *testing.T) {
+	truncate(t)
+
+	const channelID = 105
+	task := seedPollingTask(t, channelID, "task_public_globalaiopc", "upstream_globalaiopc")
+	task.PrivateData.BillingContext = &model.TaskBillingContext{
+		VideoProtocol: dto.VideoProtocolGlobalAIOpc,
+	}
+	require.NoError(t, model.DB.Model(task).Update("private_data", task.PrivateData).Error)
+	adaptor := &taskPollingFetchAdaptor{
+		status:    model.TaskStatusSuccess,
+		resultURL: "https://upstream.example/temporary.mp4",
+	}
+	channel := &model.Channel{
+		Id: channelID, Type: constant.ChannelTypeOpenAI, Key: "sk-test",
+		Status: common.ChannelStatusEnabled,
+	}
+
+	err := updateVideoSingleTask(context.Background(), adaptor, channel, task.GetUpstreamTaskID(), map[string]*model.Task{
+		task.GetUpstreamTaskID(): task,
+	})
+	require.NoError(t, err)
+
+	var stored model.Task
+	require.NoError(t, model.DB.First(&stored, task.ID).Error)
+	assert.Empty(t, stored.GetResultURL())
+	require.Len(t, adaptor.protocols, 1)
+	assert.Equal(t, dto.VideoProtocolGlobalAIOpc, adaptor.protocols[0])
+}
+
+func TestRedactVideoResponseBodyRemovesTemporaryUpstreamURLs(t *testing.T) {
+	body := []byte(`{
+		"status":"completed",
+		"url":"https://upstream.example/url.mp4",
+		"result_url":"https://upstream.example/result.mp4",
+		"video_url":"https://upstream.example/video.mp4",
+		"metadata":{"origin_video_url":"https://upstream.example/origin.mp4","size_mapping":{"resolution":"1440p"}}
+	}`)
+
+	redacted := redactVideoResponseBody(body, true)
+	var payload map[string]any
+	require.NoError(t, common.Unmarshal(redacted, &payload))
+	assert.NotContains(t, payload, "url")
+	assert.NotContains(t, payload, "result_url")
+	assert.NotContains(t, payload, "video_url")
+	metadata, ok := payload["metadata"].(map[string]any)
+	require.True(t, ok)
+	assert.NotContains(t, metadata, "origin_video_url")
+	assert.Contains(t, metadata, "size_mapping")
 }
 
 func TestUpdateVideoTasksDefaultSleepDoesNotBlockOtherChannels(t *testing.T) {

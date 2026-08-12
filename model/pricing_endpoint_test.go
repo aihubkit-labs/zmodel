@@ -162,6 +162,45 @@ func TestPricingModelMetadataEndpointsCanProvideEndpointWithoutChannelInference(
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAI}, byModel["metadata-only-model"])
 }
 
+func TestPricingIncludesModelUsageGuidelines(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+
+	insertPricingEndpointChannel(t, 105, constant.ChannelTypeOpenAI, dto.ChannelOtherSettings{})
+	insertPricingEndpointAbility(t, 105, "customer-facing-model")
+	require.NoError(t, DB.Create(&Model{
+		ModelName:       "customer-facing-model",
+		UsageGuidelines: "## Input limits\n\n- Up to 3 reference images",
+		Status:          1,
+		NameRule:        NameRuleExact,
+	}).Error)
+
+	pricings := GetPricing()
+	require.Len(t, pricings, 1)
+	assert.Equal(t, "## Input limits\n\n- Up to 3 reference images", pricings[0].UsageGuidelines)
+}
+
+func TestModelUpdateCanSetAndClearUsageGuidelines(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+
+	item := &Model{
+		ModelName:       "editable-model",
+		UsageGuidelines: "Initial guidance",
+		Status:          1,
+	}
+	require.NoError(t, item.Insert())
+
+	item.UsageGuidelines = "Updated guidance"
+	require.NoError(t, item.Update())
+	var stored Model
+	require.NoError(t, DB.First(&stored, item.Id).Error)
+	assert.Equal(t, "Updated guidance", stored.UsageGuidelines)
+
+	item.UsageGuidelines = ""
+	require.NoError(t, item.Update())
+	require.NoError(t, DB.First(&stored, item.Id).Error)
+	assert.Empty(t, stored.UsageGuidelines)
+}
+
 func TestPricingAdvancedCustomMissingConfigFallsBackToChannelType(t *testing.T) {
 	resetPricingEndpointTestTables(t)
 

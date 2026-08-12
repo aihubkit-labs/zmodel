@@ -40,14 +40,16 @@ func newSeedanceTestContext(t *testing.T, body string) (*gin.Context, *relaycomm
 		ChannelMeta:   &relaycommon.ChannelMeta{},
 		TaskRelayInfo: &relaycommon.TaskRelayInfo{},
 	}
-	configureTestVideoModel(info, dto.VideoProtocolSeedanceMegabyAI, request.Model, []string{"480p", "720p", "1080p", "4k"}, 64, 64, 64)
+	configureTestVideoModel(info, dto.VideoProtocolMegabyAI, request.Model, []string{"480p", "720p", "1080p", "4k"}, 64, 64, 64)
 	return ctx, info
 }
 
 func configureTestVideoModel(info *relaycommon.RelayInfo, protocol dto.VideoProtocol, modelName string, resolutions []string, imageLimit, videoLimit, audioLimit int, durationBounds ...int) {
 	var minDurationSeconds *int
 	var maxDurationSeconds *int
-	if videoProtocolUsesConfiguredDuration(protocol) {
+	extendedProtocol := protocol == dto.VideoProtocolMegabyAI || protocol == dto.VideoProtocolGlobalAIOpc
+	minimaxDefaults := modelName == "minimax-h3"
+	if extendedProtocol {
 		minDuration := 4
 		maxDuration := 15
 		if len(durationBounds) >= 2 {
@@ -62,19 +64,35 @@ func configureTestVideoModel(info *relaycommon.RelayInfo, protocol dto.VideoProt
 		modelName: {
 			Resolutions:                           resolutions,
 			Ratios:                                []string{"16:9", "1:1", "9:16", "21:9", "4:3", "3:4"},
+			RatioRequired:                         common.GetPointer(false),
+			MinReferenceImages:                    common.GetPointer(0),
 			MaxReferenceImages:                    common.GetPointer(imageLimit),
+			MinReferenceVideos:                    common.GetPointer(0),
 			MaxReferenceVideos:                    common.GetPointer(videoLimit),
+			MinReferenceAudios:                    common.GetPointer(0),
 			MaxReferenceAudios:                    common.GetPointer(audioLimit),
+			SupportsDuration:                      common.GetPointer(extendedProtocol),
+			DurationRequired:                      common.GetPointer(extendedProtocol),
 			MinDurationSeconds:                    minDurationSeconds,
 			MaxDurationSeconds:                    maxDurationSeconds,
-			SupportsGenerateAudio:                 common.GetPointer(true),
-			GenerateAudioRequired:                 common.GetPointer(true),
+			SupportsGenerateAudio:                 common.GetPointer(minimaxDefaults),
+			GenerateAudioRequired:                 common.GetPointer(minimaxDefaults),
 			SupportsFirstFrame:                    common.GetPointer(true),
+			FirstFrameRequired:                    common.GetPointer(false),
 			SupportsLastFrame:                     common.GetPointer(true),
+			LastFrameRequired:                     common.GetPointer(false),
 			LastFrameRequiresFirstFrame:           common.GetPointer(true),
 			ReferenceImagesIncompatibleWithFrames: common.GetPointer(true),
 			AudioReferenceRequiresVisualReference: common.GetPointer(true),
+			ReferenceMediaIncompatibleWithFrames:  common.GetPointer(false),
+			SupportsSeed:                          common.GetPointer(false),
+			SupportsWatermark:                     common.GetPointer(minimaxDefaults),
 		},
+	}
+	if protocol == dto.VideoProtocolGlobalAIOpc && modelName == "minimax-h3" {
+		capability := info.ChannelSetting.VideoModelCapabilities[modelName]
+		capability.ResolutionMappings = map[string]string{"1440p": "2k"}
+		info.ChannelSetting.VideoModelCapabilities[modelName] = capability
 	}
 }
 
@@ -87,7 +105,7 @@ func TestSeedanceValidationAndBillingDimensions(t *testing.T) {
 				`{"model":%q,"prompt":"demo","duration":15,"resolution":%q}`,
 				"upstream-video-model", resolution,
 			))
-			configureTestVideoModel(info, dto.VideoProtocolSeedanceMegabyAI, "upstream-video-model", tests, 0, 0, 0)
+			configureTestVideoModel(info, dto.VideoProtocolMegabyAI, "upstream-video-model", tests, 0, 0, 0)
 			adaptor := &TaskAdaptor{}
 			require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
 
@@ -101,11 +119,20 @@ func TestSeedanceValidationAndBillingDimensions(t *testing.T) {
 }
 
 func TestSeedanceRejectsUnsupportedResolution(t *testing.T) {
-	ctx, info := newSeedanceTestContext(t, `{"model":"upstream-video-model","prompt":"demo","duration":5,"resolution":"1440p"}`)
-	configureTestVideoModel(info, dto.VideoProtocolSeedanceMegabyAI, "upstream-video-model", []string{"720p"}, 0, 0, 0)
+	ctx, info := newSeedanceTestContext(t, `{"model":"public-video-model","prompt":"demo","duration":5,"resolution":"1440p"}`)
+	info.OriginModelName = "public-video-model"
+	info.UpstreamModelName = "upstream-video-model"
+	configureTestVideoModel(info, dto.VideoProtocolMegabyAI, "upstream-video-model", []string{"720p"}, 0, 0, 0)
 	taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
 	require.NotNil(t, taskErr)
 	assert.Equal(t, "invalid_resolution", taskErr.Code)
+	assert.Equal(t, `video model "public-video-model" does not support resolution "1440p"; supported values: 720p`, taskErr.Message)
+	assert.NotContains(t, taskErr.Message, "upstream-video-model")
+	assert.Equal(t, dto.VideoParameterErrorData{
+		Parameter:     "resolution",
+		Received:      "1440p",
+		AllowedValues: []any{"720p"},
+	}, taskErr.Data)
 }
 
 func TestSeedanceRejectsDurationOutsideConfiguredRange(t *testing.T) {
@@ -113,6 +140,12 @@ func TestSeedanceRejectsDurationOutsideConfiguredRange(t *testing.T) {
 	taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
 	require.NotNil(t, taskErr)
 	assert.Equal(t, "invalid_seconds", taskErr.Code)
+	assert.Equal(t, dto.VideoParameterErrorData{
+		Parameter: "duration",
+		Received:  int64(16),
+		Minimum:   common.GetPointer[int64](4),
+		Maximum:   common.GetPointer[int64](15),
+	}, taskErr.Data)
 }
 
 func TestSeedanceUsesConfiguredDurationRange(t *testing.T) {
@@ -129,7 +162,7 @@ func TestSeedanceUsesConfiguredDurationRange(t *testing.T) {
 				`{"model":"seedance-2.5","prompt":"demo","duration":%d,"resolution":"1080p"}`,
 				test.duration,
 			))
-			configureTestVideoModel(info, dto.VideoProtocolSeedanceMegabyAI, "seedance-2.5", []string{"1080p"}, 0, 0, 0, 4, 29)
+			configureTestVideoModel(info, dto.VideoProtocolMegabyAI, "seedance-2.5", []string{"1080p"}, 0, 0, 0, 4, 29)
 
 			taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
 			if test.wantCode == "" {
@@ -138,6 +171,12 @@ func TestSeedanceUsesConfiguredDurationRange(t *testing.T) {
 			}
 			require.NotNil(t, taskErr)
 			assert.Equal(t, test.wantCode, taskErr.Code)
+			assert.Equal(t, dto.VideoParameterErrorData{
+				Parameter: "duration",
+				Received:  int64(test.duration),
+				Minimum:   common.GetPointer[int64](4),
+				Maximum:   common.GetPointer[int64](29),
+			}, taskErr.Data)
 		})
 	}
 }
@@ -258,6 +297,12 @@ func TestVideoModelReferenceLimitsUseConfiguredUpstreamCapability(t *testing.T) 
 			}
 			require.NotNil(t, taskErr)
 			assert.Equal(t, test.code, taskErr.Code)
+			assert.Equal(t, dto.VideoParameterErrorData{
+				Parameter: "reference_" + strings.TrimPrefix(test.code, "invalid_reference_"),
+				Received:  int64(2),
+				Minimum:   common.GetPointer[int64](0),
+				Maximum:   common.GetPointer[int64](1),
+			}, taskErr.Data)
 		})
 	}
 }
@@ -269,8 +314,8 @@ func TestConfiguredVideoProtocolsRequireResolution(t *testing.T) {
 		body     string
 	}{
 		{name: "OpenAI Video", protocol: dto.VideoProtocolOpenAI, body: `{"model":"video-model","prompt":"demo","duration":5}`},
-		{name: "Seedance", protocol: dto.VideoProtocolSeedanceMegabyAI, body: `{"model":"video-model","prompt":"demo","duration":5}`},
-		{name: "MiniMax H3", protocol: dto.VideoProtocolMinimaxH3MegabyAI, body: `{"model":"video-model","prompt":"demo","duration":5,"ratio":"16:9","generate_audio":true}`},
+		{name: "Seedance", protocol: dto.VideoProtocolMegabyAI, body: `{"model":"video-model","prompt":"demo","duration":5}`},
+		{name: "MiniMax H3", protocol: dto.VideoProtocolMegabyAI, body: `{"model":"video-model","prompt":"demo","duration":5,"ratio":"16:9","generate_audio":true}`},
 		{name: "Agnes Video V2", protocol: dto.VideoProtocolAgnesVideoV2, body: `{"model":"video-model","prompt":"demo","duration":5}`},
 	}
 
@@ -295,7 +340,7 @@ func TestSeedanceProtocolUsesMappedUpstreamModelCapabilities(t *testing.T) {
 		"resolution":"1080P"
 	}`)
 	info.UpstreamModelName = "tvideos"
-	configureTestVideoModel(info, dto.VideoProtocolSeedanceMegabyAI, "tvideos", []string{"1080p"}, 0, 0, 0)
+	configureTestVideoModel(info, dto.VideoProtocolMegabyAI, "tvideos", []string{"1080p"}, 0, 0, 0)
 	adaptor := &TaskAdaptor{}
 	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
 
@@ -322,7 +367,7 @@ func TestSeedanceUsesConfiguredResolutionProfile(t *testing.T) {
 		"duration":5,
 		"resolution":"720p"
 	}`)
-	configureTestVideoModel(info, dto.VideoProtocolSeedanceMegabyAI, "videos-standard", []string{"480p"}, 0, 0, 0)
+	configureTestVideoModel(info, dto.VideoProtocolMegabyAI, "videos-standard", []string{"480p"}, 0, 0, 0)
 
 	adaptor := &TaskAdaptor{}
 	taskErr := adaptor.ValidateRequestAndSetAction(ctx, info)
@@ -338,7 +383,7 @@ func TestSeedanceCapabilityValidationUsesMappedModel(t *testing.T) {
 		"resolution":"4k"
 	}`)
 	info.UpstreamModelName = "tvideos"
-	configureTestVideoModel(info, dto.VideoProtocolSeedanceMegabyAI, "tvideos", []string{"480p", "720p", "1080p", "4k"}, 0, 0, 0)
+	configureTestVideoModel(info, dto.VideoProtocolMegabyAI, "tvideos", []string{"480p", "720p", "1080p", "4k"}, 0, 0, 0)
 	adaptor := &TaskAdaptor{}
 	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
 
@@ -356,7 +401,7 @@ func TestSeedanceConfiguredUnknownMappedModelSetsSettlementSnapshot(t *testing.T
 		"resolution":"1080p"
 	}`)
 	info.UpstreamModelName = "new-upstream-seedance"
-	configureTestVideoModel(info, dto.VideoProtocolSeedanceMegabyAI, "new-upstream-seedance", []string{"720p", "1080p"}, 0, 0, 0)
+	configureTestVideoModel(info, dto.VideoProtocolMegabyAI, "new-upstream-seedance", []string{"720p", "1080p"}, 0, 0, 0)
 	adaptor := &TaskAdaptor{}
 	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
 
@@ -380,7 +425,7 @@ func TestSeedanceConfiguredUnknownModelFailsClosedWithoutCapability(t *testing.T
 	assert.Equal(t, "video_model_not_configured", taskErr.Code)
 	assert.Equal(t, "video model is not configured for the selected channel", taskErr.Message)
 	assert.NotContains(t, taskErr.Message, "unknown-upstream-model")
-	assert.NotContains(t, taskErr.Message, string(dto.VideoProtocolSeedanceMegabyAI))
+	assert.NotContains(t, taskErr.Message, string(dto.VideoProtocolMegabyAI))
 }
 
 func TestOpenAIVideoProtocolDoesNotApplySeedanceModelProfile(t *testing.T) {
@@ -425,6 +470,7 @@ func TestConfiguredVideoProtocolRejectsUnknownField(t *testing.T) {
 	require.NotNil(t, taskErr)
 	assert.Equal(t, "unsupported_parameter", taskErr.Code)
 	assert.Equal(t, `unsupported video parameter "custom_flag"`, taskErr.Message)
+	assert.Equal(t, dto.VideoParameterErrorData{Parameter: "custom_flag"}, taskErr.Data)
 }
 
 func TestVideoProtocolValidationErrorsDoNotExposeInternalProtocol(t *testing.T) {
@@ -440,7 +486,8 @@ func TestVideoProtocolValidationErrorsDoNotExposeInternalProtocol(t *testing.T) 
 	require.NotNil(t, taskErr)
 	assert.Equal(t, "unsupported_parameter", taskErr.Code)
 	assert.Equal(t, `unsupported video parameter "aspect_ratio"`, taskErr.Message)
-	assert.NotContains(t, taskErr.Message, string(dto.VideoProtocolSeedanceMegabyAI))
+	assert.Equal(t, dto.VideoParameterErrorData{Parameter: "aspect_ratio"}, taskErr.Data)
+	assert.NotContains(t, taskErr.Message, string(dto.VideoProtocolMegabyAI))
 	assert.NotContains(t, taskErr.Message, "megabyai")
 	assert.NotContains(t, taskErr.Message, "protocol")
 }
@@ -495,7 +542,7 @@ func TestSeedanceMegabyAIProviderOptionsUsesProtocolNamespace(t *testing.T) {
 		"prompt":"demo",
 		"duration":10,
 		"resolution":"720p",
-		"provider_options":{"seedance(megabyai)":{"custom_flag":false}}
+		"provider_options":{"megabyai":{"custom_flag":false}}
 	}`)
 	adaptor := &TaskAdaptor{}
 	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
@@ -969,7 +1016,7 @@ func TestSeedanceCompletionRejectsResolutionOutsideFrozenCapabilities(t *testing
 	task := &model.Task{
 		PrivateData: model.TaskPrivateData{
 			BillingContext: &model.TaskBillingContext{
-				VideoProtocol:           dto.VideoProtocolSeedanceMegabyAI,
+				VideoProtocol:           dto.VideoProtocolMegabyAI,
 				VideoAllowedResolutions: []string{"720p"},
 			},
 		},
@@ -1013,7 +1060,7 @@ func TestSeedanceCompletionUsesMappedUpstreamModelCapabilities(t *testing.T) {
 		},
 		PrivateData: model.TaskPrivateData{
 			BillingContext: &model.TaskBillingContext{
-				VideoProtocol:           dto.VideoProtocolSeedanceMegabyAI,
+				VideoProtocol:           dto.VideoProtocolMegabyAI,
 				VideoMinDurationSeconds: 4,
 				VideoMaxDurationSeconds: 15,
 			},
@@ -1033,7 +1080,7 @@ func TestSeedanceCompletionUsesFrozenConfiguredCapabilities(t *testing.T) {
 		Properties: model.Properties{UpstreamModelName: "new-upstream-seedance"},
 		PrivateData: model.TaskPrivateData{
 			BillingContext: &model.TaskBillingContext{
-				VideoProtocol:           dto.VideoProtocolSeedanceMegabyAI,
+				VideoProtocol:           dto.VideoProtocolMegabyAI,
 				VideoAllowedResolutions: []string{"720p", "1080p"},
 				VideoMinDurationSeconds: 4,
 				VideoMaxDurationSeconds: 29,

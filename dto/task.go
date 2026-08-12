@@ -13,6 +13,16 @@ type TaskError struct {
 	Error      error  `json:"-"`
 }
 
+type VideoParameterErrorData struct {
+	Parameter         string   `json:"parameter"`
+	Received          any      `json:"received,omitempty"`
+	AllowedValues     []any    `json:"allowed_values,omitempty"`
+	Minimum           *int64   `json:"minimum,omitempty"`
+	Maximum           *int64   `json:"maximum,omitempty"`
+	Required          *bool    `json:"required,omitempty"`
+	RelatedParameters []string `json:"related_parameters,omitempty"`
+}
+
 type TaskData interface {
 	SunoDataResponse | []SunoDataResponse | string | any
 }

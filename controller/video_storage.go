@@ -280,7 +280,7 @@ func resolveVideoArchiveSource(ctx context.Context, channel *model.Channel, task
 				return "", "", err
 			}
 		}
-		resolved, err := fetchOpenAIVideoTaskURLContext(ctx, client, baseURL, task.GetUpstreamTaskID(), key, proxy)
+		resolved, err := fetchOpenAIVideoTaskURLContext(ctx, client, baseURL, task.GetUpstreamTaskID(), key, proxy, task.GetVideoProtocol())
 		return resolved, "", err
 	default:
 		candidate = strings.TrimSpace(task.GetResultURL())

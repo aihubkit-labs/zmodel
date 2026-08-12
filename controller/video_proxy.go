@@ -12,8 +12,10 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	taskcommon "github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 
@@ -132,7 +134,7 @@ func VideoProxy(c *gin.Context) {
 		if upstreamKey == "" {
 			upstreamKey = channel.Key
 		}
-		videoURL, err = fetchOpenAIVideoTaskURL(c, taskClient, baseURL, task.GetUpstreamTaskID(), upstreamKey, proxy)
+		videoURL, err = fetchOpenAIVideoTaskURL(c, taskClient, baseURL, task.GetUpstreamTaskID(), upstreamKey, proxy, task.GetVideoProtocol())
 		if err != nil {
 			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to resolve OpenAI video URL for task %s: %s", taskID, err.Error()))
 			videoProxyError(c, http.StatusBadGateway, "server_error", err.Error())
@@ -251,12 +253,15 @@ func VideoProxy(c *gin.Context) {
 	}
 }
 
-func fetchOpenAIVideoTaskURL(c *gin.Context, client *http.Client, baseURL, upstreamTaskID, key, proxy string) (string, error) {
-	return fetchOpenAIVideoTaskURLContext(c.Request.Context(), client, baseURL, upstreamTaskID, key, proxy)
+func fetchOpenAIVideoTaskURL(c *gin.Context, client *http.Client, baseURL, upstreamTaskID, key, proxy string, protocol dto.VideoProtocol) (string, error) {
+	return fetchOpenAIVideoTaskURLContext(c.Request.Context(), client, baseURL, upstreamTaskID, key, proxy, protocol)
 }
 
-func fetchOpenAIVideoTaskURLContext(ctx context.Context, client *http.Client, baseURL, upstreamTaskID, key, proxy string) (string, error) {
+func fetchOpenAIVideoTaskURLContext(ctx context.Context, client *http.Client, baseURL, upstreamTaskID, key, proxy string, protocol dto.VideoProtocol) (string, error) {
 	taskDetailURL := fmt.Sprintf("%s/v1/videos/%s", strings.TrimRight(baseURL, "/"), url.PathEscape(upstreamTaskID))
+	if dto.IsGlobalAIOpcVideoProtocol(protocol) {
+		taskDetailURL = taskcommon.BuildGlobalAIOpcVideoTaskURL(baseURL, upstreamTaskID)
+	}
 	if err := validateVideoFetchURL(taskDetailURL, proxy); err != nil {
 		return "", fmt.Errorf("task detail request blocked: %w", err)
 	}
@@ -276,9 +281,10 @@ func fetchOpenAIVideoTaskURLContext(ctx context.Context, client *http.Client, ba
 	}
 
 	var taskDetail struct {
-		URL      string `json:"url"`
-		VideoURL string `json:"video_url"`
-		Video    struct {
+		URL       string `json:"url"`
+		ResultURL string `json:"result_url"`
+		VideoURL  string `json:"video_url"`
+		Video     struct {
 			URL string `json:"url"`
 		} `json:"video"`
 		Metadata struct {
@@ -292,7 +298,10 @@ func fetchOpenAIVideoTaskURLContext(ctx context.Context, client *http.Client, ba
 	if err := common.DecodeJson(resp.Body, &taskDetail); err != nil {
 		return "", fmt.Errorf("failed to decode task detail response: %w", err)
 	}
-	videoURL := strings.TrimSpace(taskDetail.URL)
+	videoURL := strings.TrimSpace(taskDetail.ResultURL)
+	if videoURL == "" {
+		videoURL = strings.TrimSpace(taskDetail.URL)
+	}
 	if videoURL == "" {
 		videoURL = strings.TrimSpace(taskDetail.Video.URL)
 	}

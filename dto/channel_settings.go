@@ -25,20 +25,53 @@ type ChannelSettings struct {
 }
 
 type VideoModelCapability struct {
-	Resolutions                           []string `json:"resolutions,omitempty"`
-	Ratios                                []string `json:"ratios,omitempty"`
-	MaxReferenceImages                    *int     `json:"max_reference_images,omitempty"`
-	MaxReferenceVideos                    *int     `json:"max_reference_videos,omitempty"`
-	MaxReferenceAudios                    *int     `json:"max_reference_audios,omitempty"`
-	MinDurationSeconds                    *int     `json:"min_duration_seconds,omitempty"`
-	MaxDurationSeconds                    *int     `json:"max_duration_seconds,omitempty"`
-	SupportsGenerateAudio                 *bool    `json:"supports_generate_audio,omitempty"`
-	GenerateAudioRequired                 *bool    `json:"generate_audio_required,omitempty"`
-	SupportsFirstFrame                    *bool    `json:"supports_first_frame,omitempty"`
-	SupportsLastFrame                     *bool    `json:"supports_last_frame,omitempty"`
-	LastFrameRequiresFirstFrame           *bool    `json:"last_frame_requires_first_frame,omitempty"`
-	ReferenceImagesIncompatibleWithFrames *bool    `json:"reference_images_incompatible_with_frames,omitempty"`
-	AudioReferenceRequiresVisualReference *bool    `json:"audio_reference_requires_visual_reference,omitempty"`
+	Resolutions                           []string          `json:"resolutions,omitempty"`
+	Ratios                                []string          `json:"ratios,omitempty"`
+	ResolutionMappings                    map[string]string `json:"resolution_mappings,omitempty"`
+	RatioRequired                         *bool             `json:"ratio_required,omitempty"`
+	MinReferenceImages                    *int              `json:"min_reference_images,omitempty"`
+	MaxReferenceImages                    *int              `json:"max_reference_images,omitempty"`
+	MinReferenceVideos                    *int              `json:"min_reference_videos,omitempty"`
+	MaxReferenceVideos                    *int              `json:"max_reference_videos,omitempty"`
+	MinReferenceAudios                    *int              `json:"min_reference_audios,omitempty"`
+	MaxReferenceAudios                    *int              `json:"max_reference_audios,omitempty"`
+	SupportsDuration                      *bool             `json:"supports_duration,omitempty"`
+	DurationRequired                      *bool             `json:"duration_required,omitempty"`
+	MinDurationSeconds                    *int              `json:"min_duration_seconds,omitempty"`
+	MaxDurationSeconds                    *int              `json:"max_duration_seconds,omitempty"`
+	SupportsGenerateAudio                 *bool             `json:"supports_generate_audio,omitempty"`
+	GenerateAudioRequired                 *bool             `json:"generate_audio_required,omitempty"`
+	SupportsFirstFrame                    *bool             `json:"supports_first_frame,omitempty"`
+	FirstFrameRequired                    *bool             `json:"first_frame_required,omitempty"`
+	SupportsLastFrame                     *bool             `json:"supports_last_frame,omitempty"`
+	LastFrameRequired                     *bool             `json:"last_frame_required,omitempty"`
+	LastFrameRequiresFirstFrame           *bool             `json:"last_frame_requires_first_frame,omitempty"`
+	ReferenceImagesIncompatibleWithFrames *bool             `json:"reference_images_incompatible_with_frames,omitempty"`
+	AudioReferenceRequiresVisualReference *bool             `json:"audio_reference_requires_visual_reference,omitempty"`
+	ReferenceMediaIncompatibleWithFrames  *bool             `json:"reference_media_incompatible_with_frames,omitempty"`
+	SupportsSeed                          *bool             `json:"supports_seed,omitempty"`
+	MinSeed                               *int64            `json:"min_seed,omitempty"`
+	MaxSeed                               *int64            `json:"max_seed,omitempty"`
+	SupportsWatermark                     *bool             `json:"supports_watermark,omitempty"`
+	AutoReferenceMode                     *bool             `json:"auto_reference_mode,omitempty"`
+	ReferenceModeForReferences            string            `json:"reference_mode_for_references,omitempty"`
+	ReferenceModeForFrames                string            `json:"reference_mode_for_frames,omitempty"`
+	FramesAsReferenceImages               *bool             `json:"frames_as_reference_images,omitempty"`
+	OmitParameters                        []string          `json:"omit_parameters,omitempty"`
+	FixedParameters                       map[string]any    `json:"fixed_parameters,omitempty"`
+}
+
+type VideoModelCapabilityTemplate struct {
+	ID            int                  `json:"id"`
+	VideoProtocol VideoProtocol        `json:"video_protocol"`
+	ModelID       string               `json:"model_id"`
+	Name          string               `json:"name"`
+	Capability    VideoModelCapability `json:"capability"`
+	Source        string               `json:"source"`
+	SourceURL     string               `json:"source_url,omitempty"`
+	BuiltIn       bool                 `json:"built_in"`
+	CreatedTime   int64                `json:"created_time"`
+	UpdatedTime   int64                `json:"updated_time"`
 }
 
 const MaxVideoReferenceCount = 64
@@ -49,15 +82,15 @@ const MaxVideoDurationSeconds = 3600
 type VideoProtocol string
 
 const (
-	VideoProtocolOpenAI            VideoProtocol = "openai_video"
-	VideoProtocolSeedanceMegabyAI  VideoProtocol = "seedance(megabyai)"
-	VideoProtocolMinimaxH3MegabyAI VideoProtocol = "minimax-h3(megabyai)"
-	VideoProtocolAgnesVideoV2      VideoProtocol = "agnes_video_v2"
+	VideoProtocolOpenAI       VideoProtocol = "openai_video"
+	VideoProtocolMegabyAI     VideoProtocol = "megabyai"
+	VideoProtocolGlobalAIOpc  VideoProtocol = "globalaiopc"
+	VideoProtocolAgnesVideoV2 VideoProtocol = "agnes_video_v2"
 )
 
 func (s ChannelSettings) ValidateVideoRequestSettings() error {
 	switch s.VideoProtocol {
-	case "", VideoProtocolOpenAI, VideoProtocolSeedanceMegabyAI, VideoProtocolMinimaxH3MegabyAI, VideoProtocolAgnesVideoV2:
+	case "", VideoProtocolOpenAI, VideoProtocolMegabyAI, VideoProtocolGlobalAIOpc, VideoProtocolAgnesVideoV2:
 	default:
 		return fmt.Errorf("unsupported video_protocol %q", s.VideoProtocol)
 	}
@@ -132,30 +165,69 @@ func (s ChannelSettings) ValidateVideoRequestSettings() error {
 				return fmt.Errorf("video model %q %s must be between 0 and %d", modelName, limit.name, MaxVideoReferenceCount)
 			}
 		}
+		for _, limits := range []struct {
+			name    string
+			minimum *int
+			maximum *int
+		}{
+			{name: "reference_images", minimum: capability.MinReferenceImages, maximum: capability.MaxReferenceImages},
+			{name: "reference_videos", minimum: capability.MinReferenceVideos, maximum: capability.MaxReferenceVideos},
+			{name: "reference_audios", minimum: capability.MinReferenceAudios, maximum: capability.MaxReferenceAudios},
+		} {
+			if limits.minimum == nil {
+				if usesExtendedVideoModelCapabilities(s.VideoProtocol) {
+					return fmt.Errorf("video model %q must configure min_%s", modelName, limits.name)
+				}
+				continue
+			}
+			if *limits.minimum < 0 || *limits.minimum > MaxVideoReferenceCount {
+				return fmt.Errorf("video model %q min_%s must be between 0 and %d", modelName, limits.name, MaxVideoReferenceCount)
+			}
+			if limits.maximum != nil && *limits.minimum > *limits.maximum {
+				return fmt.Errorf("video model %q min_%s cannot exceed max_%s", modelName, limits.name, limits.name)
+			}
+		}
 		if s.VideoProtocol == VideoProtocolAgnesVideoV2 &&
 			capability.MaxReferenceImages != nil && *capability.MaxReferenceImages > 1 {
 			return fmt.Errorf("video model %q max_reference_images cannot exceed 1 for Agnes Video V2", modelName)
 		}
-		if s.VideoProtocol == VideoProtocolSeedanceMegabyAI || s.VideoProtocol == VideoProtocolMinimaxH3MegabyAI {
-			if capability.MinDurationSeconds == nil {
-				return fmt.Errorf("video model %q must configure min_duration_seconds", modelName)
+		if usesExtendedVideoModelCapabilities(s.VideoProtocol) {
+			for _, field := range []struct {
+				name  string
+				value *bool
+			}{
+				{name: "ratio_required", value: capability.RatioRequired},
+				{name: "first_frame_required", value: capability.FirstFrameRequired},
+				{name: "last_frame_required", value: capability.LastFrameRequired},
+				{name: "supports_seed", value: capability.SupportsSeed},
+				{name: "supports_watermark", value: capability.SupportsWatermark},
+				{name: "reference_media_incompatible_with_frames", value: capability.ReferenceMediaIncompatibleWithFrames},
+				{name: "supports_duration", value: capability.SupportsDuration},
+				{name: "duration_required", value: capability.DurationRequired},
+			} {
+				if field.value == nil {
+					return fmt.Errorf("video model %q must configure %s", modelName, field.name)
+				}
 			}
-			if capability.MaxDurationSeconds == nil {
-				return fmt.Errorf("video model %q must configure max_duration_seconds", modelName)
+			if *capability.RatioRequired && len(capability.Ratios) == 0 {
+				return fmt.Errorf("video model %q must configure at least one ratio when ratio is required", modelName)
 			}
-			if *capability.MinDurationSeconds < 1 || *capability.MinDurationSeconds > MaxVideoDurationSeconds {
-				return fmt.Errorf("video model %q min_duration_seconds must be between 1 and %d", modelName, MaxVideoDurationSeconds)
+			if *capability.DurationRequired && !*capability.SupportsDuration {
+				return fmt.Errorf("video model %q cannot require duration when duration is unsupported", modelName)
 			}
-			if *capability.MaxDurationSeconds < 1 || *capability.MaxDurationSeconds > MaxVideoDurationSeconds {
-				return fmt.Errorf("video model %q max_duration_seconds must be between 1 and %d", modelName, MaxVideoDurationSeconds)
-			}
-			if *capability.MinDurationSeconds > *capability.MaxDurationSeconds {
-				return fmt.Errorf("video model %q min_duration_seconds cannot exceed max_duration_seconds", modelName)
-			}
-		}
-		if s.VideoProtocol == VideoProtocolMinimaxH3MegabyAI {
-			if len(capability.Ratios) == 0 {
-				return fmt.Errorf("video model %q must configure at least one ratio", modelName)
+			if *capability.SupportsDuration {
+				if capability.MinDurationSeconds == nil || capability.MaxDurationSeconds == nil {
+					return fmt.Errorf("video model %q must configure duration limits", modelName)
+				}
+				if *capability.MinDurationSeconds < 1 || *capability.MinDurationSeconds > MaxVideoDurationSeconds {
+					return fmt.Errorf("video model %q min_duration_seconds must be between 1 and %d", modelName, MaxVideoDurationSeconds)
+				}
+				if *capability.MaxDurationSeconds < 1 || *capability.MaxDurationSeconds > MaxVideoDurationSeconds {
+					return fmt.Errorf("video model %q max_duration_seconds must be between 1 and %d", modelName, MaxVideoDurationSeconds)
+				}
+				if *capability.MinDurationSeconds > *capability.MaxDurationSeconds {
+					return fmt.Errorf("video model %q min_duration_seconds cannot exceed max_duration_seconds", modelName)
+				}
 			}
 			for _, field := range []struct {
 				name  string
@@ -179,9 +251,78 @@ func (s ChannelSettings) ValidateVideoRequestSettings() error {
 			if *capability.SupportsLastFrame && *capability.LastFrameRequiresFirstFrame && !*capability.SupportsFirstFrame {
 				return fmt.Errorf("video model %q cannot require a first frame when first frames are unsupported", modelName)
 			}
+			if capability.FirstFrameRequired != nil && *capability.FirstFrameRequired && !*capability.SupportsFirstFrame {
+				return fmt.Errorf("video model %q cannot require first_image when first frames are unsupported", modelName)
+			}
+			if capability.LastFrameRequired != nil && *capability.LastFrameRequired && !*capability.SupportsLastFrame {
+				return fmt.Errorf("video model %q cannot require last_image when last frames are unsupported", modelName)
+			}
+			if *capability.SupportsSeed {
+				if capability.MinSeed == nil || capability.MaxSeed == nil {
+					return fmt.Errorf("video model %q must configure min_seed and max_seed when seed is supported", modelName)
+				}
+				if *capability.MinSeed > *capability.MaxSeed {
+					return fmt.Errorf("video model %q min_seed cannot exceed max_seed", modelName)
+				}
+				if *capability.MinSeed < -1 || *capability.MaxSeed > 2147483647 {
+					return fmt.Errorf("video model %q seed range must stay between -1 and 2147483647", modelName)
+				}
+			}
+			for publicResolution, upstreamResolution := range capability.ResolutionMappings {
+				if !containsVideoCapabilityValue(capability.Resolutions, publicResolution) {
+					return fmt.Errorf("video model %q resolution mapping key %q is not configured", modelName, publicResolution)
+				}
+				if strings.TrimSpace(upstreamResolution) == "" || len(upstreamResolution) > 64 {
+					return fmt.Errorf("video model %q has an invalid upstream resolution mapping for %q", modelName, publicResolution)
+				}
+			}
+			if capability.AutoReferenceMode != nil && *capability.AutoReferenceMode {
+				if strings.TrimSpace(capability.ReferenceModeForReferences) == "" || strings.TrimSpace(capability.ReferenceModeForFrames) == "" {
+					return fmt.Errorf("video model %q must configure both reference mode values", modelName)
+				}
+			}
+			for name := range capability.FixedParameters {
+				normalizedName := strings.ToLower(strings.TrimSpace(name))
+				if normalizedName == "" || len(normalizedName) > 128 {
+					return fmt.Errorf("video model %q contains an invalid fixed parameter name", modelName)
+				}
+				switch normalizedName {
+				case "model", "prompt", "duration", "seconds", "resolution", "ratio", "aspect_ratio",
+					"referenceimages", "referencevideos", "referenceaudios", "reference_images", "reference_videos", "reference_audios",
+					"first_image", "last_image", "generate_audio", "seed", "watermark", "size",
+					"authorization", "api_key", "base_url", "callback_url", "webhook", "webhook_url":
+					return fmt.Errorf("video model %q fixed parameter %q conflicts with a protected field", modelName, name)
+				}
+			}
+			for _, name := range capability.OmitParameters {
+				switch strings.ToLower(strings.TrimSpace(name)) {
+				case "duration", "aspect_ratio", "reference_images", "reference_videos", "reference_audios",
+					"first_image", "last_image", "generate_audio", "seed", "watermark":
+				default:
+					return fmt.Errorf("video model %q contains unsupported omitted parameter %q", modelName, name)
+				}
+			}
 		}
 	}
 	return nil
+}
+
+func IsGlobalAIOpcVideoProtocol(protocol VideoProtocol) bool {
+	return protocol == VideoProtocolGlobalAIOpc
+}
+
+func usesExtendedVideoModelCapabilities(protocol VideoProtocol) bool {
+	return protocol == VideoProtocolMegabyAI || protocol == VideoProtocolGlobalAIOpc
+}
+
+func containsVideoCapabilityValue(values []string, expected string) bool {
+	expected = strings.ToLower(strings.TrimSpace(expected))
+	for _, value := range values {
+		if strings.ToLower(strings.TrimSpace(value)) == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func (s ChannelSettings) GetVideoModelCapability(modelName string) (VideoModelCapability, bool) {
@@ -201,18 +342,38 @@ func (s ChannelSettings) GetVideoModelCapability(modelName string) (VideoModelCa
 		return VideoModelCapability{
 			Resolutions:                           resolutions,
 			Ratios:                                ratios,
+			ResolutionMappings:                    capability.ResolutionMappings,
+			RatioRequired:                         capability.RatioRequired,
+			MinReferenceImages:                    capability.MinReferenceImages,
 			MaxReferenceImages:                    capability.MaxReferenceImages,
+			MinReferenceVideos:                    capability.MinReferenceVideos,
 			MaxReferenceVideos:                    capability.MaxReferenceVideos,
+			MinReferenceAudios:                    capability.MinReferenceAudios,
 			MaxReferenceAudios:                    capability.MaxReferenceAudios,
+			SupportsDuration:                      capability.SupportsDuration,
+			DurationRequired:                      capability.DurationRequired,
 			MinDurationSeconds:                    capability.MinDurationSeconds,
 			MaxDurationSeconds:                    capability.MaxDurationSeconds,
 			SupportsGenerateAudio:                 capability.SupportsGenerateAudio,
 			GenerateAudioRequired:                 capability.GenerateAudioRequired,
 			SupportsFirstFrame:                    capability.SupportsFirstFrame,
+			FirstFrameRequired:                    capability.FirstFrameRequired,
 			SupportsLastFrame:                     capability.SupportsLastFrame,
+			LastFrameRequired:                     capability.LastFrameRequired,
 			LastFrameRequiresFirstFrame:           capability.LastFrameRequiresFirstFrame,
 			ReferenceImagesIncompatibleWithFrames: capability.ReferenceImagesIncompatibleWithFrames,
 			AudioReferenceRequiresVisualReference: capability.AudioReferenceRequiresVisualReference,
+			ReferenceMediaIncompatibleWithFrames:  capability.ReferenceMediaIncompatibleWithFrames,
+			SupportsSeed:                          capability.SupportsSeed,
+			MinSeed:                               capability.MinSeed,
+			MaxSeed:                               capability.MaxSeed,
+			SupportsWatermark:                     capability.SupportsWatermark,
+			AutoReferenceMode:                     capability.AutoReferenceMode,
+			ReferenceModeForReferences:            capability.ReferenceModeForReferences,
+			ReferenceModeForFrames:                capability.ReferenceModeForFrames,
+			FramesAsReferenceImages:               capability.FramesAsReferenceImages,
+			OmitParameters:                        capability.OmitParameters,
+			FixedParameters:                       capability.FixedParameters,
 		}, true
 	}
 	return VideoModelCapability{}, false

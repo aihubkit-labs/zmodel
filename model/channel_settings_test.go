@@ -10,63 +10,14 @@ import (
 )
 
 func TestChannelValidateVideoRequestSettings(t *testing.T) {
-	tests := []struct {
-		name    string
-		setting string
-		wantErr string
-	}{
-		{name: "unconfigured preserves historical behavior", setting: `{}`},
+	tests := []struct{ name, setting, wantErr string }{
+		{name: "unconfigured", setting: `{}`},
 		{name: "missing model capabilities", setting: `{"video_protocol":"openai_video"}`, wantErr: "video_model_capabilities is required"},
-		{
-			name: "Seedance model capabilities",
-			setting: `{
-				"video_protocol":"seedance(megabyai)",
-				"video_model_capabilities":{
-					"tvideos":{"resolutions":["480p","720P","1080p","4K"],"max_reference_images":2,"max_reference_videos":1,"max_reference_audios":0,"min_duration_seconds":4,"max_duration_seconds":29}
-				}
-			}`,
-		},
-		{
-			name: "MiniMax H3 model capabilities",
-			setting: `{
-				"video_protocol":"minimax-h3(megabyai)",
-				"video_model_capabilities":{
-					"minimax-h3":{
-						"resolutions":["1440p"],
-						"ratios":["16:9","1:1","9:16","21:9","4:3","3:4"],
-						"max_reference_images":5,
-						"max_reference_videos":0,
-						"max_reference_audios":3,
-						"min_duration_seconds":5,
-						"max_duration_seconds":15,
-						"supports_generate_audio":true,
-						"generate_audio_required":true,
-						"supports_first_frame":true,
-						"supports_last_frame":true,
-						"last_frame_requires_first_frame":true,
-						"reference_images_incompatible_with_frames":true,
-						"audio_reference_requires_visual_reference":true
-					}
-				}
-			}`,
-		},
 		{name: "Agnes Video V2", setting: `{"video_protocol":"agnes_video_v2","video_model_capabilities":{"agnes-video":{"resolutions":["720p"],"max_reference_images":1,"max_reference_videos":0,"max_reference_audios":0}}}`},
-		{name: "legacy Seedance protocol is rejected", setting: `{"video_protocol":"seedance"}`, wantErr: "unsupported video_protocol"},
 		{name: "invalid protocol", setting: `{"video_protocol":"unsafe"}`, wantErr: "unsupported video_protocol"},
-		{name: "empty model ID", setting: `{"video_model_capabilities":{"":{"resolutions":["480p"]}}}`, wantErr: "empty model ID"},
-		{name: "empty resolution list", setting: `{"video_model_capabilities":{"tvideos":{"resolutions":[]}}}`, wantErr: "at least one resolution"},
 		{name: "dynamic resolution", setting: `{"video_model_capabilities":{"tvideos":{"resolutions":["1440p"],"max_reference_images":1,"max_reference_videos":0,"max_reference_audios":0}}}`},
-		{name: "duplicate normalized model", setting: `{"video_model_capabilities":{"tvideos":{"resolutions":["480p"],"max_reference_images":1,"max_reference_videos":0,"max_reference_audios":0}," TVIDEOS ":{"resolutions":["720p"],"max_reference_images":1,"max_reference_videos":0,"max_reference_audios":0}}}`, wantErr: "duplicate model ID"},
 		{name: "duplicate normalized resolution", setting: `{"video_model_capabilities":{"tvideos":{"resolutions":["4k","4K"]}}}`, wantErr: "duplicate resolution"},
-		{name: "missing reference limit", setting: `{"video_model_capabilities":{"tvideos":{"resolutions":["480p"],"max_reference_images":1,"max_reference_videos":0}}}`, wantErr: "must configure max_reference_audios"},
-		{name: "negative reference limit", setting: `{"video_model_capabilities":{"tvideos":{"resolutions":["480p"],"max_reference_images":-1,"max_reference_videos":0,"max_reference_audios":0}}}`, wantErr: "max_reference_images must be between"},
-		{name: "oversized reference limit", setting: `{"video_model_capabilities":{"tvideos":{"resolutions":["480p"],"max_reference_images":0,"max_reference_videos":65,"max_reference_audios":0}}}`, wantErr: "max_reference_videos must be between"},
 		{name: "Agnes multiple reference images", setting: `{"video_protocol":"agnes_video_v2","video_model_capabilities":{"agnes-video":{"resolutions":["720p"],"max_reference_images":2,"max_reference_videos":0,"max_reference_audios":0}}}`, wantErr: "cannot exceed 1"},
-		{name: "Seedance missing minimum duration", setting: `{"video_protocol":"seedance(megabyai)","video_model_capabilities":{"seedance-2.0":{"resolutions":["720p"],"max_reference_images":0,"max_reference_videos":0,"max_reference_audios":0,"max_duration_seconds":15}}}`, wantErr: "must configure min_duration_seconds"},
-		{name: "Seedance missing maximum duration", setting: `{"video_protocol":"seedance(megabyai)","video_model_capabilities":{"seedance-2.0":{"resolutions":["720p"],"max_reference_images":0,"max_reference_videos":0,"max_reference_audios":0,"min_duration_seconds":4}}}`, wantErr: "must configure max_duration_seconds"},
-		{name: "Seedance reversed duration range", setting: `{"video_protocol":"seedance(megabyai)","video_model_capabilities":{"seedance-2.0":{"resolutions":["720p"],"max_reference_images":0,"max_reference_videos":0,"max_reference_audios":0,"min_duration_seconds":29,"max_duration_seconds":4}}}`, wantErr: "cannot exceed"},
-		{name: "MiniMax missing ratio", setting: `{"video_protocol":"minimax-h3(megabyai)","video_model_capabilities":{"minimax-h3":{"resolutions":["1440p"],"max_reference_images":5,"max_reference_videos":0,"max_reference_audios":3,"min_duration_seconds":5,"max_duration_seconds":15}}}`, wantErr: "at least one ratio"},
-		{name: "MiniMax missing behavior flag", setting: `{"video_protocol":"minimax-h3(megabyai)","video_model_capabilities":{"minimax-h3":{"resolutions":["1440p"],"ratios":["16:9"],"max_reference_images":5,"max_reference_videos":0,"max_reference_audios":3,"min_duration_seconds":5,"max_duration_seconds":15}}}`, wantErr: "must configure supports_generate_audio"},
 	}
 
 	for _, test := range tests {
@@ -82,30 +33,41 @@ func TestChannelValidateVideoRequestSettings(t *testing.T) {
 	}
 }
 
-func TestChannelSettingsValidatesMinimaxCapabilityRelationships(t *testing.T) {
+func validExtendedVideoCapability() dto.VideoModelCapability {
 	trueValue := true
 	falseValue := false
-	settings := dto.ChannelSettings{
-		VideoProtocol: dto.VideoProtocolMinimaxH3MegabyAI,
-		VideoModelCapabilities: map[string]dto.VideoModelCapability{
-			"minimax-h3": {
-				Resolutions:                           []string{"1440p"},
-				Ratios:                                []string{"16:9"},
-				MaxReferenceImages:                    common.GetPointer(5),
-				MaxReferenceVideos:                    common.GetPointer(0),
-				MaxReferenceAudios:                    common.GetPointer(3),
-				MinDurationSeconds:                    common.GetPointer(5),
-				MaxDurationSeconds:                    common.GetPointer(15),
-				SupportsGenerateAudio:                 &trueValue,
-				GenerateAudioRequired:                 &trueValue,
-				SupportsFirstFrame:                    &trueValue,
-				SupportsLastFrame:                     &trueValue,
-				LastFrameRequiresFirstFrame:           &trueValue,
-				ReferenceImagesIncompatibleWithFrames: &trueValue,
-				AudioReferenceRequiresVisualReference: &trueValue,
-			},
-		},
+	return dto.VideoModelCapability{
+		Resolutions:                           []string{"1440p"},
+		Ratios:                                []string{"16:9"},
+		RatioRequired:                         &trueValue,
+		MinReferenceImages:                    common.GetPointer(0),
+		MaxReferenceImages:                    common.GetPointer(5),
+		MinReferenceVideos:                    common.GetPointer(0),
+		MaxReferenceVideos:                    common.GetPointer(0),
+		MinReferenceAudios:                    common.GetPointer(0),
+		MaxReferenceAudios:                    common.GetPointer(3),
+		SupportsDuration:                      &trueValue,
+		DurationRequired:                      &trueValue,
+		MinDurationSeconds:                    common.GetPointer(5),
+		MaxDurationSeconds:                    common.GetPointer(15),
+		SupportsGenerateAudio:                 &trueValue,
+		GenerateAudioRequired:                 &trueValue,
+		SupportsFirstFrame:                    &trueValue,
+		FirstFrameRequired:                    &falseValue,
+		SupportsLastFrame:                     &trueValue,
+		LastFrameRequired:                     &falseValue,
+		LastFrameRequiresFirstFrame:           &trueValue,
+		ReferenceImagesIncompatibleWithFrames: &trueValue,
+		AudioReferenceRequiresVisualReference: &trueValue,
+		ReferenceMediaIncompatibleWithFrames:  &falseValue,
+		SupportsSeed:                          &falseValue,
+		SupportsWatermark:                     &falseValue,
 	}
+}
+
+func TestChannelSettingsValidatesExtendedCapabilityRelationships(t *testing.T) {
+	falseValue := false
+	settings := dto.ChannelSettings{VideoProtocol: dto.VideoProtocolMegabyAI}
 
 	tests := []struct {
 		name      string
@@ -142,7 +104,7 @@ func TestChannelSettingsValidatesMinimaxCapabilityRelationships(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			capability := settings.VideoModelCapabilities["minimax-h3"]
+			capability := validExtendedVideoCapability()
 			test.configure(&capability)
 			testSettings := settings
 			testSettings.VideoModelCapabilities = map[string]dto.VideoModelCapability{

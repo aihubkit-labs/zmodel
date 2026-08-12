@@ -96,27 +96,66 @@ export interface ChannelSettings {
 export interface VideoModelCapability {
   resolutions: VideoResolution[]
   ratios?: string[]
+  resolution_mappings?: Record<string, string>
+  ratio_required?: boolean
+  min_reference_images?: number
   max_reference_images: number
+  min_reference_videos?: number
   max_reference_videos: number
+  min_reference_audios?: number
   max_reference_audios: number
+  supports_duration?: boolean
+  duration_required?: boolean
   min_duration_seconds?: number
   max_duration_seconds?: number
   supports_generate_audio?: boolean
   generate_audio_required?: boolean
   supports_first_frame?: boolean
+  first_frame_required?: boolean
   supports_last_frame?: boolean
+  last_frame_required?: boolean
   last_frame_requires_first_frame?: boolean
   reference_images_incompatible_with_frames?: boolean
   audio_reference_requires_visual_reference?: boolean
+  reference_media_incompatible_with_frames?: boolean
+  supports_seed?: boolean
+  min_seed?: number
+  max_seed?: number
+  supports_watermark?: boolean
+  auto_reference_mode?: boolean
+  reference_mode_for_references?: string
+  reference_mode_for_frames?: string
+  frames_as_reference_images?: boolean
+  omit_parameters?: string[]
+  fixed_parameters?: Record<string, unknown>
 }
 
 export type VideoProtocol =
   | ''
   | 'openai_video'
-  | 'seedance(megabyai)'
-  | 'minimax-h3(megabyai)'
+  | 'megabyai'
+  | 'globalaiopc'
   | 'agnes_video_v2'
 export type VideoResolution = string
+
+export interface VideoModelCapabilityTemplate {
+  id: number
+  video_protocol: VideoProtocol
+  model_id: string
+  name: string
+  capability: VideoModelCapability
+  source: string
+  source_url?: string
+  built_in: boolean
+  created_time: number
+  updated_time: number
+}
+
+export interface VideoModelCapabilityTemplatesResponse {
+  success: boolean
+  message?: string
+  data?: VideoModelCapabilityTemplate[]
+}
 
 export interface ChannelOtherSettings {
   azure_responses_version?: string

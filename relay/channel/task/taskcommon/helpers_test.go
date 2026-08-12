@@ -33,3 +33,30 @@ func TestBuildProxyURLFallsBackToServerAddress(t *testing.T) {
 
 	assert.Equal(t, "https://frontend.example.com/v1/videos/task_public/content", BuildProxyURL("task_public"))
 }
+
+func TestBuildGlobalAIOpcVideoTaskURLNormalizesBasePath(t *testing.T) {
+	tests := []struct {
+		name     string
+		baseURL  string
+		taskID   string
+		expected string
+	}{
+		{
+			name:     "service origin",
+			baseURL:  "https://zcbservice.aizfw.cn",
+			expected: "https://zcbservice.aizfw.cn/kyyReactApiServer/v2/model-center/tasks",
+		},
+		{
+			name:     "configured service prefix",
+			baseURL:  "https://zcbservice.aizfw.cn/kyyReactApiServer/",
+			taskID:   "task/id",
+			expected: "https://zcbservice.aizfw.cn/kyyReactApiServer/v2/model-center/tasks/task%2Fid",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.expected, BuildGlobalAIOpcVideoTaskURL(test.baseURL, test.taskID))
+		})
+	}
+}

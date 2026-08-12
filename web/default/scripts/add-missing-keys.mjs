@@ -1248,7 +1248,7 @@ Object.assign(newKeys.en, {
   'Agnes Video V2': 'Agnes Video V2',
   'OpenAI Video / Sora Compatible': 'OpenAI Video / Sora Compatible',
   'Redemption time': 'Redemption time',
-  'seedance(megabyai)': 'seedance(megabyai)',
+  megabyai: 'megabyai',
   'Select video protocol': 'Select video protocol',
   'Video Protocol': 'Video Protocol',
 })
@@ -1256,7 +1256,7 @@ Object.assign(newKeys.zh, {
   'Agnes Video V2': 'Agnes Video V2',
   'OpenAI Video / Sora Compatible': 'OpenAI Video / Sora 兼容',
   'Redemption time': '兑换时间',
-  'seedance(megabyai)': 'seedance(megabyai)',
+  megabyai: 'megabyai',
   'Select video protocol': '选择视频协议',
   'Video Protocol': '视频协议',
 })
@@ -1264,7 +1264,7 @@ Object.assign(newKeys['zh-TW'], {
   'Agnes Video V2': 'Agnes Video V2',
   'OpenAI Video / Sora Compatible': 'OpenAI Video / Sora 相容',
   'Redemption time': '兌換時間',
-  'seedance(megabyai)': 'seedance(megabyai)',
+  megabyai: 'megabyai',
   'Select video protocol': '選擇影片協議',
   'Video Protocol': '影片協議',
 })
@@ -1272,7 +1272,7 @@ Object.assign(newKeys.fr, {
   'Agnes Video V2': 'Agnes Video V2',
   'OpenAI Video / Sora Compatible': 'Compatible OpenAI Video / Sora',
   'Redemption time': "Date d'échange",
-  'seedance(megabyai)': 'seedance(megabyai)',
+  megabyai: 'megabyai',
   'Select video protocol': 'Sélectionner le protocole vidéo',
   'Video Protocol': 'Protocole vidéo',
 })
@@ -1280,7 +1280,7 @@ Object.assign(newKeys.ja, {
   'Agnes Video V2': 'Agnes Video V2',
   'OpenAI Video / Sora Compatible': 'OpenAI Video / Sora 互換',
   'Redemption time': '引き換え日時',
-  'seedance(megabyai)': 'seedance(megabyai)',
+  megabyai: 'megabyai',
   'Select video protocol': '動画プロトコルを選択',
   'Video Protocol': '動画プロトコル',
 })
@@ -1288,7 +1288,7 @@ Object.assign(newKeys.ru, {
   'Agnes Video V2': 'Agnes Video V2',
   'OpenAI Video / Sora Compatible': 'Совместимый с OpenAI Video / Sora',
   'Redemption time': 'Время активации',
-  'seedance(megabyai)': 'seedance(megabyai)',
+  megabyai: 'megabyai',
   'Select video protocol': 'Выберите видеопротокол',
   'Video Protocol': 'Видеопротокол',
 })
@@ -1296,7 +1296,7 @@ Object.assign(newKeys.vi, {
   'Agnes Video V2': 'Agnes Video V2',
   'OpenAI Video / Sora Compatible': 'Tương thích OpenAI Video / Sora',
   'Redemption time': 'Thời gian đổi mã',
-  'seedance(megabyai)': 'seedance(megabyai)',
+  megabyai: 'megabyai',
   'Select video protocol': 'Chọn giao thức video',
   'Video Protocol': 'Giao thức video',
 })
@@ -1682,7 +1682,7 @@ Object.assign(newKeys.vi, {
 })
 
 Object.assign(newKeys.en, {
-  'minimax-h3(megabyai)': 'minimax-h3(megabyai)',
+  megabyai: 'megabyai',
   'Supported aspect ratios': 'Supported aspect ratios',
   'Add an aspect ratio, for example 16:9':
     'Add an aspect ratio, for example 16:9',
@@ -1705,7 +1705,7 @@ Object.assign(newKeys.en, {
     'First frame support is required when the last frame depends on it',
 })
 Object.assign(newKeys.zh, {
-  'minimax-h3(megabyai)': 'minimax-h3(megabyai)',
+  megabyai: 'megabyai',
   'Supported aspect ratios': '支持的宽高比',
   'Add an aspect ratio, for example 16:9': '添加宽高比，例如 16:9',
   'Press Enter or comma to add aspect ratios': '按回车或逗号添加宽高比',
@@ -1725,7 +1725,7 @@ Object.assign(newKeys.zh, {
     '尾帧依赖首帧时必须支持首帧',
 })
 Object.assign(newKeys['zh-TW'], {
-  'minimax-h3(megabyai)': 'minimax-h3(megabyai)',
+  megabyai: 'megabyai',
   'Supported aspect ratios': '支援的長寬比',
   'Add an aspect ratio, for example 16:9': '新增長寬比，例如 16:9',
   'Press Enter or comma to add aspect ratios': '按 Enter 或逗號新增長寬比',
@@ -1745,7 +1745,7 @@ Object.assign(newKeys['zh-TW'], {
     '尾幀依賴首幀時必須支援首幀',
 })
 Object.assign(newKeys.fr, {
-  'minimax-h3(megabyai)': 'minimax-h3(megabyai)',
+  megabyai: 'megabyai',
   'Supported aspect ratios': "Formats d'image pris en charge",
   'Add an aspect ratio, for example 16:9':
     "Ajouter un format d'image, par exemple 16:9",
@@ -1770,7 +1770,7 @@ Object.assign(newKeys.fr, {
     'La première image doit être prise en charge lorsque la dernière en dépend',
 })
 Object.assign(newKeys.ja, {
-  'minimax-h3(megabyai)': 'minimax-h3(megabyai)',
+  megabyai: 'megabyai',
   'Supported aspect ratios': '対応アスペクト比',
   'Add an aspect ratio, for example 16:9': 'アスペクト比を追加（例: 16:9）',
   'Press Enter or comma to add aspect ratios':
@@ -1791,7 +1791,7 @@ Object.assign(newKeys.ja, {
     '終了フレームが開始フレームに依存する場合、開始フレームへの対応が必要です',
 })
 Object.assign(newKeys.ru, {
-  'minimax-h3(megabyai)': 'minimax-h3(megabyai)',
+  megabyai: 'megabyai',
   'Supported aspect ratios': 'Поддерживаемые соотношения сторон',
   'Add an aspect ratio, for example 16:9':
     'Добавьте соотношение сторон, например 16:9',
@@ -1816,7 +1816,7 @@ Object.assign(newKeys.ru, {
     'Если последний кадр зависит от первого, первый кадр должен поддерживаться',
 })
 Object.assign(newKeys.vi, {
-  'minimax-h3(megabyai)': 'minimax-h3(megabyai)',
+  megabyai: 'megabyai',
   'Supported aspect ratios': 'Tỷ lệ khung hình được hỗ trợ',
   'Add an aspect ratio, for example 16:9': 'Thêm tỷ lệ khung hình, ví dụ 16:9',
   'Press Enter or comma to add aspect ratios':
@@ -1836,6 +1836,486 @@ Object.assign(newKeys.vi, {
     'Âm thanh gốc bắt buộc cũng phải được hỗ trợ',
   'First frame support is required when the last frame depends on it':
     'Phải hỗ trợ khung hình đầu khi khung hình cuối phụ thuộc vào nó',
+})
+
+for (const locale of ['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi']) {
+  Object.assign(newKeys[locale], {
+    globalaiopc: 'globalaiopc',
+  })
+}
+
+Object.assign(newKeys.en, {
+  'Add a parameter name': 'Add a parameter name',
+  'Advanced upstream mapping': 'Advanced upstream mapping',
+  'Apply templates for all matching channel models':
+    'Apply templates for all matching channel models',
+  'Capability template': 'Capability template',
+  'Copy a similar template': 'Copy a similar template',
+  'Custom template': 'Custom template',
+  'Fixed upstream parameters': 'Fixed upstream parameters',
+  'No exact template match': 'No exact template match',
+  'Official document preset': 'Official document preset',
+  'Parameters omitted upstream': 'Parameters omitted upstream',
+  'Save current capability as template': 'Save current capability as template',
+  'Select an upstream model and apply its capability template':
+    'Select an upstream model and apply its capability template',
+  'Source document': 'Source document',
+  'Upstream value for resolution': 'Upstream value for resolution',
+  'Video capability template saved': 'Video capability template saved',
+  'Reference images': 'Reference images',
+  'Reference videos': 'Reference videos',
+  'Reference audios': 'Reference audios',
+  Minimum: 'Minimum',
+  Maximum: 'Maximum',
+  'Aspect ratio is required': 'Aspect ratio is required',
+  'Supports duration': 'Supports duration',
+  'Duration is required': 'Duration is required',
+  'First frame is required': 'First frame is required',
+  'Last frame is required': 'Last frame is required',
+  'Reference audio requires a visual reference':
+    'Reference audio requires a visual reference',
+  'Reference media cannot be combined with frames':
+    'Reference media cannot be combined with frames',
+  'Supports seed': 'Supports seed',
+  'Supports watermark': 'Supports watermark',
+  'Minimum seed': 'Minimum seed',
+  'Maximum seed': 'Maximum seed',
+  'Automatically set reference_mode': 'Automatically set reference_mode',
+  'Send frames as reference images': 'Send frames as reference images',
+  'Reference mode for media': 'Reference mode for media',
+  'Reference mode for frames': 'Reference mode for frames',
+})
+
+Object.assign(newKeys.zh, {
+  'Add a parameter name': '添加参数名',
+  'Advanced upstream mapping': '高级上游映射',
+  'Apply templates for all matching channel models':
+    '为所有匹配的渠道模型应用模板',
+  'Capability template': '能力模板',
+  'Copy a similar template': '复制相似模板',
+  'Custom template': '自定义模板',
+  'Fixed upstream parameters': '固定上游参数',
+  'No exact template match': '没有精确匹配的模板',
+  'Official document preset': '官方文档预设',
+  'Parameters omitted upstream': '向上游省略的参数',
+  'Save current capability as template': '将当前能力保存为模板',
+  'Select an upstream model and apply its capability template':
+    '选择上游模型并应用对应的能力模板',
+  'Source document': '来源文档',
+  'Upstream value for resolution': '分辨率对应的上游值',
+  'Video capability template saved': '视频能力模板已保存',
+  'Reference images': '参考图片',
+  'Reference videos': '参考视频',
+  'Reference audios': '参考音频',
+  Minimum: '最小',
+  Maximum: '最大',
+  'Aspect ratio is required': '宽高比必填',
+  'Supports duration': '支持时长',
+  'Duration is required': '时长必填',
+  'First frame is required': '首帧必填',
+  'Last frame is required': '尾帧必填',
+  'Reference audio requires a visual reference': '参考音频需要视觉参考素材',
+  'Reference media cannot be combined with frames': '参考素材不能与首尾帧组合',
+  'Supports seed': '支持随机种子',
+  'Supports watermark': '支持水印',
+  'Minimum seed': '最小随机种子',
+  'Maximum seed': '最大随机种子',
+  'Automatically set reference_mode': '自动设置 reference_mode',
+  'Send frames as reference images': '将首尾帧作为参考图片发送',
+  'Reference mode for media': '参考素材模式',
+  'Reference mode for frames': '首尾帧模式',
+})
+
+Object.assign(newKeys['zh-TW'], {
+  'Add a parameter name': '新增參數名稱',
+  'Advanced upstream mapping': '進階上游對應',
+  'Apply templates for all matching channel models':
+    '為所有相符的渠道模型套用範本',
+  'Capability template': '能力範本',
+  'Copy a similar template': '複製相似範本',
+  'Custom template': '自訂範本',
+  'Fixed upstream parameters': '固定上游參數',
+  'No exact template match': '沒有完全相符的範本',
+  'Official document preset': '官方文件預設',
+  'Parameters omitted upstream': '向上游省略的參數',
+  'Save current capability as template': '將目前能力儲存為範本',
+  'Select an upstream model and apply its capability template':
+    '選擇上游模型並套用對應的能力範本',
+  'Source document': '來源文件',
+  'Upstream value for resolution': '解析度對應的上游值',
+  'Video capability template saved': '影片能力範本已儲存',
+  'Reference images': '參考圖片',
+  'Reference videos': '參考影片',
+  'Reference audios': '參考音訊',
+  Minimum: '最小',
+  Maximum: '最大',
+  'Aspect ratio is required': '長寬比必填',
+  'Supports duration': '支援時長',
+  'Duration is required': '時長必填',
+  'First frame is required': '首幀必填',
+  'Last frame is required': '尾幀必填',
+  'Reference audio requires a visual reference': '參考音訊需要視覺參考素材',
+  'Reference media cannot be combined with frames': '參考素材不能與首尾幀組合',
+  'Supports seed': '支援隨機種子',
+  'Supports watermark': '支援浮水印',
+  'Minimum seed': '最小隨機種子',
+  'Maximum seed': '最大隨機種子',
+  'Automatically set reference_mode': '自動設定 reference_mode',
+  'Send frames as reference images': '將首尾幀作為參考圖片傳送',
+  'Reference mode for media': '參考素材模式',
+  'Reference mode for frames': '首尾幀模式',
+})
+
+Object.assign(newKeys.fr, {
+  'Add a parameter name': 'Ajouter un nom de paramètre',
+  'Advanced upstream mapping': 'Mappage amont avancé',
+  'Apply templates for all matching channel models':
+    'Appliquer les modèles à tous les modèles de canal correspondants',
+  'Capability template': 'Modèle de capacités',
+  'Copy a similar template': 'Copier un modèle similaire',
+  'Custom template': 'Modèle personnalisé',
+  'Fixed upstream parameters': 'Paramètres amont fixes',
+  'No exact template match': 'Aucun modèle exact',
+  'Official document preset': 'Préréglage de la documentation officielle',
+  'Parameters omitted upstream': 'Paramètres omis en amont',
+  'Save current capability as template':
+    'Enregistrer les capacités comme modèle',
+  'Select an upstream model and apply its capability template':
+    'Sélectionnez un modèle amont et appliquez son modèle de capacités',
+  'Source document': 'Document source',
+  'Upstream value for resolution': 'Valeur amont de la résolution',
+  'Video capability template saved': 'Modèle de capacités vidéo enregistré',
+  'Reference images': 'Images de référence',
+  'Reference videos': 'Vidéos de référence',
+  'Reference audios': 'Audios de référence',
+  Minimum: 'Minimum',
+  Maximum: 'Maximum',
+  'Aspect ratio is required': "Le format d'image est requis",
+  'Supports duration': 'Prend en charge la durée',
+  'Duration is required': 'La durée est requise',
+  'First frame is required': 'La première image est requise',
+  'Last frame is required': 'La dernière image est requise',
+  'Reference audio requires a visual reference':
+    "L'audio de référence nécessite une référence visuelle",
+  'Reference media cannot be combined with frames':
+    'Les médias de référence ne peuvent pas être combinés avec les images',
+  'Supports seed': 'Prend en charge la graine',
+  'Supports watermark': 'Prend en charge le filigrane',
+  'Minimum seed': 'Graine minimale',
+  'Maximum seed': 'Graine maximale',
+  'Automatically set reference_mode': 'Définir automatiquement reference_mode',
+  'Send frames as reference images': 'Envoyer les images comme références',
+  'Reference mode for media': 'Mode de référence des médias',
+  'Reference mode for frames': 'Mode de référence des images',
+})
+
+Object.assign(newKeys.ja, {
+  'Add a parameter name': 'パラメータ名を追加',
+  'Advanced upstream mapping': '高度なアップストリームマッピング',
+  'Apply templates for all matching channel models':
+    '一致する全チャネルモデルにテンプレートを適用',
+  'Capability template': '機能テンプレート',
+  'Copy a similar template': '類似テンプレートをコピー',
+  'Custom template': 'カスタムテンプレート',
+  'Fixed upstream parameters': '固定アップストリームパラメータ',
+  'No exact template match': '完全一致するテンプレートはありません',
+  'Official document preset': '公式ドキュメントのプリセット',
+  'Parameters omitted upstream': 'アップストリームで省略するパラメータ',
+  'Save current capability as template': '現在の機能をテンプレートとして保存',
+  'Select an upstream model and apply its capability template':
+    'アップストリームモデルを選択し機能テンプレートを適用します',
+  'Source document': '参照ドキュメント',
+  'Upstream value for resolution': '解像度のアップストリーム値',
+  'Video capability template saved': '動画機能テンプレートを保存しました',
+  'Reference images': '参照画像',
+  'Reference videos': '参照動画',
+  'Reference audios': '参照音声',
+  Minimum: '最小',
+  Maximum: '最大',
+  'Aspect ratio is required': 'アスペクト比は必須です',
+  'Supports duration': '時間指定に対応',
+  'Duration is required': '時間指定は必須です',
+  'First frame is required': '開始フレームは必須です',
+  'Last frame is required': '終了フレームは必須です',
+  'Reference audio requires a visual reference':
+    '参照音声には視覚参照が必要です',
+  'Reference media cannot be combined with frames':
+    '参照メディアと開始・終了フレームは併用できません',
+  'Supports seed': 'シードに対応',
+  'Supports watermark': 'ウォーターマークに対応',
+  'Minimum seed': '最小シード',
+  'Maximum seed': '最大シード',
+  'Automatically set reference_mode': 'reference_mode を自動設定',
+  'Send frames as reference images': 'フレームを参照画像として送信',
+  'Reference mode for media': 'メディアの参照モード',
+  'Reference mode for frames': 'フレームの参照モード',
+})
+
+Object.assign(newKeys.ru, {
+  'Add a parameter name': 'Добавить имя параметра',
+  'Advanced upstream mapping': 'Расширенное сопоставление с провайдером',
+  'Apply templates for all matching channel models':
+    'Применить шаблоны ко всем совпадающим моделям канала',
+  'Capability template': 'Шаблон возможностей',
+  'Copy a similar template': 'Копировать похожий шаблон',
+  'Custom template': 'Пользовательский шаблон',
+  'Fixed upstream parameters': 'Фиксированные параметры провайдера',
+  'No exact template match': 'Точного шаблона нет',
+  'Official document preset': 'Предустановка из официальной документации',
+  'Parameters omitted upstream': 'Параметры, не передаваемые провайдеру',
+  'Save current capability as template': 'Сохранить возможности как шаблон',
+  'Select an upstream model and apply its capability template':
+    'Выберите модель провайдера и примените шаблон возможностей',
+  'Source document': 'Исходная документация',
+  'Upstream value for resolution': 'Значение разрешения у провайдера',
+  'Video capability template saved': 'Шаблон возможностей видео сохранён',
+  'Reference images': 'Референсные изображения',
+  'Reference videos': 'Референсные видео',
+  'Reference audios': 'Референсные аудио',
+  Minimum: 'Минимум',
+  Maximum: 'Максимум',
+  'Aspect ratio is required': 'Соотношение сторон обязательно',
+  'Supports duration': 'Поддерживает длительность',
+  'Duration is required': 'Длительность обязательна',
+  'First frame is required': 'Первый кадр обязателен',
+  'Last frame is required': 'Последний кадр обязателен',
+  'Reference audio requires a visual reference':
+    'Референсное аудио требует визуального референса',
+  'Reference media cannot be combined with frames':
+    'Референсные материалы нельзя сочетать с кадрами',
+  'Supports seed': 'Поддерживает seed',
+  'Supports watermark': 'Поддерживает водяной знак',
+  'Minimum seed': 'Минимальный seed',
+  'Maximum seed': 'Максимальный seed',
+  'Automatically set reference_mode': 'Автоматически задавать reference_mode',
+  'Send frames as reference images':
+    'Передавать кадры как референсные изображения',
+  'Reference mode for media': 'Режим референсных материалов',
+  'Reference mode for frames': 'Режим референсных кадров',
+})
+
+Object.assign(newKeys.vi, {
+  'Add a parameter name': 'Thêm tên tham số',
+  'Advanced upstream mapping': 'Ánh xạ nhà cung cấp nâng cao',
+  'Apply templates for all matching channel models':
+    'Áp dụng mẫu cho mọi mô hình kênh phù hợp',
+  'Capability template': 'Mẫu khả năng',
+  'Copy a similar template': 'Sao chép mẫu tương tự',
+  'Custom template': 'Mẫu tùy chỉnh',
+  'Fixed upstream parameters': 'Tham số nhà cung cấp cố định',
+  'No exact template match': 'Không có mẫu khớp chính xác',
+  'Official document preset': 'Cấu hình sẵn từ tài liệu chính thức',
+  'Parameters omitted upstream': 'Tham số bỏ qua khi gửi lên nhà cung cấp',
+  'Save current capability as template': 'Lưu khả năng hiện tại làm mẫu',
+  'Select an upstream model and apply its capability template':
+    'Chọn mô hình nhà cung cấp và áp dụng mẫu khả năng',
+  'Source document': 'Tài liệu nguồn',
+  'Upstream value for resolution': 'Giá trị độ phân giải của nhà cung cấp',
+  'Video capability template saved': 'Đã lưu mẫu khả năng video',
+  'Reference images': 'Ảnh tham chiếu',
+  'Reference videos': 'Video tham chiếu',
+  'Reference audios': 'Âm thanh tham chiếu',
+  Minimum: 'Tối thiểu',
+  Maximum: 'Tối đa',
+  'Aspect ratio is required': 'Bắt buộc tỷ lệ khung hình',
+  'Supports duration': 'Hỗ trợ thời lượng',
+  'Duration is required': 'Bắt buộc thời lượng',
+  'First frame is required': 'Bắt buộc khung hình đầu',
+  'Last frame is required': 'Bắt buộc khung hình cuối',
+  'Reference audio requires a visual reference':
+    'Âm thanh tham chiếu cần tham chiếu hình ảnh',
+  'Reference media cannot be combined with frames':
+    'Không thể kết hợp nội dung tham chiếu với khung hình đầu/cuối',
+  'Supports seed': 'Hỗ trợ seed',
+  'Supports watermark': 'Hỗ trợ hình mờ',
+  'Minimum seed': 'Seed tối thiểu',
+  'Maximum seed': 'Seed tối đa',
+  'Automatically set reference_mode': 'Tự động đặt reference_mode',
+  'Send frames as reference images': 'Gửi khung hình dưới dạng ảnh tham chiếu',
+  'Reference mode for media': 'Chế độ tham chiếu nội dung',
+  'Reference mode for frames': 'Chế độ tham chiếu khung hình',
+})
+
+Object.assign(newKeys.en, {
+  'All video protocols': 'All video protocols',
+  'Apply a capability template': 'Apply a capability template',
+  'Built-in template': 'Built-in template',
+  'Capability summary': 'Capability summary',
+  'Copy video capability template': 'Copy video capability template',
+  'Create template': 'Create template',
+  'Create video capability template': 'Create video capability template',
+  'Delete video capability template': 'Delete video capability template',
+  'Edit video capability template': 'Edit video capability template',
+  'No templates found': 'No templates found',
+  'Search template name or model ID': 'Search template name or model ID',
+  'Source URL must be a valid HTTP or HTTPS URL':
+    'Source URL must be a valid HTTP or HTTPS URL',
+  'Template name': 'Template name',
+  'Template source': 'Template source',
+  'Templates provide reusable defaults for channel video model capabilities.':
+    'Templates provide reusable defaults for channel video model capabilities.',
+  'Updated time': 'Updated time',
+  'Video capability template deleted': 'Video capability template deleted',
+  'Video capability templates': 'Video capability templates',
+  'View video capability template': 'View video capability template',
+  'Are you sure you want to delete template "{{name}}"? This action cannot be undone.':
+    'Are you sure you want to delete template "{{name}}"? This action cannot be undone.',
+})
+
+Object.assign(newKeys.zh, {
+  'All video protocols': '全部视频协议',
+  'Apply a capability template': '套用能力模板',
+  'Built-in template': '内置模板',
+  'Capability summary': '能力摘要',
+  'Copy video capability template': '复制视频能力模板',
+  'Create template': '新建模板',
+  'Create video capability template': '新建视频能力模板',
+  'Delete video capability template': '删除视频能力模板',
+  'Edit video capability template': '编辑视频能力模板',
+  'No templates found': '未找到模板',
+  'Search template name or model ID': '搜索模板名称或模型 ID',
+  'Source URL must be a valid HTTP or HTTPS URL':
+    '来源 URL 必须是有效的 HTTP 或 HTTPS 地址',
+  'Template name': '模板名称',
+  'Template source': '模板来源',
+  'Templates provide reusable defaults for channel video model capabilities.':
+    '模板可作为渠道视频模型能力的可复用默认配置。',
+  'Updated time': '更新时间',
+  'Video capability template deleted': '视频能力模板已删除',
+  'Video capability templates': '视频能力模板',
+  'View video capability template': '查看视频能力模板',
+  'Are you sure you want to delete template "{{name}}"? This action cannot be undone.':
+    '确定要删除模板“{{name}}”吗？此操作无法撤销。',
+})
+
+Object.assign(newKeys['zh-TW'], {
+  'All video protocols': '全部影片協議',
+  'Apply a capability template': '套用能力範本',
+  'Built-in template': '內建範本',
+  'Capability summary': '能力摘要',
+  'Copy video capability template': '複製影片能力範本',
+  'Create template': '新增範本',
+  'Create video capability template': '新增影片能力範本',
+  'Delete video capability template': '刪除影片能力範本',
+  'Edit video capability template': '編輯影片能力範本',
+  'No templates found': '找不到範本',
+  'Search template name or model ID': '搜尋範本名稱或模型 ID',
+  'Source URL must be a valid HTTP or HTTPS URL':
+    '來源 URL 必須是有效的 HTTP 或 HTTPS 位址',
+  'Template name': '範本名稱',
+  'Template source': '範本來源',
+  'Templates provide reusable defaults for channel video model capabilities.':
+    '範本可作為渠道影片模型能力的可重複使用預設設定。',
+  'Updated time': '更新時間',
+  'Video capability template deleted': '影片能力範本已刪除',
+  'Video capability templates': '影片能力範本',
+  'View video capability template': '檢視影片能力範本',
+  'Are you sure you want to delete template "{{name}}"? This action cannot be undone.':
+    '確定要刪除範本「{{name}}」嗎？此操作無法復原。',
+})
+
+Object.assign(newKeys.fr, {
+  'All video protocols': 'Tous les protocoles vidéo',
+  'Apply a capability template': 'Appliquer un modèle de capacités',
+  'Built-in template': 'Modèle intégré',
+  'Capability summary': 'Résumé des capacités',
+  'Copy video capability template': 'Copier le modèle de capacités vidéo',
+  'Create template': 'Créer un modèle',
+  'Create video capability template': 'Créer un modèle de capacités vidéo',
+  'Delete video capability template': 'Supprimer le modèle de capacités vidéo',
+  'Edit video capability template': 'Modifier le modèle de capacités vidéo',
+  'No templates found': 'Aucun modèle trouvé',
+  'Search template name or model ID': 'Rechercher par nom ou ID de modèle',
+  'Source URL must be a valid HTTP or HTTPS URL':
+    'L’URL source doit être une URL HTTP ou HTTPS valide',
+  'Template name': 'Nom du modèle',
+  'Template source': 'Source du modèle',
+  'Templates provide reusable defaults for channel video model capabilities.':
+    'Les modèles fournissent des valeurs réutilisables pour les capacités vidéo des canaux.',
+  'Updated time': 'Date de mise à jour',
+  'Video capability template deleted': 'Modèle de capacités vidéo supprimé',
+  'Video capability templates': 'Modèles de capacités vidéo',
+  'View video capability template': 'Afficher le modèle de capacités vidéo',
+  'Are you sure you want to delete template "{{name}}"? This action cannot be undone.':
+    'Voulez-vous vraiment supprimer le modèle « {{name}} » ? Cette action est irréversible.',
+})
+
+Object.assign(newKeys.ja, {
+  'All video protocols': 'すべての動画プロトコル',
+  'Apply a capability template': '機能テンプレートを適用',
+  'Built-in template': '組み込みテンプレート',
+  'Capability summary': '機能の概要',
+  'Copy video capability template': '動画機能テンプレートをコピー',
+  'Create template': 'テンプレートを作成',
+  'Create video capability template': '動画機能テンプレートを作成',
+  'Delete video capability template': '動画機能テンプレートを削除',
+  'Edit video capability template': '動画機能テンプレートを編集',
+  'No templates found': 'テンプレートが見つかりません',
+  'Search template name or model ID': 'テンプレート名またはモデル ID を検索',
+  'Source URL must be a valid HTTP or HTTPS URL':
+    '参照 URL は有効な HTTP または HTTPS URL である必要があります',
+  'Template name': 'テンプレート名',
+  'Template source': 'テンプレートの出典',
+  'Templates provide reusable defaults for channel video model capabilities.':
+    'テンプレートはチャネルの動画モデル機能に再利用可能な既定値を提供します。',
+  'Updated time': '更新日時',
+  'Video capability template deleted': '動画機能テンプレートを削除しました',
+  'Video capability templates': '動画機能テンプレート',
+  'View video capability template': '動画機能テンプレートを表示',
+  'Are you sure you want to delete template "{{name}}"? This action cannot be undone.':
+    'テンプレート「{{name}}」を削除しますか？この操作は元に戻せません。',
+})
+
+Object.assign(newKeys.ru, {
+  'All video protocols': 'Все видеопротоколы',
+  'Apply a capability template': 'Применить шаблон возможностей',
+  'Built-in template': 'Встроенный шаблон',
+  'Capability summary': 'Сводка возможностей',
+  'Copy video capability template': 'Копировать шаблон возможностей видео',
+  'Create template': 'Создать шаблон',
+  'Create video capability template': 'Создать шаблон возможностей видео',
+  'Delete video capability template': 'Удалить шаблон возможностей видео',
+  'Edit video capability template': 'Изменить шаблон возможностей видео',
+  'No templates found': 'Шаблоны не найдены',
+  'Search template name or model ID': 'Поиск по имени шаблона или ID модели',
+  'Source URL must be a valid HTTP or HTTPS URL':
+    'URL источника должен быть корректным HTTP- или HTTPS-адресом',
+  'Template name': 'Имя шаблона',
+  'Template source': 'Источник шаблона',
+  'Templates provide reusable defaults for channel video model capabilities.':
+    'Шаблоны задают повторно используемые настройки возможностей видеомоделей канала.',
+  'Updated time': 'Время обновления',
+  'Video capability template deleted': 'Шаблон возможностей видео удалён',
+  'Video capability templates': 'Шаблоны возможностей видео',
+  'View video capability template': 'Просмотреть шаблон возможностей видео',
+  'Are you sure you want to delete template "{{name}}"? This action cannot be undone.':
+    'Удалить шаблон «{{name}}»? Это действие нельзя отменить.',
+})
+
+Object.assign(newKeys.vi, {
+  'All video protocols': 'Tất cả giao thức video',
+  'Apply a capability template': 'Áp dụng mẫu khả năng',
+  'Built-in template': 'Mẫu tích hợp',
+  'Capability summary': 'Tóm tắt khả năng',
+  'Copy video capability template': 'Sao chép mẫu khả năng video',
+  'Create template': 'Tạo mẫu',
+  'Create video capability template': 'Tạo mẫu khả năng video',
+  'Delete video capability template': 'Xóa mẫu khả năng video',
+  'Edit video capability template': 'Chỉnh sửa mẫu khả năng video',
+  'No templates found': 'Không tìm thấy mẫu',
+  'Search template name or model ID': 'Tìm theo tên mẫu hoặc ID mô hình',
+  'Source URL must be a valid HTTP or HTTPS URL':
+    'URL nguồn phải là địa chỉ HTTP hoặc HTTPS hợp lệ',
+  'Template name': 'Tên mẫu',
+  'Template source': 'Nguồn mẫu',
+  'Templates provide reusable defaults for channel video model capabilities.':
+    'Mẫu cung cấp cấu hình mặc định có thể tái sử dụng cho khả năng mô hình video của kênh.',
+  'Updated time': 'Thời gian cập nhật',
+  'Video capability template deleted': 'Đã xóa mẫu khả năng video',
+  'Video capability templates': 'Mẫu khả năng video',
+  'View video capability template': 'Xem mẫu khả năng video',
+  'Are you sure you want to delete template "{{name}}"? This action cannot be undone.':
+    'Bạn có chắc muốn xóa mẫu “{{name}}” không? Không thể hoàn tác thao tác này.',
 })
 
 Object.assign(newKeys.en, {
@@ -1872,6 +2352,72 @@ Object.assign(newKeys.vi, {
   'Platform Task Data': 'Dữ liệu tác vụ nền tảng',
   'Request Snapshot': 'Bản chụp yêu cầu',
   'Task Result': 'Kết quả tác vụ',
+})
+
+Object.assign(newKeys.en, {
+  'Material and scenario guidelines': 'Material and scenario guidelines',
+  'Material and scenario guidelines cannot exceed 20000 characters':
+    'Material and scenario guidelines cannot exceed 20000 characters',
+  'Describe input material requirements, supported scenarios, incompatible combinations, and known limitations. Markdown is supported.':
+    'Describe input material requirements, supported scenarios, incompatible combinations, and known limitations. Markdown is supported.',
+  'This customer-facing content appears in the model details page. Markdown is supported.':
+    'This customer-facing content appears in the model details page. Markdown is supported.',
+})
+Object.assign(newKeys.zh, {
+  'Material and scenario guidelines': '素材与场景限制',
+  'Material and scenario guidelines cannot exceed 20000 characters':
+    '素材与场景限制不能超过 20000 个字符',
+  'Describe input material requirements, supported scenarios, incompatible combinations, and known limitations. Markdown is supported.':
+    '请填写输入素材要求、适用场景、不兼容的组合及已知限制，支持 Markdown。',
+  'This customer-facing content appears in the model details page. Markdown is supported.':
+    '此内容面向客户，并展示在模型详情页中，支持 Markdown。',
+})
+Object.assign(newKeys['zh-TW'], {
+  'Material and scenario guidelines': '素材與場景限制',
+  'Material and scenario guidelines cannot exceed 20000 characters':
+    '素材與場景限制不能超過 20000 個字元',
+  'Describe input material requirements, supported scenarios, incompatible combinations, and known limitations. Markdown is supported.':
+    '請填寫輸入素材要求、適用場景、不相容的組合及已知限制，支援 Markdown。',
+  'This customer-facing content appears in the model details page. Markdown is supported.':
+    '此內容面向客戶，並顯示於模型詳情頁中，支援 Markdown。',
+})
+Object.assign(newKeys.fr, {
+  'Material and scenario guidelines':
+    'Consignes relatives aux ressources et aux scénarios',
+  'Material and scenario guidelines cannot exceed 20000 characters':
+    'Les consignes relatives aux ressources et aux scénarios ne peuvent pas dépasser 20 000 caractères',
+  'Describe input material requirements, supported scenarios, incompatible combinations, and known limitations. Markdown is supported.':
+    'Décrivez les exigences relatives aux ressources, les scénarios pris en charge, les combinaisons incompatibles et les limitations connues. Markdown est pris en charge.',
+  'This customer-facing content appears in the model details page. Markdown is supported.':
+    'Ce contenu destiné aux clients apparaît sur la page de détails du modèle. Markdown est pris en charge.',
+})
+Object.assign(newKeys.ja, {
+  'Material and scenario guidelines': '素材と利用シーンの制限',
+  'Material and scenario guidelines cannot exceed 20000 characters':
+    '素材と利用シーンの制限は 20000 文字以内で入力してください',
+  'Describe input material requirements, supported scenarios, incompatible combinations, and known limitations. Markdown is supported.':
+    '入力素材の要件、対応する利用シーン、併用できない組み合わせ、既知の制限を記載してください。Markdown に対応しています。',
+  'This customer-facing content appears in the model details page. Markdown is supported.':
+    'この顧客向けコンテンツはモデル詳細ページに表示されます。Markdown に対応しています。',
+})
+Object.assign(newKeys.ru, {
+  'Material and scenario guidelines': 'Ограничения материалов и сценариев',
+  'Material and scenario guidelines cannot exceed 20000 characters':
+    'Ограничения материалов и сценариев не могут превышать 20 000 символов',
+  'Describe input material requirements, supported scenarios, incompatible combinations, and known limitations. Markdown is supported.':
+    'Опишите требования к входным материалам, поддерживаемые сценарии, несовместимые сочетания и известные ограничения. Поддерживается Markdown.',
+  'This customer-facing content appears in the model details page. Markdown is supported.':
+    'Этот текст для клиентов отображается на странице сведений о модели. Поддерживается Markdown.',
+})
+Object.assign(newKeys.vi, {
+  'Material and scenario guidelines':
+    'Giới hạn về dữ liệu đầu vào và tình huống sử dụng',
+  'Material and scenario guidelines cannot exceed 20000 characters':
+    'Giới hạn về dữ liệu đầu vào và tình huống sử dụng không được vượt quá 20.000 ký tự',
+  'Describe input material requirements, supported scenarios, incompatible combinations, and known limitations. Markdown is supported.':
+    'Mô tả yêu cầu về dữ liệu đầu vào, tình huống được hỗ trợ, các tổ hợp không tương thích và giới hạn đã biết. Có hỗ trợ Markdown.',
+  'This customer-facing content appears in the model details page. Markdown is supported.':
+    'Nội dung dành cho khách hàng này xuất hiện trên trang chi tiết mô hình. Có hỗ trợ Markdown.',
 })
 
 async function main() {

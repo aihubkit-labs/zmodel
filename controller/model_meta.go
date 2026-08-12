@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -12,6 +13,16 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+const maxModelUsageGuidelinesLength = 20000
+
+func validateModelUsageGuidelines(c *gin.Context, usageGuidelines string) bool {
+	if utf8.RuneCountInString(usageGuidelines) <= maxModelUsageGuidelinesLength {
+		return true
+	}
+	common.ApiErrorMsg(c, "素材与场景限制不能超过 20000 个字符")
+	return false
+}
 
 // GetAllModelsMeta 获取模型列表（分页）
 func GetAllModelsMeta(c *gin.Context) {
@@ -97,6 +108,9 @@ func CreateModelMeta(c *gin.Context) {
 		common.ApiErrorMsg(c, "模型名称不能为空")
 		return
 	}
+	if !validateModelUsageGuidelines(c, m.UsageGuidelines) {
+		return
+	}
 	// 名称冲突检查
 	if dup, err := model.IsModelNameDuplicated(0, m.ModelName); err != nil {
 		common.ApiError(c, err)
@@ -135,6 +149,9 @@ func UpdateModelMeta(c *gin.Context) {
 			return
 		}
 	} else {
+		if !validateModelUsageGuidelines(c, m.UsageGuidelines) {
+			return
+		}
 		// 名称冲突检查
 		if dup, err := model.IsModelNameDuplicated(m.Id, m.ModelName); err != nil {
 			common.ApiError(c, err)

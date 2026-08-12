@@ -39,6 +39,7 @@ import { sideDrawerContentClassName } from '@/components/drawer-layout'
 import { GroupBadge } from '@/components/group-badge'
 import { PublicLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
+import { Markdown } from '@/components/ui/markdown'
 import {
   Sheet,
   SheetContent,
@@ -565,6 +566,20 @@ function ModelHeader(props: { model: PricingModel }) {
         </p>
       )}
     </header>
+  )
+}
+
+function ModelUsageGuidelinesSection(props: { model: PricingModel }) {
+  const { t } = useTranslation()
+  const usageGuidelines = props.model.usage_guidelines?.trim()
+
+  if (!usageGuidelines) return null
+
+  return (
+    <section className='space-y-3 border-t pt-5'>
+      <SectionTitle>{t('Material and scenario guidelines')}</SectionTitle>
+      <Markdown className='text-sm leading-relaxed'>{usageGuidelines}</Markdown>
+    </section>
   )
 }
 
@@ -1208,6 +1223,8 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
 
         <TabsContent value='overview' className='space-y-6 outline-none'>
           <OverviewSummaryGrid model={props.model} />
+
+          <ModelUsageGuidelinesSection model={props.model} />
 
           <section className='bg-card/60 space-y-5 rounded-xl border p-4 shadow-sm'>
             <SectionTitle>{t('Pricing')}</SectionTitle>

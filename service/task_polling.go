@@ -455,8 +455,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		key = privateData.Key
 	}
 	resp, err := adaptor.FetchTask(baseURL, key, map[string]any{
-		"task_id": task.GetUpstreamTaskID(),
-		"action":  task.Action,
+		"task_id":        task.GetUpstreamTaskID(),
+		"action":         task.Action,
+		"video_protocol": task.GetVideoProtocol(),
 	}, proxy)
 	if err != nil {
 		var requestErr *relaycommon.UpstreamRequestError
@@ -516,7 +517,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
 	}
 
-	task.Data = redactVideoResponseBody(responseBody)
+	task.Data = redactVideoResponseBody(responseBody, ch.Type == constant.ChannelTypeOpenAI || ch.Type == constant.ChannelTypeSora)
 
 	logger.LogDebug(ctx, "updateVideoSingleTask taskResult: %+v", taskResult)
 
@@ -583,7 +584,11 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 				logger.LogWarn(ctx, fmt.Sprintf("Video archive failed for task %s without affecting task settlement: %v", task.TaskID, archiveErr))
 			}
 		}
-		if strings.HasPrefix(taskResult.Url, "data:") {
+		if ch.Type == constant.ChannelTypeOpenAI || ch.Type == constant.ChannelTypeSora {
+			// The public content URL is derived from TaskID. Queryable video
+			// protocols resolve the current upstream URL only when content is used.
+			task.PrivateData.ResultURL = ""
+		} else if strings.HasPrefix(taskResult.Url, "data:") {
 			// data: URI (e.g. Vertex base64 encoded video) — keep in Data, not in ResultURL
 			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
 		} else if taskResult.Url != "" {
@@ -650,7 +655,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	return nil
 }
 
-func redactVideoResponseBody(body []byte) []byte {
+func redactVideoResponseBody(body []byte, removeResultURLs bool) []byte {
 	var m map[string]any
 	if err := common.Unmarshal(body, &m); err != nil {
 		return body
@@ -666,6 +671,16 @@ func redactVideoResponseBody(body []byte) []byte {
 				if vm, ok := vs[i].(map[string]any); ok {
 					delete(vm, "bytesBase64Encoded")
 				}
+			}
+		}
+	}
+	if removeResultURLs {
+		for _, key := range []string{"url", "result_url", "video_url"} {
+			delete(m, key)
+		}
+		if metadata, ok := m["metadata"].(map[string]any); ok {
+			for _, key := range []string{"url", "content_url", "local_url", "video_url", "final_video_url", "origin_video_url"} {
+				delete(metadata, key)
 			}
 		}
 	}

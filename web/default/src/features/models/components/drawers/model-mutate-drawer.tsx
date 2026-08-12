@@ -91,6 +91,12 @@ const extendedModelFormSchema = z.object({
   id: z.number().optional(),
   model_name: z.string().min(1, 'Model name is required'),
   description: z.string(),
+  usage_guidelines: z
+    .string()
+    .refine(
+      (value) => [...value].length <= 20000,
+      'Material and scenario guidelines cannot exceed 20000 characters'
+    ),
   icon: z.string(),
   tags: z.array(z.string()),
   vendor_id: z.number().optional(),
@@ -231,6 +237,7 @@ export function ModelMutateDrawer({
     defaultValues: {
       model_name: '',
       description: '',
+      usage_guidelines: '',
       icon: '',
       tags: [],
       vendor_id: undefined,
@@ -291,6 +298,7 @@ export function ModelMutateDrawer({
         id: model.id,
         model_name: model.model_name,
         description: model.description || '',
+        usage_guidelines: model.usage_guidelines || '',
         icon: model.icon || '',
         tags: parseModelTags(model.tags),
         vendor_id: model.vendor_id,
@@ -395,6 +403,7 @@ export function ModelMutateDrawer({
       form.reset({
         model_name: currentRow?.model_name || '',
         description: '',
+        usage_guidelines: '',
         icon: '',
         tags: [],
         vendor_id: undefined,
@@ -724,6 +733,38 @@ export function ModelMutateDrawer({
                         {...field}
                       />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='usage_guidelines'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {t('Material and scenario guidelines')}
+                    </FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder={t(
+                          'Describe input material requirements, supported scenarios, incompatible combinations, and known limitations. Markdown is supported.'
+                        )}
+                        className='min-h-36'
+                        {...field}
+                      />
+                    </FormControl>
+                    <div className='flex items-start justify-between gap-3'>
+                      <FormDescription className='text-xs'>
+                        {t(
+                          'This customer-facing content appears in the model details page. Markdown is supported.'
+                        )}
+                      </FormDescription>
+                      <span className='text-muted-foreground shrink-0 text-xs tabular-nums'>
+                        {[...field.value].length}/20000
+                      </span>
+                    </div>
                     <FormMessage />
                   </FormItem>
                 )}

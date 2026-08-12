@@ -37,6 +37,7 @@ export interface Model {
   id: number
   model_name: string
   description?: string
+  usage_guidelines?: string
   icon?: string
   tags?: string
   vendor_id?: number
@@ -304,7 +305,10 @@ export type SyncSource = 'official' | 'config'
 /**
  * Model tab type
  */
-export type ModelTabCategory = 'metadata' | 'deployments'
+export type ModelTabCategory =
+  | 'metadata'
+  | 'deployments'
+  | 'video-capability-templates'
 
 /**
  * Deployment entity from API

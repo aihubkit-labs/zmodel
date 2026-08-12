@@ -20,7 +20,7 @@ import (
 func newMinimaxH3TestContext(t *testing.T, body string) (*gin.Context, *relaycommon.RelayInfo) {
 	t.Helper()
 	ctx, info := newSeedanceTestContext(t, body)
-	configureTestVideoModel(info, dto.VideoProtocolMinimaxH3MegabyAI, "minimax-h3", []string{"1440p"}, 5, 0, 3, 5, 15)
+	configureTestVideoModel(info, dto.VideoProtocolMegabyAI, "minimax-h3", []string{"1440p"}, 5, 0, 3, 5, 15)
 	return ctx, info
 }
 
@@ -38,7 +38,12 @@ func TestMinimaxH3StableJSONContractAndUpstreamMapping(t *testing.T) {
 	}`
 	ctx, info := newSeedanceTestContext(t, body)
 	info.UpstreamModelName = "minimax-h3"
-	configureTestVideoModel(info, dto.VideoProtocolMinimaxH3MegabyAI, "minimax-h3", []string{"1440p"}, 5, 0, 3, 5, 15)
+	configureTestVideoModel(info, dto.VideoProtocolMegabyAI, "minimax-h3", []string{"1440p"}, 5, 0, 3, 5, 15)
+	capability := info.ChannelSetting.VideoModelCapabilities["minimax-h3"]
+	capability.ResolutionMappings = map[string]string{"1440p": "2k"}
+	capability.FixedParameters = map[string]any{"quality": "high"}
+	capability.OmitParameters = []string{"watermark"}
+	info.ChannelSetting.VideoModelCapabilities["minimax-h3"] = capability
 	adaptor := &TaskAdaptor{}
 
 	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
@@ -55,10 +60,10 @@ func TestMinimaxH3StableJSONContractAndUpstreamMapping(t *testing.T) {
 		"model":"minimax-h3",
 		"prompt":"Create a cinematic performance",
 		"duration":8,
-		"resolution":"1440p",
+		"resolution":"2k",
 		"ratio":"21:9",
 		"generate_audio":true,
-		"watermark":false,
+		"quality":"high",
 		"first_image":"https://media.example.com/start.png",
 		"last_image":"https://media.example.com/end.png"
 	}`, string(upstreamBody))
@@ -150,6 +155,32 @@ func TestMinimaxH3CapabilitySwitchesAreDynamic(t *testing.T) {
 	taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
 	require.NotNil(t, taskErr)
 	assert.Equal(t, "invalid_first_image", taskErr.Code)
+	assert.Equal(t, dto.VideoParameterErrorData{
+		Parameter: "first_image",
+		Received:  "https://example.com/start.png",
+	}, taskErr.Data)
+}
+
+func TestMinimaxH3RequiredFrameErrorIncludesParameterContract(t *testing.T) {
+	ctx, info := newMinimaxH3TestContext(t, `{
+		"model":"minimax-h3",
+		"prompt":"demo",
+		"duration":5,
+		"resolution":"1440p",
+		"ratio":"16:9",
+		"generate_audio":true
+	}`)
+	capability := info.ChannelSetting.VideoModelCapabilities["minimax-h3"]
+	capability.FirstFrameRequired = common.GetPointer(true)
+	info.ChannelSetting.VideoModelCapabilities["minimax-h3"] = capability
+
+	taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "invalid_first_image", taskErr.Code)
+	assert.Equal(t, dto.VideoParameterErrorData{
+		Parameter: "first_image",
+		Required:  common.GetPointer(true),
+	}, taskErr.Data)
 }
 
 func TestMinimaxH3UsesPlatformTaskIDAsUpstreamIdempotencyKey(t *testing.T) {
@@ -162,7 +193,7 @@ func TestMinimaxH3UsesPlatformTaskIDAsUpstreamIdempotencyKey(t *testing.T) {
 		ChannelMeta:   &relaycommon.ChannelMeta{},
 		TaskRelayInfo: &relaycommon.TaskRelayInfo{PublicTaskID: "task_public_123"},
 	}
-	info.ChannelSetting.VideoProtocol = dto.VideoProtocolMinimaxH3MegabyAI
+	info.ChannelSetting.VideoProtocol = dto.VideoProtocolMegabyAI
 
 	require.NoError(t, (&TaskAdaptor{apiKey: "upstream-key"}).BuildRequestHeader(ctx, request, info))
 	assert.Equal(t, "zmodel:task_public_123", request.Header.Get("Idempotency-Key"))
@@ -204,7 +235,7 @@ func TestMinimaxH3MultipartFilesAreCountedAndForwarded(t *testing.T) {
 		TaskRelayInfo: &relaycommon.TaskRelayInfo{},
 	}
 	info.UpstreamModelName = "minimax-h3"
-	configureTestVideoModel(info, dto.VideoProtocolMinimaxH3MegabyAI, "minimax-h3", []string{"1440p"}, 5, 0, 3, 5, 15)
+	configureTestVideoModel(info, dto.VideoProtocolMegabyAI, "minimax-h3", []string{"1440p"}, 5, 0, 3, 5, 15)
 	adaptor := &TaskAdaptor{}
 
 	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))

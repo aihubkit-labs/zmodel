@@ -3,6 +3,7 @@ package taskcommon
 import (
 	"encoding/base64"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -72,6 +73,18 @@ func BuildProxyURL(taskID string) string {
 	}
 	common.OptionMapRWMutex.RUnlock()
 	return fmt.Sprintf("%s/v1/videos/%s/content", strings.TrimRight(apiServerAddress, "/"), taskID)
+}
+
+// BuildGlobalAIOpcVideoTaskURL accepts either the service origin or the
+// commonly configured /kyyReactApiServer base path without duplicating it.
+func BuildGlobalAIOpcVideoTaskURL(baseURL, taskID string) string {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	baseURL = strings.TrimSuffix(baseURL, "/kyyReactApiServer")
+	taskURL := baseURL + "/kyyReactApiServer/v2/model-center/tasks"
+	if strings.TrimSpace(taskID) != "" {
+		taskURL += "/" + url.PathEscape(taskID)
+	}
+	return taskURL
 }
 
 // Status-to-progress mapping constants for polling updates.

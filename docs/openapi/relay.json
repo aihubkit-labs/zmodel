@@ -28,7 +28,7 @@
       "name": "视频生成"
     },
     {
-      "name": "视频生成/Sora兼容格式"
+      "name": "视频生成"
     },
     {
       "name": "视频生成/Kling格式"
@@ -547,10 +547,10 @@
       "post": {
         "summary": "创建视频 ",
         "deprecated": false,
-        "description": "统一视频生成接口。模型 ID、时长、分辨率、画幅和素材数量按所选渠道的后台模型映射与能力配置校验；客户响应和参数错误不会返回渠道内部协议或供应商标识。平台不会在运行时通过上游 /v1/models 改变客户模型合同。特定视频模型只接受文档列出的稳定字段，平台使用公开任务 ID 构造上游 Idempotency-Key。\n",
+        "description": "所有视频协议共用的统一视频生成接口。模型 ID、时长、分辨率、画幅和素材数量按所选渠道的后台模型映射与能力配置校验；上游路径、字段名、状态、任务 ID、结果地址和供应商扩展均由平台内部转换。客户响应和参数错误不会返回渠道内部协议或供应商标识。平台不会在运行时通过上游 /v1/models 改变客户模型合同。\n",
         "operationId": "createVideo",
         "tags": [
-          "视频生成/Sora兼容格式"
+          "视频生成"
         ],
         "parameters": [],
         "requestBody": {
@@ -562,7 +562,7 @@
                 "properties": {
                   "model": {
                     "description": "稳定公共模型名；平台按渠道模型映射替换为上游模型 ID",
-                    "example": "public-minimax-h3",
+                    "example": "video-model",
                     "type": "string"
                   },
                   "prompt": {
@@ -575,18 +575,13 @@
                     "example": 8,
                     "type": "integer"
                   },
-                  "seconds": {
-                    "description": "部分兼容协议使用的字符串时长；MiniMax 不接受该字段",
-                    "example": "8",
-                    "type": "string"
-                  },
                   "resolution": {
                     "description": "逻辑分辨率名称，所有已配置视频协议均要求传入，并按模型能力动态校验",
                     "example": "1440p",
                     "type": "string"
                   },
                   "ratio": {
-                    "description": "画幅；MiniMax 按模型能力动态校验",
+                    "description": "逻辑画幅，按模型能力动态校验",
                     "example": "16:9",
                     "type": "string"
                   },
@@ -615,27 +610,22 @@
                     }
                   },
                   "generate_audio": {
-                    "description": "MiniMax 原生音频开关；是否支持和是否必须为 true 由模型能力配置决定",
+                    "description": "原生音频开关；是否支持和是否必须为 true 由模型能力配置决定",
                     "type": "boolean"
                   },
                   "watermark": {
-                    "description": "MiniMax 水印开关",
+                    "description": "水印开关；仅在当前模型支持时传入",
                     "type": "boolean"
                   },
                   "first_image": {
-                    "description": "MiniMax 首帧 HTTP/HTTPS URL",
+                    "description": "首帧 HTTP/HTTPS URL；是否支持由模型能力决定",
                     "type": "string",
                     "format": "uri"
                   },
                   "last_image": {
-                    "description": "MiniMax 尾帧 HTTP/HTTPS URL；依赖关系由模型能力配置决定",
+                    "description": "尾帧 HTTP/HTTPS URL；支持性和依赖关系由模型能力决定",
                     "type": "string",
                     "format": "uri"
-                  },
-                  "provider_options": {
-                    "description": "协议扩展参数；命名空间由视频协议固定，不能覆盖公共、计费、鉴权或路由字段",
-                    "type": "object",
-                    "additionalProperties": true
                   }
                 },
                 "required": [
@@ -650,7 +640,7 @@
                 "properties": {
                   "model": {
                     "description": "稳定公共模型名",
-                    "example": "public-minimax-h3",
+                    "example": "video-model",
                     "type": "string"
                   },
                   "prompt": {
@@ -663,28 +653,23 @@
                     "example": "8",
                     "type": "string"
                   },
-                  "seconds": {
-                    "description": "兼容协议使用的字符串时长；MiniMax 不接受该字段",
-                    "example": "8",
-                    "type": "string"
-                  },
                   "resolution": {
                     "description": "动态配置的逻辑分辨率名称",
                     "example": "1440p",
                     "type": "string"
                   },
                   "ratio": {
-                    "description": "MiniMax 动态配置的画幅",
+                    "description": "按模型能力动态校验的逻辑画幅",
                     "example": "16:9",
                     "type": "string"
                   },
                   "generate_audio": {
-                    "description": "MiniMax 原生音频布尔值字符串",
+                    "description": "原生音频布尔值字符串；是否支持由模型能力决定",
                     "example": "true",
                     "type": "string"
                   },
                   "watermark": {
-                    "description": "MiniMax 水印布尔值字符串",
+                    "description": "水印布尔值字符串；是否支持由模型能力决定",
                     "example": "false",
                     "type": "string"
                   },
@@ -713,7 +698,7 @@
                     }
                   },
                   "referenceImageFiles": {
-                    "description": "MiniMax 普通参考图片文件；可重复提交该字段",
+                    "description": "普通参考图片文件；可重复提交该字段，是否支持 multipart 由模型能力决定",
                     "type": "array",
                     "items": {
                       "type": "string",
@@ -721,7 +706,7 @@
                     }
                   },
                   "referenceVideoFiles": {
-                    "description": "MiniMax 普通参考视频文件；是否支持取决于模型能力",
+                    "description": "普通参考视频文件；是否支持取决于模型能力",
                     "type": "array",
                     "items": {
                       "type": "string",
@@ -729,7 +714,7 @@
                     }
                   },
                   "referenceAudioFiles": {
-                    "description": "MiniMax 普通参考音频文件",
+                    "description": "普通参考音频文件；是否支持取决于模型能力",
                     "type": "array",
                     "items": {
                       "type": "string",
@@ -737,7 +722,7 @@
                     }
                   },
                   "first_image": {
-                    "description": "MiniMax 单个首帧 HTTP/HTTPS URL 或文件",
+                    "description": "单个首帧 HTTP/HTTPS URL 或文件；是否支持取决于模型能力",
                     "oneOf": [
                       {
                         "type": "string",
@@ -750,7 +735,7 @@
                     ]
                   },
                   "last_image": {
-                    "description": "MiniMax 单个尾帧 HTTP/HTTPS URL 或文件",
+                    "description": "单个尾帧 HTTP/HTTPS URL 或文件；是否支持取决于模型能力",
                     "oneOf": [
                       {
                         "type": "string",
@@ -761,11 +746,6 @@
                         "format": "binary"
                       }
                     ]
-                  },
-                  "input_reference": {
-                    "format": "binary",
-                    "type": "string",
-                    "description": "OpenAI/Sora 兼容协议的参考图片文件"
                   }
                 },
                 "required": [
@@ -782,87 +762,19 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string",
-                      "description": "视频 ID"
-                    },
-                    "object": {
-                      "type": "string",
-                      "description": "对象类型"
-                    },
-                    "model": {
-                      "type": "string",
-                      "description": "使用的模型"
-                    },
-                    "status": {
-                      "type": "string",
-                      "description": "任务状态"
-                    },
-                    "progress": {
-                      "type": "integer",
-                      "description": "进度百分比"
-                    },
-                    "created_at": {
-                      "type": "integer",
-                      "description": "创建时间戳"
-                    },
-                    "seconds": {
-                      "type": "string",
-                      "description": "视频时长"
-                    },
-                    "duration": {
-                      "type": "integer",
-                      "description": "标准化后的整数视频时长"
-                    },
-                    "resolution": {
-                      "type": "string",
-                      "description": "逻辑分辨率名称"
-                    },
-                    "ratio": {
-                      "type": "string",
-                      "description": "视频画幅"
-                    },
-                    "completed_at": {
-                      "type": "integer",
-                      "description": "完成时间戳"
-                    },
-                    "expires_at": {
-                      "type": "integer",
-                      "description": "过期时间戳"
-                    },
-                    "size": {
-                      "type": "string",
-                      "description": "视频尺寸"
-                    },
-                    "error": {
-                      "$ref": "#/components/schemas/OpenAIVideoError"
-                    },
-                    "metadata": {
-                      "type": "object",
-                      "description": "额外元数据",
-                      "additionalProperties": true,
-                      "properties": {}
-                    }
-                  },
-                  "required": [
-                    "id",
-                    "object",
-                    "model",
-                    "status",
-                    "progress",
-                    "created_at",
-                    "seconds"
-                  ]
+                  "$ref": "#/components/schemas/PublicVideoTask"
                 },
                 "example": {
-                  "id": "sora-2-123456",
+                  "id": "task_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "task_id": "task_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
                   "object": "video",
-                  "model": "sora-2",
+                  "model": "video-model",
                   "status": "queued",
                   "progress": 0,
-                  "created_at": 1764347090922,
+                  "created_at": 1774836724,
+                  "duration": 8,
+                  "resolution": "720p",
+                  "ratio": "16:9",
                   "seconds": "8"
                 }
               }
@@ -874,7 +786,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "$ref": "#/components/schemas/TaskError"
                 }
               }
             },
@@ -892,10 +804,10 @@
       "get": {
         "summary": "获取视频任务状态 ",
         "deprecated": false,
-        "description": "OpenAI 兼容的视频任务状态查询接口。\n\n返回视频任务的详细状态信息。任务完成后，所有视频地址统一返回平台 `/v1/videos/{task_id}/content` 接口；S3 优先、平台流式代理或重定向到上游地址的动态选择仅在访问该内容接口时执行。\n",
+        "description": "所有视频协议共用的任务状态查询接口。返回平台规范字段，不返回上游任务 ID、供应商扩展或真实结果地址。任务完成后，所有视频地址统一返回平台 `/v1/videos/{task_id}/content` 接口；S3 优先、平台流式代理或重定向到上游地址的动态选择仅在访问该内容接口时执行。\n",
         "operationId": "getVideo",
         "tags": [
-          "视频生成/Sora兼容格式"
+          "视频生成"
         ],
         "parameters": [
           {
@@ -903,7 +815,7 @@
             "in": "path",
             "description": "视频任务 ID",
             "required": true,
-            "example": "sora-2-123456",
+            "example": "task_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
             "schema": {
               "type": "string"
             }
@@ -915,81 +827,31 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "object": {
-                      "type": "string"
-                    },
-                    "model": {
-                      "type": "string"
-                    },
-                    "status": {
-                      "type": "string"
-                    },
-                    "progress": {
-                      "type": "integer"
-                    },
-                    "created_at": {
-                      "type": "integer"
-                    },
-                    "seconds": {
-                      "type": "string"
-                    },
-                    "duration": {
-                      "type": "integer",
-                      "description": "标准化后的整数视频时长"
-                    },
-                    "resolution": {
-                      "type": "string",
-                      "description": "逻辑分辨率名称"
-                    },
-                    "ratio": {
-                      "type": "string",
-                      "description": "视频画幅"
-                    },
-                    "url": {
-                      "type": "string",
-                      "format": "uri",
-                      "description": "平台视频内容接口地址，固定为 /v1/videos/{task_id}/content"
-                    },
-                    "video_url": {
-                      "type": "string",
-                      "format": "uri",
-                      "description": "兼容字段；存在时与 url 指向同一个平台视频内容接口"
-                    }
-                  },
-                  "required": [
-                    "id",
-                    "object",
-                    "model",
-                    "status",
-                    "progress",
-                    "created_at",
-                    "seconds"
-                  ]
+                  "$ref": "#/components/schemas/PublicVideoTask"
                 },
                 "example": {
-                  "id": "sora-2-123456",
+                  "id": "task_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "task_id": "task_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
                   "object": "video",
-                  "model": "sora-2",
+                  "model": "video-model",
                   "status": "queued",
                   "progress": 0,
-                  "created_at": 1764347090922,
+                  "created_at": 1774836724,
+                  "duration": 8,
+                  "resolution": "720p",
+                  "ratio": "16:9",
                   "seconds": "8"
                 }
               }
             },
             "headers": {}
           },
-          "404": {
-            "description": "任务不存在",
+          "400": {
+            "description": "任务不存在、无权访问或请求参数无效",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "$ref": "#/components/schemas/TaskError"
                 }
               }
             },
@@ -1010,7 +872,7 @@
         "description": "获取已完成视频任务的视频内容。任务查询返回的视频地址、客户端复制的视频地址、播放器地址和下载入口均应使用本平台接口；重定向时返回的 S3 签名地址或上游地址只是临时传输目标，不应作为业务字段保存、展示或复制。每次访问都会读取渠道当前配置：S3 优先且对象可用时重定向到 S3 签名地址；否则开启代理视频内容时由平台流式返回上游视频；关闭代理时重定向到上游 HTTPS 地址。上游结果为 data URI 时由平台直接输出。\n",
         "operationId": "getVideoContent",
         "tags": [
-          "视频生成/Sora兼容格式"
+          "视频生成"
         ],
         "parameters": [
           {
@@ -1153,11 +1015,7 @@
             }
           }
         },
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ]
+        "security": []
       }
     },
     "/kling/v1/videos/text2video": {
@@ -4659,9 +4517,9 @@
           }
         }
       },
-      "OpenAIVideo": {
+      "PublicVideoTask": {
         "type": "object",
-        "description": "OpenAI 兼容的视频对象",
+        "description": "统一视频任务对象；未产生或不适用的可选字段会被省略",
         "properties": {
           "id": {
             "type": "string",
@@ -4670,8 +4528,7 @@
           },
           "task_id": {
             "type": "string",
-            "description": "任务 ID (兼容旧接口)",
-            "deprecated": true
+            "description": "兼容字段；与 id 相同"
           },
           "object": {
             "type": "string",
@@ -4681,7 +4538,7 @@
           "model": {
             "type": "string",
             "description": "使用的模型",
-            "example": "sora"
+            "example": "video-model"
           },
           "status": {
             "type": "string",
@@ -4701,11 +4558,11 @@
           },
           "created_at": {
             "type": "integer",
-            "description": "创建时间戳"
+            "description": "创建时间戳，Unix 秒"
           },
           "completed_at": {
             "type": "integer",
-            "description": "完成时间戳"
+            "description": "完成或失败时间戳，Unix 秒"
           },
           "expires_at": {
             "type": "integer",
@@ -4713,7 +4570,7 @@
           },
           "seconds": {
             "type": "string",
-            "description": "视频时长"
+            "description": "历史兼容字段；与 duration 表达相同秒数"
           },
           "duration": {
             "type": "integer",
@@ -4729,26 +4586,35 @@
           },
           "size": {
             "type": "string",
-            "description": "视频尺寸"
+            "description": "历史兼容字段；具体像素尺寸，例如 1280x720"
           },
-          "remixed_from_video_id": {
+          "url": {
             "type": "string",
-            "description": "源视频 ID（如果是基于其他视频生成）"
+            "format": "uri",
+            "description": "任务完成后指向平台 /v1/videos/{task_id}/content"
+          },
+          "video_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "兼容字段；存在时与 url 相同"
           },
           "error": {
-            "$ref": "#/components/schemas/OpenAIVideoError"
-          },
-          "metadata": {
-            "type": "object",
-            "description": "额外元数据",
-            "additionalProperties": true,
-            "properties": {}
+            "$ref": "#/components/schemas/PublicVideoTaskError"
           }
-        }
+        },
+        "required": [
+          "id",
+          "task_id",
+          "object",
+          "model",
+          "status",
+          "progress",
+          "created_at"
+        ]
       },
-      "OpenAIVideoError": {
+      "PublicVideoTaskError": {
         "type": "object",
-        "description": "OpenAI 视频错误信息",
+        "description": "失败视频任务的公开错误信息",
         "properties": {
           "message": {
             "type": "string",
@@ -4759,6 +4625,78 @@
             "description": "错误码"
           }
         }
+      },
+      "TaskError": {
+        "type": "object",
+        "description": "视频任务创建或查询的同步错误",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "稳定错误码"
+          },
+          "message": {
+            "type": "string",
+            "description": "错误信息"
+          },
+          "data": {
+            "nullable": true,
+            "description": "参数类错误的结构化合法值或范围；非参数错误可为 null",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/VideoParameterErrorData"
+              },
+              {
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ]
+      },
+      "VideoParameterErrorData": {
+        "type": "object",
+        "description": "视频参数错误的结构化详情，不包含渠道内部协议、供应商或上游模型映射信息",
+        "properties": {
+          "parameter": {
+            "type": "string",
+            "description": "出错的公共参数名"
+          },
+          "received": {
+            "description": "客户端实际提交的值或数量"
+          },
+          "allowed_values": {
+            "type": "array",
+            "description": "当前模型支持的合法值",
+            "items": {}
+          },
+          "minimum": {
+            "type": "integer",
+            "format": "int64",
+            "description": "合法最小值"
+          },
+          "maximum": {
+            "type": "integer",
+            "format": "int64",
+            "description": "合法最大值"
+          },
+          "required": {
+            "type": "boolean",
+            "description": "参数是否必填"
+          },
+          "related_parameters": {
+            "type": "array",
+            "description": "与错误组合相关的其他公共参数",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "parameter"
+        ]
       },
       "ApiResponse": {
         "type": "object",
