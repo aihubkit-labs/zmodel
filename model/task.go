@@ -220,6 +220,23 @@ type TaskFilterOptions struct {
 	Models    []string `json:"models"`
 }
 
+func taskModelExpression(includeUpstreamFallback bool) string {
+	originModelExpression := "json_extract(properties, '$.origin_model_name')"
+	upstreamModelExpression := "json_extract(properties, '$.upstream_model_name')"
+	switch {
+	case common.UsingMainDatabase(common.DatabaseTypePostgreSQL):
+		originModelExpression = "properties ->> 'origin_model_name'"
+		upstreamModelExpression = "properties ->> 'upstream_model_name'"
+	case common.UsingMainDatabase(common.DatabaseTypeMySQL):
+		originModelExpression = "JSON_UNQUOTE(JSON_EXTRACT(properties, '$.origin_model_name'))"
+		upstreamModelExpression = "JSON_UNQUOTE(JSON_EXTRACT(properties, '$.upstream_model_name'))"
+	}
+	if !includeUpstreamFallback {
+		return originModelExpression
+	}
+	return "COALESCE(NULLIF(" + originModelExpression + ", ''), " + upstreamModelExpression + ")"
+}
+
 func GetTaskFilterOptions(userID *int) (TaskFilterOptions, error) {
 	options := TaskFilterOptions{
 		Usernames: []string{},
@@ -242,13 +259,7 @@ func GetTaskFilterOptions(userID *int) (TaskFilterOptions, error) {
 		return options, err
 	}
 
-	modelExpression := "COALESCE(NULLIF(json_extract(properties, '$.origin_model_name'), ''), json_extract(properties, '$.upstream_model_name'))"
-	switch {
-	case common.UsingMainDatabase(common.DatabaseTypePostgreSQL):
-		modelExpression = "COALESCE(NULLIF(properties ->> 'origin_model_name', ''), properties ->> 'upstream_model_name')"
-	case common.UsingMainDatabase(common.DatabaseTypeMySQL):
-		modelExpression = "COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(properties, '$.origin_model_name')), ''), JSON_UNQUOTE(JSON_EXTRACT(properties, '$.upstream_model_name')))"
-	}
+	modelExpression := taskModelExpression(userID == nil)
 	type modelOption struct {
 		Model string `gorm:"column:model"`
 	}
@@ -314,14 +325,7 @@ func applyTaskQueryFilters(query *gorm.DB, queryParams SyncTaskQueryParams, incl
 		query = query.Where(commonGroupCol+" = ?", queryParams.Group)
 	}
 	if queryParams.Model != "" {
-		switch {
-		case common.UsingMainDatabase(common.DatabaseTypePostgreSQL):
-			query = query.Where("COALESCE(NULLIF(properties ->> 'origin_model_name', ''), properties ->> 'upstream_model_name') = ?", queryParams.Model)
-		case common.UsingMainDatabase(common.DatabaseTypeMySQL):
-			query = query.Where("COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(properties, '$.origin_model_name')), ''), JSON_UNQUOTE(JSON_EXTRACT(properties, '$.upstream_model_name'))) = ?", queryParams.Model)
-		default:
-			query = query.Where("COALESCE(NULLIF(json_extract(properties, '$.origin_model_name'), ''), json_extract(properties, '$.upstream_model_name')) = ?", queryParams.Model)
-		}
+		query = query.Where(taskModelExpression(includeAdminFilters)+" = ?", queryParams.Model)
 	}
 	if queryParams.StartTimestamp != 0 {
 		query = query.Where("submit_time >= ?", queryParams.StartTimestamp)

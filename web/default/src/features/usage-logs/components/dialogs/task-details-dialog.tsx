@@ -229,7 +229,7 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
   })
   const model =
     props.log.properties?.origin_model_name ||
-    props.log.properties?.upstream_model_name ||
+    (props.isAdmin ? props.log.properties?.upstream_model_name : undefined) ||
     '-'
   const request = parseJSONValue(props.log.properties?.input)
   const response = parseJSONValue(props.log.data)

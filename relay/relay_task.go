@@ -669,6 +669,10 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 		resultURL = videoTaskPublicURL(task)
 		data = publicVideoTaskData(task)
 	}
+	properties := task.Properties
+	// TaskModel2Dto serves user-facing relay responses. The provider's actual
+	// model ID is routing metadata and must only be restored by admin handlers.
+	properties.UpstreamModelName = ""
 
 	return &dto.TaskDto{
 		ID:           task.ID,
@@ -689,7 +693,7 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 		StartTime:    task.StartTime,
 		FinishTime:   task.FinishTime,
 		Progress:     progress,
-		Properties:   task.Properties,
+		Properties:   properties,
 		Username:     task.Username,
 		Data:         data,
 	}
