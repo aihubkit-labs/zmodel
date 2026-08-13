@@ -215,8 +215,6 @@ export function VideoModelCapabilitiesField(
               capability.model?.trim().toLowerCase() || ''
             )
             const supportsDuration = capability.supports_duration !== false
-            const supportsFirstFrame = capability.supports_first_frame === true
-            const supportsLastFrame = capability.supports_last_frame === true
             const supportsSeed = capability.supports_seed === true
 
             return (
@@ -519,16 +517,6 @@ export function VideoModelCapabilitiesField(
                           ['supports_watermark', 'Supports watermark'],
                         ] as const
                       ).map(([name, label]) => {
-                        const disabled =
-                          (name === 'duration_required' && !supportsDuration) ||
-                          (name === 'generate_audio_required' &&
-                            capability.supports_generate_audio !== true) ||
-                          (name === 'first_frame_required' &&
-                            !supportsFirstFrame) ||
-                          (name === 'last_frame_required' &&
-                            !supportsLastFrame) ||
-                          (name === 'last_frame_requires_first_frame' &&
-                            (!supportsFirstFrame || !supportsLastFrame))
                         return (
                           <FormField
                             key={name}
@@ -542,10 +530,62 @@ export function VideoModelCapabilitiesField(
                                 <FormControl>
                                   <Switch
                                     checked={field.value ?? false}
-                                    disabled={props.readOnly || disabled}
+                                    disabled={props.readOnly}
                                     onCheckedChange={(checked) => {
                                       field.onChange(checked)
-                                      if (checked) return
+                                      if (checked) {
+                                        if (name === 'duration_required') {
+                                          form.setValue(
+                                            `video_model_capabilities.${index}.supports_duration`,
+                                            true,
+                                            {
+                                              shouldDirty: true,
+                                              shouldValidate: true,
+                                            }
+                                          )
+                                        }
+                                        if (
+                                          name === 'generate_audio_required'
+                                        ) {
+                                          form.setValue(
+                                            `video_model_capabilities.${index}.supports_generate_audio`,
+                                            true,
+                                            {
+                                              shouldDirty: true,
+                                              shouldValidate: true,
+                                            }
+                                          )
+                                        }
+                                        if (
+                                          name === 'first_frame_required' ||
+                                          name ===
+                                            'last_frame_requires_first_frame'
+                                        ) {
+                                          form.setValue(
+                                            `video_model_capabilities.${index}.supports_first_frame`,
+                                            true,
+                                            {
+                                              shouldDirty: true,
+                                              shouldValidate: true,
+                                            }
+                                          )
+                                        }
+                                        if (
+                                          name === 'last_frame_required' ||
+                                          name ===
+                                            'last_frame_requires_first_frame'
+                                        ) {
+                                          form.setValue(
+                                            `video_model_capabilities.${index}.supports_last_frame`,
+                                            true,
+                                            {
+                                              shouldDirty: true,
+                                              shouldValidate: true,
+                                            }
+                                          )
+                                        }
+                                        return
+                                      }
                                       if (name === 'supports_duration') {
                                         form.setValue(
                                           `video_model_capabilities.${index}.duration_required`,
