@@ -427,14 +427,18 @@ URL 查询参数中的敏感值必须在写入数据库前脱敏；诊断数据�
 
 视频地址按以下明确顺序读取：
 
-1. 响应顶层 `url`；
-2. Grok 官方任务详情结构中的 `video.url`；
-3. 响应顶层 `video_url`；
-4. `metadata.url`；
-5. `metadata.content_url`；
-6. `metadata.local_url`；
-7. `metadata.video_url`；
-8. `metadata.final_video_url`。
+1. 响应顶层 `result_url`；
+2. 响应顶层 `url`；
+3. Grok 官方任务详情结构中的 `video.url`；
+4. 响应顶层 `video_url`；
+5. `metadata.url`；
+6. `metadata.content_url`；
+7. `metadata.local_url`；
+8. `metadata.video_url`；
+9. `metadata.final_video_url`。
+
+解析时跳过非 URL 占位值，避免靠前的无效字段遮蔽后面的有效视频地址。以 `/`、`./` 或 `../`
+开头的相对地址仅在没有绝对地址时使用，并基于本次任务详情请求地址转换为绝对地址。
 
 不读取数据库快照、`metadata.origin_video_url` 或其他未定义的嵌套 URL 字段。
 
