@@ -298,35 +298,52 @@ func fetchOpenAIVideoTaskURLContext(ctx context.Context, client *http.Client, ba
 	if err := common.DecodeJson(resp.Body, &taskDetail); err != nil {
 		return "", fmt.Errorf("failed to decode task detail response: %w", err)
 	}
-	videoURL := strings.TrimSpace(taskDetail.ResultURL)
-	if videoURL == "" {
-		videoURL = strings.TrimSpace(taskDetail.URL)
+	candidates := []string{
+		taskDetail.ResultURL,
+		taskDetail.URL,
+		taskDetail.Video.URL,
+		taskDetail.VideoURL,
+		taskDetail.Metadata.URL,
+		taskDetail.Metadata.ContentURL,
+		taskDetail.Metadata.LocalURL,
+		taskDetail.Metadata.VideoURL,
+		taskDetail.Metadata.FinalVideoURL,
 	}
-	if videoURL == "" {
-		videoURL = strings.TrimSpace(taskDetail.Video.URL)
+	var relativeURL string
+	sawCandidate := false
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		sawCandidate = true
+		parsedCandidate, parseErr := url.Parse(candidate)
+		if parseErr != nil {
+			continue
+		}
+		if parsedCandidate.Scheme == "data" {
+			return candidate, nil
+		}
+		if (parsedCandidate.Scheme == "http" || parsedCandidate.Scheme == "https") && parsedCandidate.Host != "" {
+			return candidate, nil
+		}
+		if relativeURL == "" && (strings.HasPrefix(candidate, "/") || strings.HasPrefix(candidate, "./") || strings.HasPrefix(candidate, "../")) {
+			relativeURL = candidate
+		}
 	}
-	if videoURL == "" {
-		videoURL = strings.TrimSpace(taskDetail.VideoURL)
+	if relativeURL != "" {
+		parsedTaskDetailURL, parseErr := url.Parse(taskDetailURL)
+		if parseErr == nil {
+			parsedRelativeURL, relativeErr := url.Parse(relativeURL)
+			if relativeErr == nil {
+				return parsedTaskDetailURL.ResolveReference(parsedRelativeURL).String(), nil
+			}
+		}
 	}
-	if videoURL == "" {
-		videoURL = strings.TrimSpace(taskDetail.Metadata.URL)
-	}
-	if videoURL == "" {
-		videoURL = strings.TrimSpace(taskDetail.Metadata.ContentURL)
-	}
-	if videoURL == "" {
-		videoURL = strings.TrimSpace(taskDetail.Metadata.LocalURL)
-	}
-	if videoURL == "" {
-		videoURL = strings.TrimSpace(taskDetail.Metadata.VideoURL)
-	}
-	if videoURL == "" {
-		videoURL = strings.TrimSpace(taskDetail.Metadata.FinalVideoURL)
-	}
-	if videoURL == "" {
+	if !sawCandidate {
 		return "", fmt.Errorf("Task detail response does not contain url")
 	}
-	return videoURL, nil
+	return "", fmt.Errorf("Task detail response contains an invalid url")
 }
 
 func validateVideoFetchURL(rawURL, proxy string) error {

@@ -706,6 +706,11 @@ func TestFetchOpenAIVideoTaskURLSupportsKnownCompatibleFields(t *testing.T) {
 			expected: "https://video.example/final.mp4",
 		},
 		{
+			name:     "invalid earlier candidate",
+			response: `{"result_url":"pending","url":"https://video.example/ready.mp4"}`,
+			expected: "https://video.example/ready.mp4",
+		},
+		{
 			name: "explicit field precedence",
 			response: `{
 				"url":"https://video.example/url.mp4",
@@ -743,6 +748,32 @@ func TestFetchOpenAIVideoTaskURLSupportsKnownCompatibleFields(t *testing.T) {
 			assert.Equal(t, test.expected, videoURL)
 		})
 	}
+}
+
+func TestFetchOpenAIVideoTaskURLResolvesRelativeContentURL(t *testing.T) {
+	setupVideoProxyTest(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"url":"/v1/videos/task_upstream/content"}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task_public/content", nil)
+
+	videoURL, err := fetchOpenAIVideoTaskURL(
+		context,
+		service.GetSSRFProtectedHTTPClient(),
+		upstream.URL,
+		"task_upstream",
+		"channel-key",
+		"",
+		dto.VideoProtocolMegabyAI,
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, upstream.URL+"/v1/videos/task_upstream/content", videoURL)
 }
 
 func TestFetchOpenAIVideoTaskURLUsesGlobalAIOpcQueryPath(t *testing.T) {
