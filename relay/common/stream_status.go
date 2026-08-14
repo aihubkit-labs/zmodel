@@ -29,9 +29,10 @@ type StreamErrorEntry struct {
 }
 
 type StreamStatus struct {
-	EndReason  StreamEndReason
-	EndError   error
-	endOnce    sync.Once
+	EndReason StreamEndReason
+	EndError  error
+	endOnce   sync.Once
+	endMu     sync.Mutex
 
 	mu         sync.Mutex
 	Errors     []StreamErrorEntry
@@ -47,9 +48,27 @@ func (s *StreamStatus) SetEndReason(reason StreamEndReason, err error) {
 		return
 	}
 	s.endOnce.Do(func() {
+		s.endMu.Lock()
+		defer s.endMu.Unlock()
 		s.EndReason = reason
 		s.EndError = err
 	})
+}
+
+// OverrideNormalEnd records a late delivery failure after the upstream already
+// reported done/eof. This is used for final buffered frames that are written
+// only after the upstream scanner has completed.
+func (s *StreamStatus) OverrideNormalEnd(reason StreamEndReason, err error) {
+	if s == nil || err == nil {
+		return
+	}
+	s.endMu.Lock()
+	defer s.endMu.Unlock()
+	if s.EndReason != StreamEndReasonDone && s.EndReason != StreamEndReasonEOF {
+		return
+	}
+	s.EndReason = reason
+	s.EndError = err
 }
 
 func (s *StreamStatus) RecordError(msg string) {

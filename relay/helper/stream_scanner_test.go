@@ -173,6 +173,49 @@ func TestStreamScannerHandler_StopStopsStream(t *testing.T) {
 	assert.Equal(t, relaycommon.StreamEndReasonHandlerStop, info.StreamStatus.EndReason)
 }
 
+func TestStreamScannerHandler_DoneWaitsForPendingWrite(t *testing.T) {
+	pr, pw := io.Pipe()
+	t.Cleanup(func() {
+		_ = pr.Close()
+		_ = pw.Close()
+	})
+	c, resp, info := setupStreamTest(t, pr)
+
+	handlerStarted := make(chan struct{})
+	releaseHandler := make(chan struct{})
+	handlerDone := make(chan struct{})
+	go func() {
+		StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+			close(handlerStarted)
+			<-releaseHandler
+			sr.Stop(io.ErrShortWrite)
+		})
+		close(handlerDone)
+	}()
+
+	_, err := fmt.Fprint(pw, "data: image\n")
+	require.NoError(t, err)
+	select {
+	case <-handlerStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for data handler")
+	}
+
+	_, err = fmt.Fprint(pw, "data: [DONE]\n")
+	require.NoError(t, err)
+	require.NoError(t, pw.Close())
+	close(releaseHandler)
+
+	select {
+	case <-handlerDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stream handler did not return")
+	}
+	require.NotNil(t, info.StreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonHandlerStop, info.StreamStatus.EndReason)
+	assert.ErrorIs(t, info.StreamStatus.EndError, io.ErrShortWrite)
+}
+
 func TestStreamScannerHandler_SkipsNonDataLines(t *testing.T) {
 	t.Parallel()
 

@@ -37,6 +37,30 @@ func TestStreamStatus_SetEndReason_NilSafe(t *testing.T) {
 	s.SetEndReason(StreamEndReasonDone, nil)
 }
 
+func TestStreamStatus_OverrideNormalEnd(t *testing.T) {
+	t.Parallel()
+	s := NewStreamStatus()
+	s.SetEndReason(StreamEndReasonDone, nil)
+	expectedErr := fmt.Errorf("write deadline exceeded")
+
+	s.OverrideNormalEnd(StreamEndReasonHandlerStop, expectedErr)
+
+	assert.Equal(t, StreamEndReasonHandlerStop, s.EndReason)
+	assert.ErrorIs(t, s.EndError, expectedErr)
+}
+
+func TestStreamStatus_OverrideNormalEndPreservesExistingFailure(t *testing.T) {
+	t.Parallel()
+	s := NewStreamStatus()
+	originalErr := fmt.Errorf("client disconnected")
+	s.SetEndReason(StreamEndReasonClientGone, originalErr)
+
+	s.OverrideNormalEnd(StreamEndReasonHandlerStop, fmt.Errorf("late write failed"))
+
+	assert.Equal(t, StreamEndReasonClientGone, s.EndReason)
+	assert.ErrorIs(t, s.EndError, originalErr)
+}
+
 func TestStreamStatus_SetEndReason_Concurrent(t *testing.T) {
 	t.Parallel()
 	s := NewStreamStatus()
