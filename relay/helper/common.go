@@ -3,6 +3,7 @@ package helper
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
@@ -13,6 +14,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
+
+const streamWriteChunkSize = 32 << 10
 
 func FlushWriter(c *gin.Context) (err error) {
 	defer func() {
@@ -60,28 +63,18 @@ func SetEventStreamHeaders(c *gin.Context) {
 
 func ClaudeData(c *gin.Context, resp dto.ClaudeResponse) error {
 	if requestContextDone(c) {
-		return nil
+		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
 
 	jsonData, err := common.Marshal(resp)
 	if err != nil {
-		common.SysError("error marshalling stream response: " + err.Error())
-	} else {
-		c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
-		c.Render(-1, common.CustomEvent{Data: "data: " + string(jsonData)})
+		return fmt.Errorf("error marshalling stream response: %w", err)
 	}
-	_ = FlushWriter(c)
-	return nil
+	return writeEventStream(c, fmt.Sprintf("event: %s\n", resp.Type), "data: ", string(jsonData), "\n\n")
 }
 
 func ClaudeChunkData(c *gin.Context, resp dto.ClaudeResponse, data string) {
-	if requestContextDone(c) {
-		return
-	}
-
-	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
-	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("data: %s\n", data)})
-	_ = FlushWriter(c)
+	_ = writeEventStream(c, fmt.Sprintf("event: %s\n", resp.Type), "data: ", data, "\n\n\n")
 }
 
 func ResponseChunkData(c *gin.Context, resp dto.ResponsesStreamResponse, data string) error {
@@ -89,9 +82,7 @@ func ResponseChunkData(c *gin.Context, resp dto.ResponsesStreamResponse, data st
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
 
-	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
-	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("data: %s", data)})
-	return FlushWriter(c)
+	return writeEventStream(c, fmt.Sprintf("event: %s\n", resp.Type), "data: ", data, "\n\n")
 }
 
 func StringData(c *gin.Context, str string) error {
@@ -103,7 +94,40 @@ func StringData(c *gin.Context, str string) error {
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
 
-	c.Render(-1, common.CustomEvent{Data: "data: " + str})
+	return writeEventStream(c, "data: ", str, "\n\n")
+}
+
+// writeEventStream refreshes the connection deadline while a large SSE frame
+// is making progress. Image responses can contain tens of megabytes of base64
+// in one event; treating the whole event as one write incorrectly turns the
+// per-write safety deadline into a total transfer deadline.
+func writeEventStream(c *gin.Context, fragments ...string) error {
+	if c == nil || c.Writer == nil {
+		return errors.New("context or writer is nil")
+	}
+	if requestContextDone(c) {
+		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
+	}
+
+	SetEventStreamHeaders(c)
+	for _, fragment := range fragments {
+		for len(fragment) > 0 {
+			if requestContextDone(c) {
+				return fmt.Errorf("request context done: %w", c.Request.Context().Err())
+			}
+			chunkSize := min(len(fragment), streamWriteChunkSize)
+			ExtendWriteDeadline(c)
+			n, err := c.Writer.Write([]byte(fragment[:chunkSize]))
+			if err != nil {
+				return fmt.Errorf("write stream data failed: %w", err)
+			}
+			if n != chunkSize {
+				return fmt.Errorf("write stream data failed: %w", io.ErrShortWrite)
+			}
+			fragment = fragment[chunkSize:]
+		}
+	}
+	ExtendWriteDeadline(c)
 	return FlushWriter(c)
 }
 
