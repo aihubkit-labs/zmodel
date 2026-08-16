@@ -1,6 +1,7 @@
 package common
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -141,6 +142,20 @@ func TestTaskSubmitReqSnapshotKeepsSafeMediaURLsAndOmitsInlineData(t *testing.T)
 	assert.Equal(t, "[omitted]", snapshot.Metadata["inline_data"])
 	assert.Equal(t, 42, snapshot.Metadata["seed"])
 	assert.Equal(t, []interface{}{"https://example.com/asset.png", "[omitted]"}, snapshot.Metadata["assets"])
+}
+
+func TestTaskSubmitReqSnapshotKeepsUpToFiftyMediaURLs(t *testing.T) {
+	referenceImages := make([]string, 0, 51)
+	for i := range 51 {
+		referenceImages = append(referenceImages, fmt.Sprintf("https://example.com/reference-%d.jpg", i))
+	}
+
+	snapshot := (TaskSubmitReq{ReferenceImages: referenceImages}).Snapshot()
+
+	assert.Equal(t, 51, snapshot.MediaCounts.ReferenceImages)
+	require.Len(t, snapshot.ReferenceImages, 50)
+	assert.Equal(t, "https://example.com/reference-0.jpg", snapshot.ReferenceImages[0])
+	assert.Equal(t, "https://example.com/reference-49.jpg", snapshot.ReferenceImages[49])
 }
 
 // TestTaskDurationBounds guards the billing invariant that user-supplied
