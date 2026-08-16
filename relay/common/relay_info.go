@@ -829,7 +829,7 @@ func uniqueTaskSnapshotValues(values []string) []string {
 }
 
 func taskSnapshotMediaURLs(values []string) []string {
-	const maxURLs = 20
+	const maxURLs = 50
 	urls := make([]string, 0, min(len(values), maxURLs))
 	for _, value := range values {
 		value = strings.TrimSpace(value)
