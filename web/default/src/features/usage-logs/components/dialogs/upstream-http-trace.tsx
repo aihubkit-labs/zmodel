@@ -85,24 +85,37 @@ function HTTPExchange(props: {
   )
 }
 
-export function UpstreamHTTPTrace(props: { trace: TaskUpstreamHTTPTrace }) {
+export function UpstreamHTTPTrace(props: { trace?: TaskUpstreamHTTPTrace }) {
   const { t } = useTranslation()
+
+  const hasTrace = Boolean(
+    props.trace?.submit_request ||
+    props.trace?.submit_response ||
+    props.trace?.poll_request ||
+    props.trace?.poll_response
+  )
 
   return (
     <section className='space-y-3'>
       <h3 className='text-sm font-medium'>{t('Upstream HTTP diagnostics')}</h3>
-      <div className='space-y-3'>
-        <HTTPExchange
-          title={t('Task submission')}
-          request={props.trace.submit_request}
-          response={props.trace.submit_response}
-        />
-        <HTTPExchange
-          title={t('Failed task polling')}
-          request={props.trace.poll_request}
-          response={props.trace.poll_response}
-        />
-      </div>
+      {hasTrace ? (
+        <div className='space-y-3'>
+          <HTTPExchange
+            title={t('Task submission')}
+            request={props.trace?.submit_request}
+            response={props.trace?.submit_response}
+          />
+          <HTTPExchange
+            title={t('Task polling')}
+            request={props.trace?.poll_request}
+            response={props.trace?.poll_response}
+          />
+        </div>
+      ) : (
+        <p className='text-muted-foreground rounded-md border px-3 py-4 text-sm'>
+          {t('No upstream HTTP diagnostics recorded')}
+        </p>
+      )}
     </section>
   )
 }

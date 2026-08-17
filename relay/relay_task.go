@@ -570,9 +570,7 @@ func tryRealtimeFetch(task *model.Task, isOpenAIVideoAPI bool) []byte {
 	if task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure {
 		task.Progress = taskcommon.ProgressComplete
 	}
-	if task.Status == model.TaskStatusSuccess {
-		task.PrivateData.UpstreamHTTPTrace = nil
-	} else if task.Status == model.TaskStatusFailure {
+	if task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure {
 		if task.PrivateData.UpstreamHTTPTrace == nil {
 			task.PrivateData.UpstreamHTTPTrace = &dto.TaskUpstreamHTTPTrace{}
 		}

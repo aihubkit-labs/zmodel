@@ -1635,6 +1635,9 @@ Object.assign(newKeys.en, {
   'Upstream HTTP diagnostics': 'Upstream HTTP diagnostics',
   'Task submission': 'Task submission',
   'Failed task polling': 'Failed task polling',
+  'Task polling': 'Task polling',
+  'No upstream HTTP diagnostics recorded':
+    'No upstream HTTP diagnostics recorded',
   'Content truncated at 64 KiB': 'Content truncated at 64 KiB',
   'Transport error': 'Transport error',
 })
@@ -1642,6 +1645,8 @@ Object.assign(newKeys.zh, {
   'Upstream HTTP diagnostics': '上游 HTTP 诊断',
   'Task submission': '提交任务',
   'Failed task polling': '失败任务轮询',
+  'Task polling': '任务轮询',
+  'No upstream HTTP diagnostics recorded': '未记录上游 HTTP 诊断信息',
   'Content truncated at 64 KiB': '内容已在 64 KiB 处截断',
   'Transport error': '传输错误',
 })
@@ -1649,6 +1654,8 @@ Object.assign(newKeys['zh-TW'], {
   'Upstream HTTP diagnostics': '上游 HTTP 診斷',
   'Task submission': '提交任務',
   'Failed task polling': '失敗任務輪詢',
+  'Task polling': '任務輪詢',
+  'No upstream HTTP diagnostics recorded': '未記錄上游 HTTP 診斷資訊',
   'Content truncated at 64 KiB': '內容已在 64 KiB 處截斷',
   'Transport error': '傳輸錯誤',
 })
@@ -1656,6 +1663,9 @@ Object.assign(newKeys.fr, {
   'Upstream HTTP diagnostics': 'Diagnostic HTTP en amont',
   'Task submission': 'Envoi de la tâche',
   'Failed task polling': 'Interrogation de la tâche échouée',
+  'Task polling': 'Interrogation de la tâche',
+  'No upstream HTTP diagnostics recorded':
+    'Aucun diagnostic HTTP en amont enregistré',
   'Content truncated at 64 KiB': 'Contenu tronqué à 64 Kio',
   'Transport error': 'Erreur de transport',
 })
@@ -1663,6 +1673,8 @@ Object.assign(newKeys.ja, {
   'Upstream HTTP diagnostics': '上流 HTTP 診断',
   'Task submission': 'タスク送信',
   'Failed task polling': '失敗タスクのポーリング',
+  'Task polling': 'タスクのポーリング',
+  'No upstream HTTP diagnostics recorded': '上流 HTTP 診断は記録されていません',
   'Content truncated at 64 KiB': 'コンテンツは 64 KiB で切り詰められました',
   'Transport error': '通信エラー',
 })
@@ -1670,6 +1682,9 @@ Object.assign(newKeys.ru, {
   'Upstream HTTP diagnostics': 'Диагностика HTTP вышестоящего сервиса',
   'Task submission': 'Отправка задачи',
   'Failed task polling': 'Опрос завершившейся с ошибкой задачи',
+  'Task polling': 'Опрос задачи',
+  'No upstream HTTP diagnostics recorded':
+    'Диагностика HTTP вышестоящего сервиса не записана',
   'Content truncated at 64 KiB': 'Содержимое обрезано до 64 КиБ',
   'Transport error': 'Ошибка передачи',
 })
@@ -1677,6 +1692,9 @@ Object.assign(newKeys.vi, {
   'Upstream HTTP diagnostics': 'Chẩn đoán HTTP thượng nguồn',
   'Task submission': 'Gửi tác vụ',
   'Failed task polling': 'Truy vấn tác vụ thất bại',
+  'Task polling': 'Truy vấn trạng thái tác vụ',
+  'No upstream HTTP diagnostics recorded':
+    'Chưa ghi nhận chẩn đoán HTTP thượng nguồn',
   'Content truncated at 64 KiB': 'Nội dung đã bị cắt tại 64 KiB',
   'Transport error': 'Lỗi truyền tải',
 })

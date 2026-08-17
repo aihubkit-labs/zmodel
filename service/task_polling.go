@@ -568,7 +568,11 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 			task.StartTime = now
 		}
 	case model.TaskStatusSuccess:
-		task.PrivateData.UpstreamHTTPTrace = nil
+		if task.PrivateData.UpstreamHTTPTrace == nil {
+			task.PrivateData.UpstreamHTTPTrace = &dto.TaskUpstreamHTTPTrace{}
+		}
+		task.PrivateData.UpstreamHTTPTrace.PollRequest = relaycommon.UpstreamHTTPRequestMetadata(resp.Request)
+		task.PrivateData.UpstreamHTTPTrace.PollResponse = relaycommon.UpstreamHTTPResponseFromBody(resp, responseBody)
 		task.Progress = taskcommon.ProgressComplete
 		if task.FinishTime == 0 {
 			task.FinishTime = now

@@ -273,7 +273,7 @@ func TestUpdateVideoTaskStoresSanitizedHTTPTraceOnFailure(t *testing.T) {
 	assert.Contains(t, stored.PrivateData.UpstreamHTTPTrace.PollResponse.Body, "upstream rejected the request")
 }
 
-func TestUpdateVideoTaskClearsHTTPTraceOnSuccess(t *testing.T) {
+func TestUpdateVideoTaskStoresSanitizedHTTPTraceOnSuccess(t *testing.T) {
 	truncate(t)
 
 	const channelID = 106
@@ -292,7 +292,14 @@ func TestUpdateVideoTaskClearsHTTPTraceOnSuccess(t *testing.T) {
 
 	var stored model.Task
 	require.NoError(t, model.DB.First(&stored, task.ID).Error)
-	assert.Nil(t, stored.PrivateData.UpstreamHTTPTrace)
+	require.NotNil(t, stored.PrivateData.UpstreamHTTPTrace)
+	require.NotNil(t, stored.PrivateData.UpstreamHTTPTrace.SubmitRequest)
+	assert.Equal(t, http.MethodPost, stored.PrivateData.UpstreamHTTPTrace.SubmitRequest.Method)
+	require.NotNil(t, stored.PrivateData.UpstreamHTTPTrace.PollRequest)
+	assert.NotContains(t, stored.PrivateData.UpstreamHTTPTrace.PollRequest.URL, "poll-secret")
+	assert.Equal(t, "[REDACTED]", stored.PrivateData.UpstreamHTTPTrace.PollRequest.Headers["Authorization"])
+	require.NotNil(t, stored.PrivateData.UpstreamHTTPTrace.PollResponse)
+	assert.Equal(t, http.StatusOK, stored.PrivateData.UpstreamHTTPTrace.PollResponse.StatusCode)
 }
 
 func TestUpdateVideoTaskStoresTransportErrorWithoutFailingImmediately(t *testing.T) {

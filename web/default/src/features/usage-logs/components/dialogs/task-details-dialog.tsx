@@ -84,16 +84,6 @@ function parseJSONValue(value: unknown): unknown {
   }
 }
 
-function prettyJSON(value: unknown): string {
-  if (value == null || value === '') return '-'
-  if (typeof value === 'string') return value
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return String(value)
-  }
-}
-
 function getMediaItems(snapshot: unknown): MediaItem[] {
   if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
     return []
@@ -122,17 +112,6 @@ function getMediaItems(snapshot: unknown): MediaItem[] {
   append('video', request.reference_videos)
   append('audio', request.reference_audios)
   return items
-}
-
-function JSONSection(props: { title: string; value: unknown }) {
-  return (
-    <div className='space-y-2'>
-      <h4 className='text-sm font-medium'>{props.title}</h4>
-      <pre className='bg-muted/30 text-muted-foreground max-h-72 overflow-auto rounded-md border p-3 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap'>
-        {prettyJSON(props.value)}
-      </pre>
-    </div>
-  )
 }
 
 function MediaPreview(props: { item: MediaItem; index: number }) {
@@ -232,7 +211,6 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
     (props.isAdmin ? props.log.properties?.upstream_model_name : undefined) ||
     '-'
   const request = parseJSONValue(props.log.properties?.input)
-  const response = parseJSONValue(props.log.data)
   const mediaItems = getMediaItems(request)
   const canUploadVideo = props.isAdmin && canUploadVideoTaskToS3(props.log)
   const showVideoStorage =
@@ -398,14 +376,7 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
             </section>
           ) : null}
 
-          <section className='space-y-3'>
-            <h3 className='text-sm font-medium'>{t('Platform Task Data')}</h3>
-            <JSONSection title={t('Request Snapshot')} value={request} />
-            <JSONSection title={t('Task Result')} value={response} />
-          </section>
-          {props.isAdmin &&
-          props.log.status === 'FAILURE' &&
-          props.log.upstream_http_trace ? (
+          {props.isAdmin ? (
             <UpstreamHTTPTrace trace={props.log.upstream_http_trace} />
           ) : null}
         </div>
