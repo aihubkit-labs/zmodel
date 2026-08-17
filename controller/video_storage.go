@@ -16,6 +16,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/objectstorage"
 	"github.com/QuantumNous/new-api/service"
@@ -87,10 +88,23 @@ func ArchiveVideoTask(parent context.Context, task *model.Task, channel *model.C
 			return err
 		}
 	}
-	if err := model.MarkStorageObjectUploading(object.ID); err != nil {
+	operationID, err := common.GenerateRandomCharsKey(32)
+	if err != nil {
+		return err
+	}
+	leaseExpiresAt := common.GetTimestamp() + settings.ArchiveTimeoutSeconds
+	if err := model.MarkVideoStorageArchiveUploading(
+		object.ID,
+		object.Status,
+		object.ArchiveOperationID,
+		operationID,
+		leaseExpiresAt,
+	); err != nil {
 		return err
 	}
 	object.Status = model.StorageObjectStatusUploading
+	object.ArchiveOperationID = operationID
+	object.ArchiveLeaseExpiresAt = leaseExpiresAt
 	defer func() {
 		if resultErr != nil {
 			now := common.GetTimestamp()
@@ -98,11 +112,13 @@ func ArchiveVideoTask(parent context.Context, task *model.Task, channel *model.C
 			if err := model.MarkVideoStorageArchiveFailed(
 				object.ID,
 				object.ArchiveAttempts,
+				object.ArchiveOperationID,
+				object.ArchiveLeaseExpiresAt,
 				object.ArchiveMaxAttempts,
 				object.ArchiveRetryDeadlineAt,
 				nextAttemptAt,
 				common.LocalLogPreview(resultErr.Error()),
-			); err != nil {
+			); err != nil && !errors.Is(err, model.ErrVideoStorageArchiveStateChanged) {
 				common.SysError("schedule video archive retry error: " + err.Error())
 			}
 		}
@@ -178,7 +194,14 @@ func ArchiveVideoTask(parent context.Context, task *model.Task, channel *model.C
 		}
 		expiresAt := uploadedAt + settings.RetentionSeconds
 		if expiresAt > common.GetTimestamp() {
-			if err := model.MarkStorageObjectAvailable(object.ID, object.Status, head.ETag, uploadedAt, expiresAt); err != nil {
+			if err := model.MarkVideoStorageArchiveAvailable(
+				object.ID,
+				object.ArchiveOperationID,
+				object.ArchiveLeaseExpiresAt,
+				head.ETag,
+				uploadedAt,
+				expiresAt,
+			); err != nil {
 				return err
 			}
 			deleteVideoStagedFile(settings, object.ID, staged.RelativePath)
@@ -196,7 +219,14 @@ func ArchiveVideoTask(parent context.Context, task *model.Task, channel *model.C
 		return err
 	}
 	uploadedAt := common.GetTimestamp()
-	if err := model.MarkStorageObjectAvailable(object.ID, model.StorageObjectStatusUploading, put.ETag, uploadedAt, uploadedAt+settings.RetentionSeconds); err != nil {
+	if err := model.MarkVideoStorageArchiveAvailable(
+		object.ID,
+		object.ArchiveOperationID,
+		object.ArchiveLeaseExpiresAt,
+		put.ETag,
+		uploadedAt,
+		uploadedAt+settings.RetentionSeconds,
+	); err != nil {
 		return err
 	}
 	deleteVideoStagedFile(settings, object.ID, staged.RelativePath)
@@ -381,7 +411,13 @@ func (videoStorageRetryHandler) Type() string { return model.SystemTaskTypeVideo
 
 func (videoStorageRetryHandler) Enabled() bool {
 	settings := storage_setting.GetVideoSettings()
-	return settings.Configured() && model.HasDueVideoStorageArchiveRetries(settings.BusinessID, common.GetTimestamp())
+	if !settings.Configured() {
+		return false
+	}
+	now := common.GetTimestamp()
+	legacyStaleBefore := now - settings.ArchiveTimeoutSeconds
+	return model.HasDueVideoStorageArchiveRetries(settings.BusinessID, now) ||
+		model.HasExpiredVideoStorageArchiveUploads(settings.BusinessID, now, legacyStaleBefore)
 }
 
 func (videoStorageRetryHandler) Interval() time.Duration { return 15 * time.Second }
@@ -409,7 +445,13 @@ func (videoStorageRetryHandler) Run(ctx context.Context, systemTask *model.Syste
 
 func runScheduledVideoStorageRetries(ctx context.Context, systemTask *model.SystemTask, runnerID string) {
 	settings := storage_setting.GetVideoSettings()
-	objects, err := model.ListDueVideoStorageArchiveRetries(settings.BusinessID, common.GetTimestamp(), 10)
+	now := common.GetTimestamp()
+	recovered, err := recoverExpiredVideoStorageUploads(ctx, settings, now, 10)
+	if err != nil {
+		finishSystemTaskHandler(systemTask, runnerID, model.SystemTaskStatusFailed, nil, err)
+		return
+	}
+	objects, err := model.ListDueVideoStorageArchiveRetries(settings.BusinessID, now, 10)
 	if err != nil {
 		finishSystemTaskHandler(systemTask, runnerID, model.SystemTaskStatusFailed, nil, err)
 		return
@@ -427,8 +469,45 @@ func runScheduledVideoStorageRetries(ctx context.Context, systemTask *model.Syst
 		succeeded++
 	}
 	finishSystemTaskHandler(systemTask, runnerID, model.SystemTaskStatusSucceeded, map[string]int{
-		"claimed": len(objects), "succeeded": succeeded, "failed": failed,
+		"recovered": recovered, "claimed": len(objects), "succeeded": succeeded, "failed": failed,
 	}, ctx.Err())
+}
+
+func recoverExpiredVideoStorageUploads(
+	ctx context.Context,
+	settings storage_setting.VideoSettings,
+	now int64,
+	limit int,
+) (int, error) {
+	legacyStaleBefore := now - settings.ArchiveTimeoutSeconds
+	objects, err := model.ListExpiredVideoStorageArchiveUploads(settings.BusinessID, now, legacyStaleBefore, limit)
+	if err != nil {
+		return 0, err
+	}
+	recovered := 0
+	for i := range objects {
+		object := &objects[i]
+		nextAttemptAt := nextVideoArchiveAttemptAt(object, now)
+		err := model.MarkVideoStorageArchiveFailed(
+			object.ID,
+			object.ArchiveAttempts,
+			object.ArchiveOperationID,
+			object.ArchiveLeaseExpiresAt,
+			object.ArchiveMaxAttempts,
+			object.ArchiveRetryDeadlineAt,
+			nextAttemptAt,
+			"video archive upload timed out",
+		)
+		if errors.Is(err, model.ErrVideoStorageArchiveStateChanged) {
+			continue
+		}
+		if err != nil {
+			return recovered, err
+		}
+		logger.LogWarn(ctx, fmt.Sprintf("Recovered expired video archive upload for task %s", object.ResourceID))
+		recovered++
+	}
+	return recovered, nil
 }
 
 func retryVideoStorageArchive(ctx context.Context, taskID string) error {
