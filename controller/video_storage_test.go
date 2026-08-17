@@ -130,6 +130,8 @@ func TestArchiveVideoTaskUploadsOnceAndPersistsObject(t *testing.T) {
 	assert.Equal(t, model.StorageObjectStatusAvailable, object.Status)
 	assert.Equal(t, "uploaded-etag", object.ETag)
 	assert.Greater(t, object.ExpiresAt, common.GetTimestamp())
+	assert.Empty(t, object.ArchiveOperationID)
+	assert.Zero(t, object.ArchiveLeaseExpiresAt)
 
 	require.NoError(t, ArchiveVideoTask(context.Background(), task, channel, service.VideoArchiveSource{}))
 	assert.Len(t, storage.putInputs, 1)
@@ -150,6 +152,8 @@ func TestArchiveVideoTaskMarksObjectFailedWhenSourceCannotBeDownloaded(t *testin
 	assert.Contains(t, object.LastError, "invalid video data URL")
 	assert.Equal(t, 1, object.ArchiveAttempts)
 	assert.Greater(t, object.ArchiveNextAttemptAt, common.GetTimestamp())
+	assert.Empty(t, object.ArchiveOperationID)
+	assert.Zero(t, object.ArchiveLeaseExpiresAt)
 }
 
 func TestArchiveVideoTaskRetriesFromPersistentStaging(t *testing.T) {
@@ -313,6 +317,58 @@ func TestVideoStorageRetryHandlerSchedulesDueObjectsOnly(t *testing.T) {
 	require.NoError(t, model.DB.Model(&model.StorageObject{}).
 		Where("resource_id = ?", "task_video_due").
 		Update("archive_next_attempt_at", now+60).Error)
+	assert.False(t, (videoStorageRetryHandler{}).Enabled())
+}
+
+func TestVideoStorageRetryHandlerRecoversExpiredAndLegacyUploads(t *testing.T) {
+	setupVideoArchiveTest(t, &videoArchiveTestStorage{})
+	now := common.GetTimestamp()
+	objects := []*model.StorageObject{
+		{
+			BusinessID: "test@videos", ResourceID: "task_video_expired_lease", ObjectIndex: 0,
+			Status: model.StorageObjectStatusUploading, ArchiveAttempts: 0, ArchiveMaxAttempts: 3,
+			ArchiveRetryDeadlineAt: now - 1, ArchiveOperationID: "expired-operation",
+			ArchiveLeaseExpiresAt: now - 1,
+		},
+		{
+			BusinessID: "test@videos", ResourceID: "task_video_legacy_upload", ObjectIndex: 0,
+			Status: model.StorageObjectStatusUploading, ArchiveAttempts: 1, ArchiveMaxAttempts: 3,
+			ArchiveRetryDeadlineAt: now - 1,
+		},
+		{
+			BusinessID: "test@videos", ResourceID: "task_video_active_upload", ObjectIndex: 0,
+			Status: model.StorageObjectStatusUploading, ArchiveAttempts: 0, ArchiveMaxAttempts: 3,
+			ArchiveRetryDeadlineAt: now + 3600, ArchiveOperationID: "active-operation",
+			ArchiveLeaseExpiresAt: now + 60,
+		},
+	}
+	require.NoError(t, model.DB.Create(objects).Error)
+	require.NoError(t, model.DB.Model(&model.StorageObject{}).
+		Where("resource_id IN ?", []string{"task_video_legacy_upload", "task_video_active_upload"}).
+		UpdateColumn("updated_at", now-61).Error)
+
+	assert.True(t, (videoStorageRetryHandler{}).Enabled())
+	recovered, err := recoverExpiredVideoStorageUploads(
+		context.Background(), storage_setting.GetVideoSettings(), now, 10,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, 2, recovered)
+
+	for _, taskID := range []string{"task_video_expired_lease", "task_video_legacy_upload"} {
+		object, getErr := model.GetStorageObjectByBusinessID("test@videos", taskID, 0)
+		require.NoError(t, getErr)
+		assert.Equal(t, model.StorageObjectStatusFailed, object.Status)
+		assert.Contains(t, object.LastError, "timed out")
+		assert.Zero(t, object.ArchiveNextAttemptAt)
+		assert.Empty(t, object.ArchiveOperationID)
+		assert.Zero(t, object.ArchiveLeaseExpiresAt)
+	}
+
+	active, err := model.GetStorageObjectByBusinessID("test@videos", "task_video_active_upload", 0)
+	require.NoError(t, err)
+	assert.Equal(t, model.StorageObjectStatusUploading, active.Status)
+	assert.Equal(t, "active-operation", active.ArchiveOperationID)
+	assert.Equal(t, now+60, active.ArchiveLeaseExpiresAt)
 	assert.False(t, (videoStorageRetryHandler{}).Enabled())
 }
 

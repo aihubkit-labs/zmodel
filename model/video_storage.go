@@ -14,6 +14,8 @@ const (
 	StorageStagingVideoDeleted       = "video_deleted"
 )
 
+var ErrVideoStorageArchiveStateChanged = errors.New("video storage archive state changed")
+
 func CountVideoStorageStagingInUse(businessID string) (int64, error) {
 	if businessID == "" {
 		return 0, nil
@@ -36,6 +38,8 @@ func InitializeVideoStorageArchive(id int64, maxAttempts int, retryDeadlineAt in
 			"archive_max_attempts":      maxAttempts,
 			"archive_retry_deadline_at": retryDeadlineAt,
 			"archive_next_attempt_at":   0,
+			"archive_operation_id":      "",
+			"archive_lease_expires_at":  0,
 			"updated_at":                common.GetTimestamp(),
 		})
 	if result.Error != nil {
@@ -47,30 +51,110 @@ func InitializeVideoStorageArchive(id int64, maxAttempts int, retryDeadlineAt in
 	return nil
 }
 
-func MarkVideoStorageArchiveFailed(
+func MarkVideoStorageArchiveUploading(
 	id int64,
-	previousAttempts int,
-	maxAttempts int,
-	retryDeadlineAt int64,
-	nextAttemptAt int64,
-	errorMessage string,
+	expectedStatus string,
+	expectedOperationID string,
+	operationID string,
+	leaseExpiresAt int64,
+) error {
+	if expectedStatus == StorageObjectStatusUploading && expectedOperationID != "" {
+		return ErrVideoStorageArchiveStateChanged
+	}
+	query := DB.Model(&StorageObject{}).
+		Where("id = ? AND status = ?", id, expectedStatus)
+	if expectedOperationID == "" {
+		query = query.Where("(archive_operation_id IS NULL OR archive_operation_id = ?)", "")
+	} else {
+		query = query.Where("archive_operation_id = ?", expectedOperationID)
+	}
+	result := query.Updates(map[string]any{
+		"status":                   StorageObjectStatusUploading,
+		"archive_operation_id":     operationID,
+		"archive_lease_expires_at": leaseExpiresAt,
+		"last_error":               "",
+		"updated_at":               common.GetTimestamp(),
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrVideoStorageArchiveStateChanged
+	}
+	return nil
+}
+
+func MarkVideoStorageArchiveAvailable(
+	id int64,
+	operationID string,
+	leaseExpiresAt int64,
+	etag string,
+	uploadedAt int64,
+	expiresAt int64,
 ) error {
 	result := DB.Model(&StorageObject{}).
-		Where("id = ? AND archive_attempts = ? AND status <> ?", id, previousAttempts, StorageObjectStatusDeletePending).
+		Where(
+			"id = ? AND status = ? AND archive_operation_id = ? AND archive_lease_expires_at = ?",
+			id, StorageObjectStatusUploading, operationID, leaseExpiresAt,
+		).
 		Updates(map[string]any{
-			"status":                    StorageObjectStatusFailed,
-			"archive_attempts":          previousAttempts + 1,
-			"archive_max_attempts":      maxAttempts,
-			"archive_retry_deadline_at": retryDeadlineAt,
-			"archive_next_attempt_at":   nextAttemptAt,
-			"last_error":                errorMessage,
-			"updated_at":                common.GetTimestamp(),
+			"status":                   StorageObjectStatusAvailable,
+			"etag":                     etag,
+			"uploaded_at":              uploadedAt,
+			"expires_at":               expiresAt,
+			"last_error":               "",
+			"archive_next_attempt_at":  0,
+			"archive_operation_id":     "",
+			"archive_lease_expires_at": 0,
+			"updated_at":               common.GetTimestamp(),
 		})
 	if result.Error != nil {
 		return result.Error
 	}
 	if result.RowsAffected != 1 {
-		return errors.New("video storage archive state changed")
+		return ErrVideoStorageArchiveStateChanged
+	}
+	return nil
+}
+
+func MarkVideoStorageArchiveFailed(
+	id int64,
+	previousAttempts int,
+	operationID string,
+	leaseExpiresAt int64,
+	maxAttempts int,
+	retryDeadlineAt int64,
+	nextAttemptAt int64,
+	errorMessage string,
+) error {
+	query := DB.Model(&StorageObject{}).
+		Where("id = ? AND archive_attempts = ? AND status = ?", id, previousAttempts, StorageObjectStatusUploading)
+	if operationID == "" {
+		query = query.Where("(archive_operation_id IS NULL OR archive_operation_id = ?)", "")
+	} else {
+		query = query.Where("archive_operation_id = ?", operationID)
+	}
+	if leaseExpiresAt == 0 {
+		query = query.Where("(archive_lease_expires_at IS NULL OR archive_lease_expires_at = ?)", 0)
+	} else {
+		query = query.Where("archive_lease_expires_at = ?", leaseExpiresAt)
+	}
+	result := query.Updates(map[string]any{
+		"status":                    StorageObjectStatusFailed,
+		"archive_attempts":          previousAttempts + 1,
+		"archive_max_attempts":      maxAttempts,
+		"archive_retry_deadline_at": retryDeadlineAt,
+		"archive_next_attempt_at":   nextAttemptAt,
+		"archive_operation_id":      "",
+		"archive_lease_expires_at":  0,
+		"last_error":                errorMessage,
+		"updated_at":                common.GetTimestamp(),
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrVideoStorageArchiveStateChanged
 	}
 	return nil
 }
@@ -85,6 +169,8 @@ func ResetVideoStorageArchiveForRetry(id int64, maxAttempts int, retryDeadlineAt
 			"archive_max_attempts":      maxAttempts,
 			"archive_retry_deadline_at": retryDeadlineAt,
 			"archive_next_attempt_at":   now,
+			"archive_operation_id":      "",
+			"archive_lease_expires_at":  0,
 			"last_error":                "",
 			"updated_at":                now,
 		})
@@ -95,6 +181,33 @@ func ResetVideoStorageArchiveForRetry(id int64, maxAttempts int, retryDeadlineAt
 		return errors.New("video storage object is not retryable")
 	}
 	return nil
+}
+
+func ListExpiredVideoStorageArchiveUploads(businessID string, now int64, legacyStaleBefore int64, limit int) ([]StorageObject, error) {
+	if businessID == "" {
+		return []StorageObject{}, nil
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+	var objects []StorageObject
+	err := DB.Where(
+		"business_id = ? AND status = ? AND ((archive_lease_expires_at > ? AND archive_lease_expires_at <= ?) OR ((archive_lease_expires_at IS NULL OR archive_lease_expires_at = ?) AND updated_at <= ?))",
+		businessID, StorageObjectStatusUploading, 0, now, 0, legacyStaleBefore,
+	).Order("updated_at asc").Limit(limit).Find(&objects).Error
+	return objects, err
+}
+
+func HasExpiredVideoStorageArchiveUploads(businessID string, now int64, legacyStaleBefore int64) bool {
+	if businessID == "" {
+		return false
+	}
+	var count int64
+	err := DB.Model(&StorageObject{}).Where(
+		"business_id = ? AND status = ? AND ((archive_lease_expires_at > ? AND archive_lease_expires_at <= ?) OR ((archive_lease_expires_at IS NULL OR archive_lease_expires_at = ?) AND updated_at <= ?))",
+		businessID, StorageObjectStatusUploading, 0, now, 0, legacyStaleBefore,
+	).Limit(1).Count(&count).Error
+	return err == nil && count > 0
 }
 
 func ListDueVideoStorageArchiveRetries(businessID string, now int64, limit int) ([]StorageObject, error) {
@@ -128,10 +241,12 @@ func StopVideoStorageArchiveRetries(id int64, errorMessage string) error {
 	return DB.Model(&StorageObject{}).
 		Where("id = ? AND status <> ?", id, StorageObjectStatusDeletePending).
 		Updates(map[string]any{
-			"status":                  StorageObjectStatusFailed,
-			"archive_next_attempt_at": 0,
-			"last_error":              errorMessage,
-			"updated_at":              common.GetTimestamp(),
+			"status":                   StorageObjectStatusFailed,
+			"archive_next_attempt_at":  0,
+			"archive_operation_id":     "",
+			"archive_lease_expires_at": 0,
+			"last_error":               errorMessage,
+			"updated_at":               common.GetTimestamp(),
 		}).Error
 }
 

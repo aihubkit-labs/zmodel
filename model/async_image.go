@@ -122,6 +122,8 @@ type StorageObject struct {
 	ArchiveAttempts        int    `json:"archive_attempts"`
 	ArchiveRetryDeadlineAt int64  `json:"archive_retry_deadline_at"`
 	ArchiveNextAttemptAt   int64  `json:"archive_next_attempt_at" gorm:"index"`
+	ArchiveOperationID     string `json:"archive_operation_id,omitempty" gorm:"type:varchar(64)"`
+	ArchiveLeaseExpiresAt  int64  `json:"archive_lease_expires_at" gorm:"index"`
 	CreatedAt              int64  `json:"created_at" gorm:"index"`
 	UpdatedAt              int64  `json:"updated_at" gorm:"index"`
 }
