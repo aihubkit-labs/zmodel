@@ -97,24 +97,32 @@ func TestTasksToDtoIncludesUpstreamModelForAdminOnly(t *testing.T) {
 	assert.Empty(t, userProperties.UpstreamModelName)
 }
 
-func TestTasksToDtoIncludesFailureHTTPTraceForAdminOnly(t *testing.T) {
+func TestTasksToDtoIncludesHTTPTraceForAdminOnly(t *testing.T) {
 	setupTaskControllerTestDB(t)
 	trace := &dto.TaskUpstreamHTTPTrace{
 		SubmitRequest: &dto.TaskHTTPMessage{Method: http.MethodPost, URL: "https://upstream.example/v1/videos"},
 		PollResponse:  &dto.TaskHTTPMessage{StatusCode: http.StatusForbidden, Body: `{"error":"forbidden"}`},
 	}
-	task := &model.Task{
-		TaskID: "task_failure_trace", Status: model.TaskStatusFailure,
-		PrivateData: model.TaskPrivateData{UpstreamHTTPTrace: trace},
+	tasks := []*model.Task{
+		{
+			TaskID: "task_success_trace", Status: model.TaskStatusSuccess,
+			PrivateData: model.TaskPrivateData{UpstreamHTTPTrace: trace},
+		},
+		{
+			TaskID: "task_failure_trace", Status: model.TaskStatusFailure,
+			PrivateData: model.TaskPrivateData{UpstreamHTTPTrace: trace},
+		},
 	}
 
-	adminTasks := tasksToDto([]*model.Task{task}, true)
-	userTasks := tasksToDto([]*model.Task{task}, false)
+	adminTasks := tasksToDto(tasks, true)
+	userTasks := tasksToDto(tasks, false)
 
-	require.Len(t, adminTasks, 1)
+	require.Len(t, adminTasks, 2)
 	assert.Equal(t, trace, adminTasks[0].UpstreamHTTPTrace)
-	require.Len(t, userTasks, 1)
+	assert.Equal(t, trace, adminTasks[1].UpstreamHTTPTrace)
+	require.Len(t, userTasks, 2)
 	assert.Nil(t, userTasks[0].UpstreamHTTPTrace)
+	assert.Nil(t, userTasks[1].UpstreamHTTPTrace)
 }
 
 func TestTasksToDtoIncludesVideoStorageFailureForAdminOnly(t *testing.T) {

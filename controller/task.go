@@ -159,9 +159,7 @@ func tasksToDto(tasks []*model.Task, fillUser bool) []*dto.TaskDto {
 					result[i].VideoStorageError = object.LastError
 				}
 			}
-			if task.Status == model.TaskStatusFailure {
-				result[i].UpstreamHTTPTrace = task.PrivateData.UpstreamHTTPTrace
-			}
+			result[i].UpstreamHTTPTrace = task.PrivateData.UpstreamHTTPTrace
 		}
 	}
 	return result
