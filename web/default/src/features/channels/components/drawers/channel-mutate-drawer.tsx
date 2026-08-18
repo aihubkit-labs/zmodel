@@ -4219,12 +4219,16 @@ export function ChannelMutateDrawer({
                                           },
                                         ]}
                                         onValueChange={(value) => {
-										  if (value !== field.value) {
-										    form.setValue('video_model_capabilities', [], {
-										      shouldDirty: true,
-										      shouldValidate: false,
-										    })
-										  }
+                                          if (value !== field.value) {
+                                            form.setValue(
+                                              'video_model_capabilities',
+                                              [],
+                                              {
+                                                shouldDirty: true,
+                                                shouldValidate: false,
+                                              }
+                                            )
+                                          }
                                           field.onChange(value)
                                         }}
                                         value={field.value || null}
@@ -4263,6 +4267,74 @@ export function ChannelMutateDrawer({
                                     </FormItem>
                                   )}
                                 />
+                              ) : null}
+
+                              {currentVideoProtocol === 'globalaiopc' ? (
+                                <div className='grid gap-4 px-4 py-3 sm:grid-cols-2'>
+                                  <FormField
+                                    control={form.control}
+                                    name='globalaiopc_asset_operations_per_task_per_pass'
+                                    render={({ field }) => (
+                                      <FormItem>
+                                        <FormLabel>
+                                          {t('Asset operations per task')}
+                                        </FormLabel>
+                                        <FormControl>
+                                          <Input
+                                            type='number'
+                                            min={1}
+                                            max={50}
+                                            step={1}
+                                            {...field}
+                                            onChange={(event) =>
+                                              field.onChange(
+                                                Number(event.target.value)
+                                              )
+                                            }
+                                          />
+                                        </FormControl>
+                                        <FormDescription>
+                                          {t(
+                                            'Maximum asset upload or status operations performed for one task in each polling pass'
+                                          )}
+                                        </FormDescription>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+
+                                  <FormField
+                                    control={form.control}
+                                    name='globalaiopc_asset_preparation_timeout_seconds'
+                                    render={({ field }) => (
+                                      <FormItem>
+                                        <FormLabel>
+                                          {t('Asset preparation timeout')}
+                                        </FormLabel>
+                                        <FormControl>
+                                          <Input
+                                            type='number'
+                                            min={60}
+                                            max={3600}
+                                            step={1}
+                                            {...field}
+                                            onChange={(event) =>
+                                              field.onChange(
+                                                Number(event.target.value)
+                                              )
+                                            }
+                                          />
+                                        </FormControl>
+                                        <FormDescription>
+                                          {t(
+                                            'Maximum time in seconds to wait for all assets to become active'
+                                          )}
+                                        </FormDescription>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+                                </div>
                               ) : null}
 
                               {[1, 55].includes(currentType) &&

@@ -11,18 +11,33 @@ import (
 )
 
 type ChannelSettings struct {
-	ForceFormat              bool                            `json:"force_format,omitempty"`
-	ThinkingToContent        bool                            `json:"thinking_to_content,omitempty"`
-	Proxy                    string                          `json:"proxy"`
-	VideoContentProxyEnabled bool                            `json:"video_content_proxy_enabled,omitempty"`
-	VideoS3StorageEnabled    bool                            `json:"video_s3_storage_enabled,omitempty"`
-	VideoS3Preferred         bool                            `json:"video_s3_preferred,omitempty"`
-	VideoProtocol            VideoProtocol                   `json:"video_protocol,omitempty"`
-	VideoModelCapabilities   map[string]VideoModelCapability `json:"video_model_capabilities,omitempty"`
-	PassThroughBodyEnabled   bool                            `json:"pass_through_body_enabled,omitempty"`
-	SystemPrompt             string                          `json:"system_prompt,omitempty"`
-	SystemPromptOverride     bool                            `json:"system_prompt_override,omitempty"`
+	ForceFormat                 bool                                 `json:"force_format,omitempty"`
+	ThinkingToContent           bool                                 `json:"thinking_to_content,omitempty"`
+	Proxy                       string                               `json:"proxy"`
+	VideoContentProxyEnabled    bool                                 `json:"video_content_proxy_enabled,omitempty"`
+	VideoS3StorageEnabled       bool                                 `json:"video_s3_storage_enabled,omitempty"`
+	VideoS3Preferred            bool                                 `json:"video_s3_preferred,omitempty"`
+	VideoProtocol               VideoProtocol                        `json:"video_protocol,omitempty"`
+	VideoModelCapabilities      map[string]VideoModelCapability      `json:"video_model_capabilities,omitempty"`
+	GlobalAIOpcAssetPreparation *GlobalAIOpcAssetPreparationSettings `json:"globalaiopc_asset_preparation,omitempty"`
+	PassThroughBodyEnabled      bool                                 `json:"pass_through_body_enabled,omitempty"`
+	SystemPrompt                string                               `json:"system_prompt,omitempty"`
+	SystemPromptOverride        bool                                 `json:"system_prompt_override,omitempty"`
 }
+
+type GlobalAIOpcAssetPreparationSettings struct {
+	OperationsPerTaskPerPass int `json:"operations_per_task_per_pass,omitempty"`
+	TimeoutSeconds           int `json:"timeout_seconds,omitempty"`
+}
+
+const (
+	DefaultGlobalAIOpcAssetOperationsPerTaskPerPass  = 10
+	MinGlobalAIOpcAssetOperationsPerTaskPerPass      = 1
+	MaxGlobalAIOpcAssetOperationsPerTaskPerPass      = 50
+	DefaultGlobalAIOpcAssetPreparationTimeoutSeconds = 900
+	MinGlobalAIOpcAssetPreparationTimeoutSeconds     = 60
+	MaxGlobalAIOpcAssetPreparationTimeoutSeconds     = 3600
+)
 
 type VideoModelCapability struct {
 	Resolutions                           []string          `json:"resolutions,omitempty"`
@@ -57,9 +72,12 @@ type VideoModelCapability struct {
 	ReferenceModeForReferences            string            `json:"reference_mode_for_references,omitempty"`
 	ReferenceModeForFrames                string            `json:"reference_mode_for_frames,omitempty"`
 	FramesAsReferenceImages               *bool             `json:"frames_as_reference_images,omitempty"`
+	AssetPreparationMode                  string            `json:"asset_preparation_mode,omitempty"`
 	OmitParameters                        []string          `json:"omit_parameters,omitempty"`
 	FixedParameters                       map[string]any    `json:"fixed_parameters,omitempty"`
 }
+
+const VideoAssetPreparationGlobalAIOpcSeedance = "globalaiopc_seedance"
 
 type VideoModelCapabilityTemplate struct {
 	ID            int                  `json:"id"`
@@ -96,6 +114,19 @@ func (s ChannelSettings) ValidateVideoRequestSettings() error {
 	}
 	if s.VideoProtocol != "" && len(s.VideoModelCapabilities) == 0 {
 		return fmt.Errorf("video_model_capabilities is required when video_protocol is configured")
+	}
+	if s.GlobalAIOpcAssetPreparation != nil {
+		if s.VideoProtocol != VideoProtocolGlobalAIOpc {
+			return fmt.Errorf("globalaiopc_asset_preparation requires the GlobalAIOpc video protocol")
+		}
+		operations := s.GlobalAIOpcAssetPreparation.OperationsPerTaskPerPass
+		if operations != 0 && (operations < MinGlobalAIOpcAssetOperationsPerTaskPerPass || operations > MaxGlobalAIOpcAssetOperationsPerTaskPerPass) {
+			return fmt.Errorf("globalaiopc asset operations_per_task_per_pass must be between %d and %d", MinGlobalAIOpcAssetOperationsPerTaskPerPass, MaxGlobalAIOpcAssetOperationsPerTaskPerPass)
+		}
+		timeout := s.GlobalAIOpcAssetPreparation.TimeoutSeconds
+		if timeout != 0 && (timeout < MinGlobalAIOpcAssetPreparationTimeoutSeconds || timeout > MaxGlobalAIOpcAssetPreparationTimeoutSeconds) {
+			return fmt.Errorf("globalaiopc asset timeout_seconds must be between %d and %d", MinGlobalAIOpcAssetPreparationTimeoutSeconds, MaxGlobalAIOpcAssetPreparationTimeoutSeconds)
+		}
 	}
 
 	normalizedModels := make(map[string]struct{}, len(s.VideoModelCapabilities))
@@ -190,6 +221,15 @@ func (s ChannelSettings) ValidateVideoRequestSettings() error {
 		if s.VideoProtocol == VideoProtocolAgnesVideoV2 &&
 			capability.MaxReferenceImages != nil && *capability.MaxReferenceImages > 1 {
 			return fmt.Errorf("video model %q max_reference_images cannot exceed 1 for Agnes Video V2", modelName)
+		}
+		switch capability.AssetPreparationMode {
+		case "":
+		case VideoAssetPreparationGlobalAIOpcSeedance:
+			if s.VideoProtocol != VideoProtocolGlobalAIOpc {
+				return fmt.Errorf("video model %q asset preparation mode %q requires the GlobalAIOpc video protocol", modelName, capability.AssetPreparationMode)
+			}
+		default:
+			return fmt.Errorf("video model %q has unsupported asset preparation mode %q", modelName, capability.AssetPreparationMode)
 		}
 		if usesExtendedVideoModelCapabilities(s.VideoProtocol) {
 			for _, field := range []struct {
@@ -307,6 +347,23 @@ func (s ChannelSettings) ValidateVideoRequestSettings() error {
 	return nil
 }
 
+func (s ChannelSettings) GetGlobalAIOpcAssetPreparationSettings() GlobalAIOpcAssetPreparationSettings {
+	resolved := GlobalAIOpcAssetPreparationSettings{
+		OperationsPerTaskPerPass: DefaultGlobalAIOpcAssetOperationsPerTaskPerPass,
+		TimeoutSeconds:           DefaultGlobalAIOpcAssetPreparationTimeoutSeconds,
+	}
+	if s.GlobalAIOpcAssetPreparation == nil {
+		return resolved
+	}
+	if s.GlobalAIOpcAssetPreparation.OperationsPerTaskPerPass != 0 {
+		resolved.OperationsPerTaskPerPass = s.GlobalAIOpcAssetPreparation.OperationsPerTaskPerPass
+	}
+	if s.GlobalAIOpcAssetPreparation.TimeoutSeconds != 0 {
+		resolved.TimeoutSeconds = s.GlobalAIOpcAssetPreparation.TimeoutSeconds
+	}
+	return resolved
+}
+
 func IsGlobalAIOpcVideoProtocol(protocol VideoProtocol) bool {
 	return protocol == VideoProtocolGlobalAIOpc
 }
@@ -372,6 +429,7 @@ func (s ChannelSettings) GetVideoModelCapability(modelName string) (VideoModelCa
 			ReferenceModeForReferences:            capability.ReferenceModeForReferences,
 			ReferenceModeForFrames:                capability.ReferenceModeForFrames,
 			FramesAsReferenceImages:               capability.FramesAsReferenceImages,
+			AssetPreparationMode:                  capability.AssetPreparationMode,
 			OmitParameters:                        capability.OmitParameters,
 			FixedParameters:                       capability.FixedParameters,
 		}, true

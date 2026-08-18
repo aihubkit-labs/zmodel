@@ -591,6 +591,11 @@ func RelayTask(c *gin.Context) {
 
 		task := model.InitTask(result.Platform, relayInfo)
 		task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
+		task.PrivateData.VideoPreparation = result.Preparation
+		if result.Preparation != nil {
+			task.PrivateData.Key = relayInfo.ApiKey
+			task.Status = model.TaskStatusPreparing
+		}
 		task.PrivateData.VideoS3StorageEnabled = relayInfo.ChannelSetting.VideoS3StorageEnabled
 		task.PrivateData.BillingSource = relayInfo.BillingSource
 		task.PrivateData.SubscriptionId = relayInfo.SubscriptionId

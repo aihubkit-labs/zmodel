@@ -200,6 +200,8 @@ func builtInGlobalAIOpcCapabilityTemplates() []videoCapabilityTemplateSeed {
 		{ModelID: "KlingO3", Name: "Kling O3", SourceURL: docsBase + "klingo3", Capability: globalAIOpcVideoCapability([]string{"720p", "1080p"}, []string{"16:9", "9:16", "1:1"}, 3, 15, 3, 0, 0)},
 		{ModelID: "seedance-2.5-c1", Name: "Seedance 2.5 c1", SourceURL: docsBase + "seedance-2.5-c1", Capability: globalAIOpcVideoCapability([]string{"480p", "720p"}, []string{"9:16", "16:9", "1:1"}, 4, 30, 30, 10, 10)},
 		{ModelID: "seedance-2.5-c3", Name: "Seedance 2.5 c3", SourceURL: docsBase + "seedance-2.5-c3", Capability: globalAIOpcVideoCapability([]string{"720p"}, []string{"16:9", "1:1", "9:16"}, 4, 29, 30, 0, 10)},
+		{ModelID: "sd_2.5_discount_v1", Name: "Seedance 2.5 Discount V1", SourceURL: docsBase + "sd_2.5_discount_v1", Capability: globalAIOpcVideoCapability([]string{"480p", "720p"}, []string{"16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "adaptive"}, 4, 30, 30, 10, 10)},
+		{ModelID: "sd_2.5_special_v1", Name: "Seedance 2.5 Special V1", SourceURL: docsBase + "sd_2.5_special_v1", Capability: globalAIOpcVideoCapability([]string{"720p", "1080p"}, []string{"16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "adaptive"}, 4, 30, 30, 10, 10)},
 		{ModelID: "sd_2.0_fast_special", Name: "Seedance 2.0 Fast Special", SourceURL: docsBase + "sd_2.0_fast_special", Capability: globalAIOpcVideoCapability([]string{"720p"}, []string{"16:9", "9:16", "1:1", "3:4", "4:3", "21:9", "adaptive"}, 4, 15, 9, 3, 3)},
 		{ModelID: "sd_2.0_special", Name: "Seedance 2.0 Special", SourceURL: docsBase + "sd_2.0_special", Capability: globalAIOpcVideoCapability([]string{"720p", "1080p", "2k", "4k"}, []string{"16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "adaptive"}, 4, 15, 9, 3, 3)},
 		{ModelID: "sd_2.0_discount", Name: "Seedance 2.0 Discount", SourceURL: docsBase + "sd_2.0_discount", Capability: globalAIOpcVideoCapability([]string{"480p", "720p", "1080p"}, []string{"16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "adaptive"}, 4, 15, 9, 3, 3)},
@@ -333,6 +335,12 @@ func configureGlobalAIOpcTemplateDetails(seeds []videoCapabilityTemplateSeed) {
 			capability.SupportsFirstFrame = &trueValue
 			capability.SupportsLastFrame = &trueValue
 			capability.ReferenceMediaIncompatibleWithFrames = &trueValue
+		case "sd_2.5_discount_v1", "sd_2.5_special_v1":
+			capability.SupportsGenerateAudio = &trueValue
+			capability.SupportsSeed = &trueValue
+			capability.MinSeed = common.GetPointer[int64](-1)
+			capability.MaxSeed = common.GetPointer[int64](2147483647)
+			capability.AssetPreparationMode = dto.VideoAssetPreparationGlobalAIOpcSeedance
 		case "sd_2.0_fast_special", "sd_2.0_special", "sd_2.0_discount", "sd_2.0_fast_discount":
 			capability.SupportsGenerateAudio = &trueValue
 			capability.SupportsFirstFrame = &trueValue

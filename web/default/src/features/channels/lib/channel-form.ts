@@ -32,6 +32,13 @@ import {
   validateAdvancedCustomConfig,
 } from './advanced-custom'
 
+const DEFAULT_GLOBALAIOPC_ASSET_OPERATIONS_PER_TASK_PER_PASS = 10
+const MIN_GLOBALAIOPC_ASSET_OPERATIONS_PER_TASK_PER_PASS = 1
+const MAX_GLOBALAIOPC_ASSET_OPERATIONS_PER_TASK_PER_PASS = 50
+const DEFAULT_GLOBALAIOPC_ASSET_PREPARATION_TIMEOUT_SECONDS = 900
+const MIN_GLOBALAIOPC_ASSET_PREPARATION_TIMEOUT_SECONDS = 60
+const MAX_GLOBALAIOPC_ASSET_PREPARATION_TIMEOUT_SECONDS = 3600
+
 // ============================================================================
 // Form Validation Schema
 // ============================================================================
@@ -152,11 +159,26 @@ const videoModelCapabilitySchema = z.object({
   ratios: z.array(videoRatioSchema).max(MAX_VIDEO_MODEL_RATIOS).optional(),
   resolution_mappings: z.record(z.string(), z.string()).optional(),
   ratio_required: z.boolean().optional(),
-  min_reference_images: z.number().int().min(0).max(MAX_VIDEO_REFERENCE_COUNT).optional(),
+  min_reference_images: z
+    .number()
+    .int()
+    .min(0)
+    .max(MAX_VIDEO_REFERENCE_COUNT)
+    .optional(),
   max_reference_images: z.number().int().min(0).max(MAX_VIDEO_REFERENCE_COUNT),
-  min_reference_videos: z.number().int().min(0).max(MAX_VIDEO_REFERENCE_COUNT).optional(),
+  min_reference_videos: z
+    .number()
+    .int()
+    .min(0)
+    .max(MAX_VIDEO_REFERENCE_COUNT)
+    .optional(),
   max_reference_videos: z.number().int().min(0).max(MAX_VIDEO_REFERENCE_COUNT),
-  min_reference_audios: z.number().int().min(0).max(MAX_VIDEO_REFERENCE_COUNT).optional(),
+  min_reference_audios: z
+    .number()
+    .int()
+    .min(0)
+    .max(MAX_VIDEO_REFERENCE_COUNT)
+    .optional(),
   max_reference_audios: z.number().int().min(0).max(MAX_VIDEO_REFERENCE_COUNT),
   supports_duration: z.boolean().optional(),
   duration_required: z.boolean().optional(),
@@ -180,6 +202,7 @@ const videoModelCapabilitySchema = z.object({
   reference_mode_for_references: z.string().optional(),
   reference_mode_for_frames: z.string().optional(),
   frames_as_reference_images: z.boolean().optional(),
+  asset_preparation_mode: z.enum(['', 'globalaiopc_seedance']).optional(),
   omit_parameters: z.array(z.string()).optional(),
   fixed_parameters: z.record(z.string(), z.unknown()).optional(),
 })
@@ -348,6 +371,10 @@ function parseVideoModelCapabilities(
       frames_as_reference_images: parseVideoCapabilityFlag(
         rawCapability.frames_as_reference_images
       ),
+      asset_preparation_mode:
+        rawCapability.asset_preparation_mode === 'globalaiopc_seedance'
+          ? rawCapability.asset_preparation_mode
+          : undefined,
       omit_parameters: Array.isArray(rawCapability.omit_parameters)
         ? rawCapability.omit_parameters.map(String)
         : undefined,
@@ -423,15 +450,21 @@ export const channelFormSchema = z
     video_s3_storage_enabled: z.boolean().optional(),
     video_s3_preferred: z.boolean().optional(),
     video_protocol: z
-      .enum([
-        '',
-        'openai_video',
-        'megabyai',
-        'globalaiopc',
-        'agnes_video_v2',
-      ])
+      .enum(['', 'openai_video', 'megabyai', 'globalaiopc', 'agnes_video_v2'])
       .optional(),
     video_model_capabilities: z.array(videoModelCapabilitySchema).optional(),
+    globalaiopc_asset_operations_per_task_per_pass: z
+      .number()
+      .int()
+      .min(MIN_GLOBALAIOPC_ASSET_OPERATIONS_PER_TASK_PER_PASS)
+      .max(MAX_GLOBALAIOPC_ASSET_OPERATIONS_PER_TASK_PER_PASS)
+      .optional(),
+    globalaiopc_asset_preparation_timeout_seconds: z
+      .number()
+      .int()
+      .min(MIN_GLOBALAIOPC_ASSET_PREPARATION_TIMEOUT_SECONDS)
+      .max(MAX_GLOBALAIOPC_ASSET_PREPARATION_TIMEOUT_SECONDS)
+      .optional(),
     pass_through_body_enabled: z.boolean().optional(),
     system_prompt: z.string().optional(),
     system_prompt_override: z.boolean().optional(),
@@ -681,7 +714,10 @@ export const channelFormSchema = z
               'First frame support is required when the last frame depends on it',
           })
         }
-        if (capability.first_frame_required && !capability.supports_first_frame) {
+        if (
+          capability.first_frame_required &&
+          !capability.supports_first_frame
+        ) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['video_model_capabilities', index, 'first_frame_required'],
@@ -697,7 +733,8 @@ export const channelFormSchema = z
         }
         if (
           capability.supports_seed &&
-          (capability.min_seed === undefined || capability.max_seed === undefined)
+          (capability.min_seed === undefined ||
+            capability.max_seed === undefined)
         ) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
@@ -750,6 +787,10 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   video_s3_preferred: false,
   video_protocol: '',
   video_model_capabilities: [],
+  globalaiopc_asset_operations_per_task_per_pass:
+    DEFAULT_GLOBALAIOPC_ASSET_OPERATIONS_PER_TASK_PER_PASS,
+  globalaiopc_asset_preparation_timeout_seconds:
+    DEFAULT_GLOBALAIOPC_ASSET_PREPARATION_TIMEOUT_SECONDS,
   pass_through_body_enabled: false,
   system_prompt: '',
   system_prompt_override: false,
@@ -793,6 +834,10 @@ export function transformChannelToFormDefaults(
     video_s3_preferred: false,
     video_protocol: '' as const,
     video_model_capabilities: [] as VideoModelCapabilityFormValue[],
+    globalaiopc_asset_operations_per_task_per_pass:
+      DEFAULT_GLOBALAIOPC_ASSET_OPERATIONS_PER_TASK_PER_PASS,
+    globalaiopc_asset_preparation_timeout_seconds:
+      DEFAULT_GLOBALAIOPC_ASSET_PREPARATION_TIMEOUT_SECONDS,
     pass_through_body_enabled: false,
     system_prompt: '',
     system_prompt_override: false,
@@ -809,6 +854,9 @@ export function transformChannelToFormDefaults(
       ].includes(parsed.video_protocol)
         ? parsed.video_protocol
         : ''
+      const assetOperations =
+        parsed.globalaiopc_asset_preparation?.operations_per_task_per_pass
+      const assetTimeout = parsed.globalaiopc_asset_preparation?.timeout_seconds
       extraSettings = {
         force_format: parsed.force_format || false,
         thinking_to_content: parsed.thinking_to_content || false,
@@ -821,6 +869,19 @@ export function transformChannelToFormDefaults(
         video_model_capabilities: parseVideoModelCapabilities(
           parsed.video_model_capabilities
         ),
+        globalaiopc_asset_operations_per_task_per_pass:
+          Number.isInteger(assetOperations) &&
+          assetOperations >=
+            MIN_GLOBALAIOPC_ASSET_OPERATIONS_PER_TASK_PER_PASS &&
+          assetOperations <= MAX_GLOBALAIOPC_ASSET_OPERATIONS_PER_TASK_PER_PASS
+            ? assetOperations
+            : DEFAULT_GLOBALAIOPC_ASSET_OPERATIONS_PER_TASK_PER_PASS,
+        globalaiopc_asset_preparation_timeout_seconds:
+          Number.isInteger(assetTimeout) &&
+          assetTimeout >= MIN_GLOBALAIOPC_ASSET_PREPARATION_TIMEOUT_SECONDS &&
+          assetTimeout <= MAX_GLOBALAIOPC_ASSET_PREPARATION_TIMEOUT_SECONDS
+            ? assetTimeout
+            : DEFAULT_GLOBALAIOPC_ASSET_PREPARATION_TIMEOUT_SECONDS,
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
         system_prompt: parsed.system_prompt || '',
         system_prompt_override: parsed.system_prompt_override || false,
@@ -979,6 +1040,8 @@ function buildSettingJSON(formData: ChannelFormValues): string {
             capability.reference_mode_for_references,
           reference_mode_for_frames: capability.reference_mode_for_frames,
           frames_as_reference_images: capability.frames_as_reference_images,
+          asset_preparation_mode:
+            capability.asset_preparation_mode || undefined,
           omit_parameters: capability.omit_parameters,
           fixed_parameters: capability.fixed_parameters,
         },
@@ -993,6 +1056,15 @@ function buildSettingJSON(formData: ChannelFormValues): string {
     video_s3_preferred: formData.video_s3_preferred || false,
     video_protocol: formData.video_protocol || '',
     video_model_capabilities: videoModelCapabilities,
+    globalaiopc_asset_preparation:
+      formData.video_protocol === 'globalaiopc'
+        ? {
+            operations_per_task_per_pass:
+              formData.globalaiopc_asset_operations_per_task_per_pass,
+            timeout_seconds:
+              formData.globalaiopc_asset_preparation_timeout_seconds,
+          }
+        : undefined,
     pass_through_body_enabled: formData.pass_through_body_enabled || false,
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,

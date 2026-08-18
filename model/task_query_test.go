@@ -3,6 +3,7 @@ package model
 import (
 	"testing"
 
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -120,4 +121,33 @@ func TestTaskFilterOptionsRespectUserScope(t *testing.T) {
 	userOptions, err = GetTaskFilterOptions(&userID)
 	require.NoError(t, err)
 	assert.NotContains(t, userOptions.Models, "upstream-only-model")
+}
+
+func TestPreparingVideoTasksUseDedicatedPollingQueue(t *testing.T) {
+	truncateTables(t)
+	require.NoError(t, DB.Exec("DELETE FROM tasks").Error)
+	tasks := []Task{
+		{TaskID: "preparing-oldest", Status: TaskStatusPreparing, Progress: "0%"},
+		{TaskID: "preparing-next", Status: TaskStatusPreparing, Progress: "0%"},
+		{TaskID: "queued", Status: TaskStatusQueued, Progress: "10%"},
+		{TaskID: "completed", Status: TaskStatusSuccess, Progress: "100%"},
+	}
+	require.NoError(t, DB.Create(&tasks).Error)
+	require.NoError(t, DB.Model(&Task{}).Where("id = ?", tasks[0].ID).UpdateColumn("updated_at", 1).Error)
+	require.NoError(t, DB.Model(&Task{}).Where("id = ?", tasks[1].ID).UpdateColumn("updated_at", 2).Error)
+
+	preparing := GetPreparingVideoTasks(1)
+	require.Len(t, preparing, 1)
+	assert.Equal(t, "preparing-oldest", preparing[0].TaskID)
+	won, err := preparing[0].UpdatePrivateDataWithStatus(TaskStatusPreparing)
+	require.NoError(t, err)
+	require.True(t, won)
+	preparing = GetPreparingVideoTasks(1)
+	require.Len(t, preparing, 1)
+	assert.Equal(t, "preparing-next", preparing[0].TaskID)
+
+	ordinary := GetAllUnFinishSyncTasks(10)
+	require.Len(t, ordinary, 1)
+	assert.Equal(t, "queued", ordinary[0].TaskID)
+	assert.Equal(t, dto.VideoStatusQueued, TaskStatusPreparing.ToVideoStatus())
 }

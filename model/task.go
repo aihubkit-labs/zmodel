@@ -20,7 +20,7 @@ type TaskStatus string
 func (t TaskStatus) ToVideoStatus() string {
 	var status string
 	switch t {
-	case TaskStatusQueued, TaskStatusSubmitted:
+	case TaskStatusPreparing, TaskStatusQueued, TaskStatusSubmitted:
 		status = dto.VideoStatusQueued
 	case TaskStatusInProgress:
 		status = dto.VideoStatusInProgress
@@ -36,6 +36,7 @@ func (t TaskStatus) ToVideoStatus() string {
 
 const (
 	TaskStatusNotStart   TaskStatus = "NOT_START"
+	TaskStatusPreparing  TaskStatus = "PREPARING"
 	TaskStatusSubmitted             = "SUBMITTED"
 	TaskStatusQueued                = "QUEUED"
 	TaskStatusInProgress            = "IN_PROGRESS"
@@ -111,6 +112,25 @@ type TaskPrivateData struct {
 	NodeName          string                     `json:"node_name,omitempty"`       // 发起任务的节点名，轮询结算阶段据此归属日志而非最后查询节点
 	BillingContext    *TaskBillingContext        `json:"billing_context,omitempty"` // 计费参数快照（用于轮询阶段重新计算）
 	UpstreamHTTPTrace *dto.TaskUpstreamHTTPTrace `json:"upstream_http_trace,omitempty"`
+	VideoPreparation  *VideoTaskPreparation      `json:"video_preparation,omitempty"`
+}
+
+type VideoTaskPreparation struct {
+	RequestBody string           `json:"request_body"`
+	Assets      []VideoTaskAsset `json:"assets"`
+	DeadlineAt  int64            `json:"deadline_at"`
+}
+
+type VideoTaskAsset struct {
+	Field        string `json:"field"`
+	Index        int    `json:"index"`
+	AssetType    string `json:"asset_type"`
+	SourceURL    string `json:"source_url"`
+	AssetID      string `json:"asset_id,omitempty"`
+	Status       string `json:"status,omitempty"`
+	ErrorMessage string `json:"error_message,omitempty"`
+	Attempts     int    `json:"attempts,omitempty"`
+	NextPollAt   int64  `json:"next_poll_at,omitempty"`
 }
 
 func IsVideoTaskAction(action string) bool {
@@ -421,8 +441,26 @@ func GetAllUnFinishSyncTasks(limit int) []*Task {
 	var tasks []*Task
 	var err error
 	// get all tasks progress is not 100%
-	err = DB.Where("progress != ?", "100%").Where("status != ?", TaskStatusFailure).Where("status != ?", TaskStatusSuccess).Limit(limit).Order("id").Find(&tasks).Error
+	err = DB.Where("progress != ?", "100%").
+		Where("status NOT IN ?", []TaskStatus{TaskStatusPreparing, TaskStatusFailure, TaskStatusSuccess}).
+		Limit(limit).
+		Order("id").
+		Find(&tasks).Error
 	if err != nil {
+		return nil
+	}
+	return tasks
+}
+
+func GetPreparingVideoTasks(limit int) []*Task {
+	if limit <= 0 {
+		return nil
+	}
+	var tasks []*Task
+	if err := DB.Where("status = ?", TaskStatusPreparing).
+		Order("updated_at, id").
+		Limit(limit).
+		Find(&tasks).Error; err != nil {
 		return nil
 	}
 	return tasks

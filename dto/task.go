@@ -48,10 +48,12 @@ type TaskHTTPMessage struct {
 }
 
 type TaskUpstreamHTTPTrace struct {
-	SubmitRequest  *TaskHTTPMessage `json:"submit_request,omitempty"`
-	SubmitResponse *TaskHTTPMessage `json:"submit_response,omitempty"`
-	PollRequest    *TaskHTTPMessage `json:"poll_request,omitempty"`
-	PollResponse   *TaskHTTPMessage `json:"poll_response,omitempty"`
+	PreparationRequest  *TaskHTTPMessage `json:"preparation_request,omitempty"`
+	PreparationResponse *TaskHTTPMessage `json:"preparation_response,omitempty"`
+	SubmitRequest       *TaskHTTPMessage `json:"submit_request,omitempty"`
+	SubmitResponse      *TaskHTTPMessage `json:"submit_response,omitempty"`
+	PollRequest         *TaskHTTPMessage `json:"poll_request,omitempty"`
+	PollResponse        *TaskHTTPMessage `json:"poll_response,omitempty"`
 }
 
 func (t *TaskResponse[T]) IsSuccess() bool {

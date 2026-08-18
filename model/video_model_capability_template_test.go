@@ -13,7 +13,8 @@ import (
 
 func TestBuiltInGlobalAIOpcCapabilityTemplatesAreValid(t *testing.T) {
 	seeds := builtInGlobalAIOpcCapabilityTemplates()
-	require.Len(t, seeds, 20)
+	require.Len(t, seeds, 22)
+	assetModels := make(map[string]dto.VideoModelCapability)
 	for _, seed := range seeds {
 		t.Run(seed.ModelID, func(t *testing.T) {
 			settings := dto.ChannelSettings{
@@ -24,6 +25,15 @@ func TestBuiltInGlobalAIOpcCapabilityTemplatesAreValid(t *testing.T) {
 			}
 			require.NoError(t, settings.ValidateVideoRequestSettings())
 		})
+		if seed.Capability.AssetPreparationMode != "" {
+			assetModels[seed.ModelID] = seed.Capability
+		}
+	}
+	require.Len(t, assetModels, 2)
+	for _, modelID := range []string{"sd_2.5_discount_v1", "sd_2.5_special_v1"} {
+		capability, ok := assetModels[modelID]
+		require.True(t, ok)
+		assert.Equal(t, dto.VideoAssetPreparationGlobalAIOpcSeedance, capability.AssetPreparationMode)
 	}
 }
 
@@ -39,7 +49,7 @@ func TestVideoModelCapabilityTemplatesSeedListAndCustomize(t *testing.T) {
 
 	templates, err := ListVideoModelCapabilityTemplates(dto.VideoProtocolGlobalAIOpc)
 	require.NoError(t, err)
-	require.Len(t, templates, 20)
+	require.Len(t, templates, 22)
 	var builtInTemplate VideoModelCapabilityTemplate
 	for _, template := range templates {
 		if template.ModelID == "minimax-h3" {
@@ -87,7 +97,7 @@ func TestVideoModelCapabilityTemplatesSeedListAndCustomize(t *testing.T) {
 
 	templates, err = ListVideoModelCapabilityTemplates(dto.VideoProtocolGlobalAIOpc)
 	require.NoError(t, err)
-	require.Len(t, templates, 21)
+	require.Len(t, templates, 23)
 	for _, template := range templates {
 		if template.ModelID != "custom-minimax-h3" {
 			continue

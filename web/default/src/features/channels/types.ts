@@ -88,9 +88,15 @@ export interface ChannelSettings {
   video_s3_preferred?: boolean
   video_protocol?: VideoProtocol
   video_model_capabilities?: Record<string, VideoModelCapability>
+  globalaiopc_asset_preparation?: GlobalAIOpcAssetPreparationSettings
   pass_through_body_enabled?: boolean
   system_prompt?: string
   system_prompt_override?: boolean
+}
+
+export interface GlobalAIOpcAssetPreparationSettings {
+  operations_per_task_per_pass?: number
+  timeout_seconds?: number
 }
 
 export interface VideoModelCapability {
@@ -126,6 +132,7 @@ export interface VideoModelCapability {
   reference_mode_for_references?: string
   reference_mode_for_frames?: string
   frames_as_reference_images?: boolean
+  asset_preparation_mode?: 'globalaiopc_seedance'
   omit_parameters?: string[]
   fixed_parameters?: Record<string, unknown>
 }

@@ -510,6 +510,27 @@ func validateExtendedVideoRequest(publicModelName, capabilityModelName string, c
 	if *capability.GenerateAudioRequired && (req.GenerateAudio == nil || !*req.GenerateAudio) {
 		return videoParameterError("generate_audio must be true for this video model; allowed value: true", "invalid_generate_audio", dto.VideoParameterErrorData{Parameter: "generate_audio", Received: false, AllowedValues: []any{true}, Required: common.GetPointer(true)})
 	}
+	if capability.AssetPreparationMode != "" {
+		for _, references := range []struct {
+			name   string
+			values []string
+			code   string
+		}{
+			{name: "reference_images", values: req.ReferenceImages, code: "invalid_reference_images"},
+			{name: "reference_videos", values: req.ReferenceVideos, code: "invalid_reference_videos"},
+			{name: "reference_audios", values: req.ReferenceAudios, code: "invalid_reference_audios"},
+		} {
+			for _, reference := range references.values {
+				if !isPublicVideoReferenceURL(reference) {
+					return videoParameterError(
+						fmt.Sprintf("%s must contain valid HTTP or HTTPS URLs", references.name),
+						references.code,
+						dto.VideoParameterErrorData{Parameter: references.name, Received: reference, AllowedValues: []any{"HTTP URL", "HTTPS URL"}},
+					)
+				}
+			}
+		}
+	}
 
 	hasFirstFrame := req.FirstImage != "" || req.FirstImageFile
 	hasLastFrame := req.LastImage != "" || req.LastImageFile
