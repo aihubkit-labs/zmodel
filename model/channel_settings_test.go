@@ -138,6 +138,7 @@ func TestChannelSettingsGetVideoModelCapabilityNormalizesLookup(t *testing.T) {
 				LastFrameRequiresFirstFrame:           common.GetPointer(true),
 				ReferenceImagesIncompatibleWithFrames: common.GetPointer(true),
 				AudioReferenceRequiresVisualReference: common.GetPointer(true),
+				AssetPreparationMode:                  dto.VideoAssetPreparationGlobalAIOpcSeedance,
 			},
 		},
 	}
@@ -158,4 +159,62 @@ func TestChannelSettingsGetVideoModelCapabilityNormalizesLookup(t *testing.T) {
 	assert.True(t, *capability.LastFrameRequiresFirstFrame)
 	assert.True(t, *capability.ReferenceImagesIncompatibleWithFrames)
 	assert.True(t, *capability.AudioReferenceRequiresVisualReference)
+	assert.Equal(t, dto.VideoAssetPreparationGlobalAIOpcSeedance, capability.AssetPreparationMode)
+}
+
+func TestChannelSettingsValidatesVideoAssetPreparationMode(t *testing.T) {
+	capability := validExtendedVideoCapability()
+	capability.AssetPreparationMode = dto.VideoAssetPreparationGlobalAIOpcSeedance
+
+	settings := dto.ChannelSettings{
+		VideoProtocol:          dto.VideoProtocolGlobalAIOpc,
+		VideoModelCapabilities: map[string]dto.VideoModelCapability{"sd_2.5_special_v1": capability},
+	}
+	require.NoError(t, settings.ValidateVideoRequestSettings())
+
+	settings.VideoProtocol = dto.VideoProtocolMegabyAI
+	require.ErrorContains(t, settings.ValidateVideoRequestSettings(), "requires the GlobalAIOpc video protocol")
+
+	settings.VideoProtocol = dto.VideoProtocolGlobalAIOpc
+	capability.AssetPreparationMode = "unknown"
+	settings.VideoModelCapabilities["sd_2.5_special_v1"] = capability
+	require.ErrorContains(t, settings.ValidateVideoRequestSettings(), "unsupported asset preparation mode")
+}
+
+func TestChannelSettingsResolvesGlobalAIOpcAssetPreparationDefaults(t *testing.T) {
+	settings := dto.ChannelSettings{}
+
+	resolved := settings.GetGlobalAIOpcAssetPreparationSettings()
+	assert.Equal(t, 10, resolved.OperationsPerTaskPerPass)
+	assert.Equal(t, 900, resolved.TimeoutSeconds)
+
+	settings.GlobalAIOpcAssetPreparation = &dto.GlobalAIOpcAssetPreparationSettings{
+		OperationsPerTaskPerPass: 25,
+		TimeoutSeconds:           1200,
+	}
+	resolved = settings.GetGlobalAIOpcAssetPreparationSettings()
+	assert.Equal(t, 25, resolved.OperationsPerTaskPerPass)
+	assert.Equal(t, 1200, resolved.TimeoutSeconds)
+}
+
+func TestChannelSettingsValidatesGlobalAIOpcAssetPreparation(t *testing.T) {
+	settings := dto.ChannelSettings{
+		VideoProtocol: dto.VideoProtocolGlobalAIOpc,
+		VideoModelCapabilities: map[string]dto.VideoModelCapability{
+			"sd_2.5_special_v1": validExtendedVideoCapability(),
+		},
+		GlobalAIOpcAssetPreparation: &dto.GlobalAIOpcAssetPreparationSettings{},
+	}
+	require.NoError(t, settings.ValidateVideoRequestSettings())
+
+	settings.GlobalAIOpcAssetPreparation.OperationsPerTaskPerPass = 51
+	require.ErrorContains(t, settings.ValidateVideoRequestSettings(), "operations_per_task_per_pass must be between 1 and 50")
+
+	settings.GlobalAIOpcAssetPreparation.OperationsPerTaskPerPass = 10
+	settings.GlobalAIOpcAssetPreparation.TimeoutSeconds = 59
+	require.ErrorContains(t, settings.ValidateVideoRequestSettings(), "timeout_seconds must be between 60 and 3600")
+
+	settings.GlobalAIOpcAssetPreparation.TimeoutSeconds = 900
+	settings.VideoProtocol = dto.VideoProtocolMegabyAI
+	require.ErrorContains(t, settings.ValidateVideoRequestSettings(), "requires the GlobalAIOpc video protocol")
 }

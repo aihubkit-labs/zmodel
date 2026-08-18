@@ -272,6 +272,11 @@ func sanitizeUpstreamHTTPText(value string) string {
 	return upstreamHTTPURLPattern.ReplaceAllStringFunc(value, SanitizeURLForLog)
 }
 
+// SanitizeUpstreamHTTPText redacts sensitive JSON values and URL credentials from upstream text.
+func SanitizeUpstreamHTTPText(value string) string {
+	return sanitizeUpstreamHTTPText(value)
+}
+
 func isSensitiveUpstreamHTTPField(name string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(name))
 	switch normalized {

@@ -87,6 +87,18 @@ func BuildGlobalAIOpcVideoTaskURL(baseURL, taskID string) string {
 	return taskURL
 }
 
+func BuildGlobalAIOpcAssetUploadURL(baseURL string) string {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	baseURL = strings.TrimSuffix(baseURL, "/kyyReactApiServer")
+	return baseURL + "/kyyReactApiServer/asset/seedance2/assetUpload"
+}
+
+func BuildGlobalAIOpcAssetDetailURL(baseURL string) string {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	baseURL = strings.TrimSuffix(baseURL, "/kyyReactApiServer")
+	return baseURL + "/kyyReactApiServer/asset/seedance2/assetDetail"
+}
+
 // Status-to-progress mapping constants for polling updates.
 const (
 	ProgressSubmitted  = "10%"

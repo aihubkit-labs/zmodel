@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -34,6 +35,20 @@ type taskPollingFetchAdaptor struct {
 	blockOnce    sync.Once
 	fetchErr     error
 	protocols    []dto.VideoProtocol
+}
+
+type taskPreparationTestAdaptor struct {
+	taskPollingFetchAdaptor
+	result *TaskPreparationResult
+	err    error
+	trace  *dto.TaskUpstreamHTTPTrace
+}
+
+func (a *taskPreparationTestAdaptor) PrepareTask(_ context.Context, _ *model.Channel, task *model.Task) (*TaskPreparationResult, error) {
+	if a.trace != nil {
+		task.PrivateData.UpstreamHTTPTrace = a.trace
+	}
+	return a.result, a.err
 }
 
 func (a *taskPollingFetchAdaptor) Init(_ *relaycommon.RelayInfo) {}
@@ -152,6 +167,127 @@ func seedPollingTask(t *testing.T, channelID int, publicID string, upstreamID st
 	}
 	require.NoError(t, model.DB.Create(task).Error)
 	return task
+}
+
+func TestUpdatePreparingVideoTaskTransitionsAndRefundsOnce(t *testing.T) {
+	t.Run("prepared task enters ordinary polling", func(t *testing.T) {
+		truncate(t)
+		const channelID = 91
+		seedTaskPollingChannel(t, channelID, true)
+		task := &model.Task{
+			TaskID:    "task_preparing_success",
+			Platform:  constant.TaskPlatform("kling"),
+			ChannelId: channelID,
+			Status:    model.TaskStatusPreparing,
+			Progress:  "0%",
+			PrivateData: model.TaskPrivateData{VideoPreparation: &model.VideoTaskPreparation{
+				RequestBody: `{}`,
+				DeadlineAt:  common.GetTimestamp() + 600,
+			}},
+		}
+		require.NoError(t, model.DB.Create(task).Error)
+		adaptor := &taskPreparationTestAdaptor{result: &TaskPreparationResult{
+			UpstreamTaskID: "upstream-prepared",
+			TaskData:       []byte(`{"id":"upstream-prepared","status":"queued"}`),
+		}}
+		previousFactory := GetTaskAdaptorFunc
+		GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+		t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+
+		updatePreparingVideoTask(context.Background(), task)
+
+		var stored model.Task
+		require.NoError(t, model.DB.First(&stored, task.ID).Error)
+		assert.Equal(t, model.TaskStatus(model.TaskStatusQueued), stored.Status)
+		assert.Equal(t, taskcommon.ProgressQueued, stored.Progress)
+		assert.Equal(t, "upstream-prepared", stored.PrivateData.UpstreamTaskID)
+		assert.Nil(t, stored.PrivateData.VideoPreparation)
+	})
+
+	t.Run("preparation failure refunds only after winning CAS", func(t *testing.T) {
+		truncate(t)
+		const userID, tokenID, channelID = 92, 92, 92
+		const initialQuota, preConsumedQuota = 10000, 4000
+		seedUser(t, userID, initialQuota)
+		seedToken(t, tokenID, userID, "sk-preparing-refund", 6000)
+		seedTaskPollingChannel(t, channelID, true)
+		task := &model.Task{
+			TaskID:    "task_preparing_failure",
+			Platform:  constant.TaskPlatform("kling"),
+			UserId:    userID,
+			ChannelId: channelID,
+			Quota:     preConsumedQuota,
+			Status:    model.TaskStatusPreparing,
+			Progress:  "0%",
+			PrivateData: model.TaskPrivateData{
+				TokenId: tokenID,
+				VideoPreparation: &model.VideoTaskPreparation{
+					RequestBody: `{}`,
+					DeadlineAt:  common.GetTimestamp() + 600,
+				},
+			},
+		}
+		require.NoError(t, model.DB.Create(task).Error)
+		adaptor := &taskPreparationTestAdaptor{
+			err: errors.New("asset processing failed"),
+			trace: &dto.TaskUpstreamHTTPTrace{
+				PreparationRequest:  &dto.TaskHTTPMessage{Method: http.MethodPost, URL: "https://upstream.example/assets"},
+				PreparationResponse: &dto.TaskHTTPMessage{StatusCode: http.StatusBadRequest, Body: `{"error":"unsupported media"}`},
+			},
+		}
+		previousFactory := GetTaskAdaptorFunc
+		GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+		t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+
+		updatePreparingVideoTask(context.Background(), task)
+		updatePreparingVideoTask(context.Background(), task)
+
+		var stored model.Task
+		require.NoError(t, model.DB.First(&stored, task.ID).Error)
+		assert.Equal(t, model.TaskStatus(model.TaskStatusFailure), stored.Status)
+		assert.Equal(t, taskcommon.ProgressComplete, stored.Progress)
+		assert.Equal(t, "video input preparation failed", stored.FailReason)
+		assert.Equal(t, initialQuota+preConsumedQuota, getUserQuota(t, userID))
+		assert.Equal(t, 6000+preConsumedQuota, getTokenRemainQuota(t, tokenID))
+		assert.Equal(t, int64(1), countLogs(t))
+		require.NotNil(t, stored.PrivateData.UpstreamHTTPTrace)
+		assert.Equal(t, http.StatusBadRequest, stored.PrivateData.UpstreamHTTPTrace.PreparationResponse.StatusCode)
+	})
+
+	t.Run("safe upstream error is appended to the public failure reason", func(t *testing.T) {
+		truncate(t)
+		const channelID = 93
+		seedTaskPollingChannel(t, channelID, true)
+		task := &model.Task{
+			TaskID:    "task_preparing_public_failure",
+			Platform:  constant.TaskPlatform("kling"),
+			ChannelId: channelID,
+			Status:    model.TaskStatusPreparing,
+			Progress:  "0%",
+			PrivateData: model.TaskPrivateData{VideoPreparation: &model.VideoTaskPreparation{
+				RequestBody: `{}`,
+				DeadlineAt:  common.GetTimestamp() + 600,
+			}},
+		}
+		require.NoError(t, model.DB.Create(task).Error)
+		adaptor := &taskPreparationTestAdaptor{err: NewTaskPreparationError(
+			"HTTP_400_C400999: [SY_ERR:60]\nHTTP 400: Duration must be between 1.8s and 30.2s.",
+			errors.New("internal upstream response detail"),
+		)}
+		previousFactory := GetTaskAdaptorFunc
+		GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+		t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+
+		updatePreparingVideoTask(context.Background(), task)
+
+		var stored model.Task
+		require.NoError(t, model.DB.First(&stored, task.ID).Error)
+		assert.Equal(t,
+			"video input preparation failed: HTTP_400_C400999: [SY_ERR:60] HTTP 400: Duration must be between 1.8s and 30.2s.",
+			stored.FailReason,
+		)
+		assert.NotContains(t, stored.FailReason, "internal upstream response detail")
+	})
 }
 
 func TestUpdateVideoTasksDefaultSleepWaitsBetweenTasks(t *testing.T) {

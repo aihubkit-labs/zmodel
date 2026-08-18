@@ -387,6 +387,39 @@ export function VideoModelCapabilitiesField(
                   </div>
                 ) : null}
 
+                {props.protocol === 'globalaiopc' ? (
+                  <FormField
+                    control={props.control}
+                    name={`video_model_capabilities.${index}.asset_preparation_mode`}
+                    render={({ field }) => (
+                      <FormItem className='flex items-start justify-between gap-4 py-1'>
+                        <div className='space-y-1'>
+                          <FormLabel>
+                            {t('Use GlobalAIOpc asset library')}
+                          </FormLabel>
+                          <FormDescription>
+                            {t(
+                              'Upload reference media to the upstream asset library and wait until all assets are active before submitting generation'
+                            )}
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            className='mt-0.5 shrink-0'
+                            checked={field.value === 'globalaiopc_seedance'}
+                            disabled={props.readOnly}
+                            onCheckedChange={(checked) =>
+                              field.onChange(
+                                checked ? 'globalaiopc_seedance' : ''
+                              )
+                            }
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                ) : null}
+
                 <div className='grid grid-cols-1 gap-3 lg:grid-cols-2'>
                   <FormField
                     control={props.control}

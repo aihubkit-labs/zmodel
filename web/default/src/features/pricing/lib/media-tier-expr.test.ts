@@ -24,7 +24,6 @@ import {
   MEDIA_BILLING_FIXED_PLUS_SECOND,
   MEDIA_BILLING_PER_SECOND,
   MEDIA_BILLING_PER_UNIT,
-  MEDIA_CONDITION_NONE,
   generateMediaExpr,
   tryParseMediaConfig,
   type MediaVisualConfig,
@@ -36,8 +35,9 @@ describe('media tier expression editor', () => {
       tiers: [
         {
           label: '1K',
-          conditionVariable: 'image_size_tier',
-          conditionValue: '1K',
+          conditions: [
+            { variable: 'image_size_tier', operator: 'eq', value: '1K' },
+          ],
           billingMethod: MEDIA_BILLING_PER_UNIT,
           unitPrice: 0.05,
           fixedPrice: 0,
@@ -45,8 +45,9 @@ describe('media tier expression editor', () => {
         },
         {
           label: '4K',
-          conditionVariable: 'image_size_tier',
-          conditionValue: '4K',
+          conditions: [
+            { variable: 'image_size_tier', operator: 'eq', value: '4K' },
+          ],
           billingMethod: MEDIA_BILLING_PER_UNIT,
           unitPrice: 0.15,
           fixedPrice: 0,
@@ -54,8 +55,7 @@ describe('media tier expression editor', () => {
         },
         {
           label: '2K',
-          conditionVariable: MEDIA_CONDITION_NONE,
-          conditionValue: '',
+          conditions: [],
           billingMethod: MEDIA_BILLING_PER_UNIT,
           unitPrice: 0.125,
           fixedPrice: 0,
@@ -78,8 +78,9 @@ describe('media tier expression editor', () => {
       tiers: [
         {
           label: '720p',
-          conditionVariable: 'resolution_tier',
-          conditionValue: '720p',
+          conditions: [
+            { variable: 'resolution_tier', operator: 'eq', value: '720p' },
+          ],
           billingMethod: MEDIA_BILLING_PER_SECOND,
           unitPrice: 0,
           fixedPrice: 0,
@@ -87,8 +88,7 @@ describe('media tier expression editor', () => {
         },
         {
           label: '4K',
-          conditionVariable: MEDIA_CONDITION_NONE,
-          conditionValue: '',
+          conditions: [],
           billingMethod: MEDIA_BILLING_FIXED_PLUS_SECOND,
           unitPrice: 0,
           fixedPrice: 0.05,
@@ -100,13 +100,151 @@ describe('media tier expression editor', () => {
     assert.deepEqual(tryParseMediaConfig(generateMediaExpr(config)), config)
   })
 
+  test('round-trips reference media count comparisons', () => {
+    const variables = [
+      'reference_image_count',
+      'reference_video_count',
+      'reference_audio_count',
+    ] as const
+
+    for (const conditionVariable of variables) {
+      const config: MediaVisualConfig = {
+        tiers: [
+          {
+            label: 'with_reference',
+            conditions: [
+              { variable: conditionVariable, operator: 'lte', value: '10' },
+            ],
+            billingMethod: MEDIA_BILLING_PER_UNIT,
+            unitPrice: 0.15,
+            fixedPrice: 0,
+            perSecondPrice: 0,
+          },
+          {
+            label: 'base',
+            conditions: [],
+            billingMethod: MEDIA_BILLING_PER_UNIT,
+            unitPrice: 0.2,
+            fixedPrice: 0,
+            perSecondPrice: 0,
+          },
+        ],
+      }
+
+      assert.deepEqual(tryParseMediaConfig(generateMediaExpr(config)), config)
+    }
+  })
+
+  test('generates inclusive reference count ranges', () => {
+    const config: MediaVisualConfig = {
+      tiers: [
+        {
+          label: 'none',
+          conditions: [
+            {
+              variable: 'reference_video_count',
+              operator: 'eq',
+              value: '0',
+            },
+          ],
+          billingMethod: MEDIA_BILLING_PER_UNIT,
+          unitPrice: 0.1,
+          fixedPrice: 0,
+          perSecondPrice: 0,
+        },
+        {
+          label: 'one_to_ten',
+          conditions: [
+            {
+              variable: 'reference_video_count',
+              operator: 'range',
+              value: '1',
+              rangeEnd: '10',
+            },
+          ],
+          billingMethod: MEDIA_BILLING_PER_UNIT,
+          unitPrice: 0.15,
+          fixedPrice: 0,
+          perSecondPrice: 0,
+        },
+        {
+          label: 'over_ten',
+          conditions: [],
+          billingMethod: MEDIA_BILLING_PER_UNIT,
+          unitPrice: 0.2,
+          fixedPrice: 0,
+          perSecondPrice: 0,
+        },
+      ],
+    }
+
+    const expr = generateMediaExpr(config)
+
+    assert.equal(
+      expr,
+      'v2:reference_video_count == 0 ? tier("none", usd(0.1 * units)) : reference_video_count >= 1 && reference_video_count <= 10 ? tier("one_to_ten", usd(0.15 * units)) : tier("over_ten", usd(0.2 * units))'
+    )
+    assert.deepEqual(tryParseMediaConfig(expr), config)
+  })
+
+  test('combines resolution and reference video count conditions', () => {
+    const priceTier = (
+      label: string,
+      resolution: string,
+      operator: 'eq' | 'gt',
+      count: string,
+      unitPrice: number
+    ): MediaVisualConfig['tiers'][number] => ({
+      label,
+      conditions: [
+        {
+          variable: 'resolution_tier' as const,
+          operator: 'eq' as const,
+          value: resolution,
+        },
+        {
+          variable: 'reference_video_count' as const,
+          operator,
+          value: count,
+        },
+      ],
+      billingMethod: MEDIA_BILLING_PER_UNIT,
+      unitPrice,
+      fixedPrice: 0,
+      perSecondPrice: 0,
+    })
+    const config: MediaVisualConfig = {
+      tiers: [
+        priceTier('720p_with_reference', '720p', 'gt', '0', 0.12),
+        priceTier('720p_without_reference', '720p', 'eq', '0', 0.08),
+        priceTier('1080p_with_reference', '1080p', 'gt', '0', 0.18),
+        priceTier('1080p_without_reference', '1080p', 'eq', '0', 0.14),
+        {
+          label: 'fallback',
+          conditions: [],
+          billingMethod: MEDIA_BILLING_PER_UNIT,
+          unitPrice: 0.2,
+          fixedPrice: 0,
+          perSecondPrice: 0,
+        },
+      ],
+    }
+
+    const expr = generateMediaExpr(config)
+
+    assert.equal(
+      expr,
+      'v2:resolution_tier == "720p" && reference_video_count > 0 ? tier("720p_with_reference", usd(0.12 * units)) : resolution_tier == "720p" && reference_video_count == 0 ? tier("720p_without_reference", usd(0.08 * units)) : resolution_tier == "1080p" && reference_video_count > 0 ? tier("1080p_with_reference", usd(0.18 * units)) : resolution_tier == "1080p" && reference_video_count == 0 ? tier("1080p_without_reference", usd(0.14 * units)) : tier("fallback", usd(0.2 * units))'
+    )
+    assert.deepEqual(tryParseMediaConfig(expr), config)
+  })
+
   test('does not emit incomplete conditional tiers before the fallback', () => {
     const expr = generateMediaExpr({
       tiers: [
         {
           label: 'incomplete',
-          conditionVariable: 'quality',
-          conditionValue: '   ',
+          conditions: [{ variable: 'quality', operator: 'eq', value: '   ' }],
           billingMethod: MEDIA_BILLING_PER_UNIT,
           unitPrice: 0.01,
           fixedPrice: 0,
@@ -114,8 +252,7 @@ describe('media tier expression editor', () => {
         },
         {
           label: 'base',
-          conditionVariable: MEDIA_CONDITION_NONE,
-          conditionValue: '',
+          conditions: [],
           billingMethod: MEDIA_BILLING_PER_UNIT,
           unitPrice: 0.08,
           fixedPrice: 0,

@@ -88,6 +88,13 @@ type TaskAdaptor interface {
 	ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error)
 }
 
+// TaskPreparationPlanner is implemented by task adaptors whose selected model
+// needs durable input preparation before the upstream generation request can
+// be submitted.
+type TaskPreparationPlanner interface {
+	BuildTaskPreparation(c *gin.Context, info *relaycommon.RelayInfo, requestBody []byte) (*model.VideoTaskPreparation, error)
+}
+
 type OpenAIVideoConverter interface {
 	ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error)
 }

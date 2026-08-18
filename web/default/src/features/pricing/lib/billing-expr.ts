@@ -234,13 +234,34 @@ export type TierCondition = {
   value: number
 }
 
+export type MediaConditionVariable =
+  | 'quality'
+  | 'resolution_tier'
+  | 'image_size_tier'
+  | 'image_size'
+  | 'reference_image_count'
+  | 'reference_video_count'
+  | 'reference_audio_count'
+
+export type MediaConditionOperator =
+  | 'eq'
+  | 'lt'
+  | 'lte'
+  | 'gt'
+  | 'gte'
+  | 'range'
+
+export type MediaCondition = {
+  variable: MediaConditionVariable
+  operator: MediaConditionOperator
+  value: string
+  rangeEnd?: string
+}
+
 export type ParsedTier = {
   label: string
   conditions: TierCondition[]
-  mediaCondition?: {
-    variable: 'quality' | 'resolution_tier' | 'image_size_tier' | 'image_size'
-    value: string
-  }
+  mediaConditions: MediaCondition[]
   mediaPricing?: {
     method: 'per_unit' | 'per_second' | 'fixed_plus_second'
     unitPrice?: number
@@ -252,14 +273,53 @@ export type ParsedTier = {
 
 export type MediaUnit = 'image' | 'video' | 'output'
 
+const MEDIA_CONDITION_LABELS: Record<MediaConditionVariable, string> = {
+  quality: 'Image quality',
+  resolution_tier: 'Video resolution tier',
+  image_size_tier: 'Image size tier',
+  image_size: 'Image size',
+  reference_image_count: 'Reference image count',
+  reference_video_count: 'Reference video count',
+  reference_audio_count: 'Reference audio count',
+}
+
+export function formatMediaConditionSummary(
+  condition: MediaCondition,
+  t: (key: string) => string
+): string {
+  const label = t(MEDIA_CONDITION_LABELS[condition.variable])
+  if (condition.operator === 'range') {
+    return `${label} ${condition.value}–${condition.rangeEnd}`
+  }
+  const symbols: Record<Exclude<MediaConditionOperator, 'range'>, string> = {
+    eq: '=',
+    lt: '<',
+    lte: '≤',
+    gt: '>',
+    gte: '≥',
+  }
+  return `${label} ${symbols[condition.operator]} ${condition.value}`
+}
+
+export function formatMediaConditionsSummary(
+  conditions: MediaCondition[],
+  t: (key: string) => string
+): string {
+  return conditions
+    .map((condition) => formatMediaConditionSummary(condition, t))
+    .join(' · ')
+}
+
 export function inferMediaUnit(tiers: ParsedTier[]): MediaUnit {
-  const hasVideo = tiers.some(
-    (tier) => tier.mediaCondition?.variable === 'resolution_tier'
+  const variables = tiers.flatMap((tier) =>
+    tier.mediaConditions.map((condition) => condition.variable)
   )
-  const hasImage = tiers.some((tier) =>
-    ['quality', 'image_size_tier', 'image_size'].includes(
-      tier.mediaCondition?.variable || ''
-    )
+  const hasVideo = variables.some(
+    (variable) =>
+      variable === 'resolution_tier' || variable.startsWith('reference_')
+  )
+  const hasImage = variables.some((variable) =>
+    ['quality', 'image_size_tier', 'image_size'].includes(variable)
   )
   if (hasVideo && !hasImage) return 'video'
   if (hasImage && !hasVideo) return 'image'
@@ -314,14 +374,78 @@ function parseMediaPricing(bodyStr: string): ParsedTier['mediaPricing'] {
   return undefined
 }
 
+const MEDIA_CONDITION_OPERATOR_MAP: Record<string, MediaConditionOperator> = {
+  '==': 'eq',
+  '<': 'lt',
+  '<=': 'lte',
+  '>': 'gt',
+  '>=': 'gte',
+}
+
+function parseMediaConditions(conditionString: string): MediaCondition[] {
+  const clauses = conditionString
+    ? conditionString.split(/\s*&&\s*/).map((clause) => clause.trim())
+    : []
+  const conditions: MediaCondition[] = []
+
+  for (let index = 0; index < clauses.length; index += 1) {
+    const clause = clauses[index]
+    const textMatch = clause.match(
+      /^(quality|resolution_tier|image_size_tier|image_size)\s*==\s*"([^"]+)"$/
+    )
+    if (textMatch) {
+      conditions.push({
+        variable: textMatch[1] as MediaConditionVariable,
+        operator: 'eq',
+        value: textMatch[2],
+      })
+      continue
+    }
+
+    const countMatch = clause.match(
+      /^(reference_image_count|reference_video_count|reference_audio_count)\s*(==|<=|>=|<|>)\s*([\d.eE+]+)$/
+    )
+    if (!countMatch) continue
+
+    const nextMatch = clauses[index + 1]?.match(
+      /^(reference_image_count|reference_video_count|reference_audio_count)\s*(==|<=|>=|<|>)\s*([\d.eE+]+)$/
+    )
+    if (
+      countMatch[2] === '>=' &&
+      nextMatch?.[1] === countMatch[1] &&
+      nextMatch[2] === '<='
+    ) {
+      conditions.push({
+        variable: countMatch[1] as MediaConditionVariable,
+        operator: 'range',
+        value: countMatch[3],
+        rangeEnd: nextMatch[3],
+      })
+      index += 1
+      continue
+    }
+
+    conditions.push({
+      variable: countMatch[1] as MediaConditionVariable,
+      operator: MEDIA_CONDITION_OPERATOR_MAP[countMatch[2]],
+      value: countMatch[3],
+    })
+  }
+
+  return conditions
+}
+
 export function parseTiersFromExpr(exprStr: string): ParsedTier[] {
   if (!exprStr) return []
   try {
     const { body } = stripExprVersion(exprStr)
-    const condGroup =
-      `((?:(?:p|c|len)\\s*(?:<|<=|>|>=)\\s*[\\d.eE+]+)` +
-      `(?:\\s*&&\\s*(?:p|c|len)\\s*(?:<|<=|>|>=)\\s*[\\d.eE+]+)*|` +
-      `(?:quality|resolution_tier|image_size_tier|image_size)\\s*==\\s*"[^"]+")`
+    const numericVars =
+      'p|c|len|reference_image_count|reference_video_count|reference_audio_count'
+    const numericCondition = `(?:${numericVars})\\s*(?:==|<=|>=|<|>)\\s*[\\d.eE+]+`
+    const textCondition =
+      '(?:quality|resolution_tier|image_size_tier|image_size)\\s*==\\s*"[^"]+"'
+    const condition = `(?:${numericCondition}|${textCondition})`
+    const condGroup = `(${condition}(?:\\s*&&\\s*${condition})*)`
     const tierRe = new RegExp(
       `(?:${condGroup}\\s*\\?\\s*)?tier\\("([^"]*)",\\s*(usd\\((?:[^()]|\\([^()]*\\))*\\)|[^)]+)\\)`,
       'g'
@@ -346,17 +470,7 @@ export function parseTiersFromExpr(exprStr: string): ParsedTier[] {
       const tier = parseTierBody(m[3]) as ParsedTier
       tier.label = m[2]
       tier.conditions = conditions
-      const mediaCondition = condStr.match(
-        /^(quality|resolution_tier|image_size_tier|image_size)\s*==\s*"([^"]+)"$/
-      )
-      if (mediaCondition) {
-        tier.mediaCondition = {
-          variable: mediaCondition[1] as NonNullable<
-            ParsedTier['mediaCondition']
-          >['variable'],
-          value: mediaCondition[2],
-        }
-      }
+      tier.mediaConditions = parseMediaConditions(condStr)
       tier.mediaPricing = parseMediaPricing(m[3])
       tiers.push(tier)
     }

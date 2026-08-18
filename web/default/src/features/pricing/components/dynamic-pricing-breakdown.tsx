@@ -34,6 +34,7 @@ import {
   MATCH_LT,
   MATCH_RANGE,
   SOURCE_TIME,
+  formatMediaConditionsSummary,
   inferMediaUnit,
   normalizeTierLabel,
   parseTiersFromExpr,
@@ -101,14 +102,8 @@ function formatConditionSummary(
   tier: ParsedTier,
   t: (key: string) => string
 ): string {
-  if (tier.mediaCondition) {
-    const labels: Record<string, string> = {
-      quality: 'Image quality',
-      resolution_tier: 'Video resolution tier',
-      image_size_tier: 'Image size tier',
-      image_size: 'Image size',
-    }
-    return `${t(labels[tier.mediaCondition.variable])} = ${tier.mediaCondition.value}`
+  if (tier.mediaConditions.length > 0) {
+    return formatMediaConditionsSummary(tier.mediaConditions, t)
   }
   const summary = tier.conditions
     .map((c) => {

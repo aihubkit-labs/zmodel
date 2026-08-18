@@ -348,6 +348,8 @@ export interface TaskHTTPMessage {
 }
 
 export interface TaskUpstreamHTTPTrace {
+  preparation_request?: TaskHTTPMessage
+  preparation_response?: TaskHTTPMessage
   submit_request?: TaskHTTPMessage
   submit_response?: TaskHTTPMessage
   poll_request?: TaskHTTPMessage

@@ -30,6 +30,7 @@ type TaskSubmitResult struct {
 	Platform          constant.TaskPlatform
 	Quota             int
 	UpstreamHTTPTrace *dto.TaskUpstreamHTTPTrace
+	Preparation       *model.VideoTaskPreparation
 	//PerCallPrice   types.PriceData
 }
 
@@ -239,6 +240,36 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	if err != nil {
 		return nil, service.TaskErrorWrapper(err, "build_request_failed", http.StatusInternalServerError)
 	}
+	otherRatios := info.PriceData.OtherRatios()
+	if otherRatios == nil {
+		otherRatios = map[string]float64{}
+	}
+	ratiosJSON, _ := common.Marshal(otherRatios)
+	c.Header("X-New-Api-Other-Ratios", string(ratiosJSON))
+	if planner, ok := adaptor.(channel.TaskPreparationPlanner); ok {
+		requestBodyBytes, readErr := io.ReadAll(requestBody)
+		if readErr != nil {
+			return nil, service.TaskErrorWrapper(readErr, "read_prepared_request_failed", http.StatusInternalServerError)
+		}
+		preparation, planErr := planner.BuildTaskPreparation(c, info, requestBodyBytes)
+		if planErr != nil {
+			return nil, service.TaskErrorWrapper(planErr, "build_task_preparation_failed", http.StatusInternalServerError)
+		}
+		if preparation != nil {
+			publicBody, marshalErr := buildPreparingVideoResponse(c, info)
+			if marshalErr != nil {
+				return nil, service.TaskErrorWrapper(marshalErr, "normalize_video_response_failed", http.StatusInternalServerError)
+			}
+			c.Data(http.StatusOK, "application/json; charset=utf-8", publicBody)
+			return &TaskSubmitResult{
+				TaskData:    publicBody,
+				Platform:    platform,
+				Quota:       info.PriceData.Quota,
+				Preparation: preparation,
+			}, nil
+		}
+		requestBody = bytes.NewReader(requestBodyBytes)
+	}
 
 	// 10. 发送请求
 	resp, err := adaptor.DoRequest(c, info, requestBody)
@@ -255,14 +286,6 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		c.Set(relaycommon.TaskUpstreamHTTPTraceContextKey, taskSubmitHTTPTrace(c, submitResponse))
 		return nil, service.TaskErrorWrapper(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", resp.StatusCode)
 	}
-
-	// 10. 返回 OtherRatios 给下游（header 必须在 DoResponse 写 body 之前设置）
-	otherRatios := info.PriceData.OtherRatios()
-	if otherRatios == nil {
-		otherRatios = map[string]float64{}
-	}
-	ratiosJSON, _ := common.Marshal(otherRatios)
-	c.Header("X-New-Api-Other-Ratios", string(ratiosJSON))
 
 	// 11. 解析响应
 	upstreamTaskID, taskData, taskErr := adaptor.DoResponse(c, resp, info)
@@ -291,6 +314,27 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		Quota:             finalQuota,
 		UpstreamHTTPTrace: taskSubmitHTTPTrace(c, submitResponse),
 	}, nil
+}
+
+func buildPreparingVideoResponse(c *gin.Context, info *relaycommon.RelayInfo) ([]byte, error) {
+	request, _ := relaycommon.GetTaskRequest(c)
+	modelName := request.Model
+	if strings.TrimSpace(modelName) == "" {
+		modelName = info.OriginModelName
+	}
+	video := dto.NewOpenAIVideo()
+	video.ID = info.PublicTaskID
+	video.TaskID = info.PublicTaskID
+	video.Model = modelName
+	video.Progress = 0
+	video.CreatedAt = common.GetTimestamp()
+	video.Duration = request.Duration
+	if request.Duration > 0 {
+		video.Seconds = strconv.Itoa(request.Duration)
+	}
+	video.Resolution = request.Resolution
+	video.Ratio = request.Ratio
+	return common.Marshal(video)
 }
 
 func taskSubmitHTTPTrace(c *gin.Context, response *dto.TaskHTTPMessage) *dto.TaskUpstreamHTTPTrace {

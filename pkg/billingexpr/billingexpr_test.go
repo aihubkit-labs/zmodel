@@ -30,6 +30,66 @@ func TestV2MediaBillingSelectsResolutionTier(t *testing.T) {
 	assert.InDelta(t, 600000, cost, 0.0001)
 }
 
+func TestV2MediaBillingSelectsReferenceCountTiers(t *testing.T) {
+	expr := `v2:reference_video_count == 0 ? tier("none", usd(0.10 * units)) : reference_video_count <= 10 ? tier("small", usd(0.15 * units)) : tier("large", usd(0.20 * units))`
+	tests := []struct {
+		name  string
+		count float64
+		tier  string
+		cost  float64
+	}{
+		{name: "no references", count: 0, tier: "none", cost: 100000},
+		{name: "upper small boundary", count: 10, tier: "small", cost: 150000},
+		{name: "large tier", count: 11, tier: "large", cost: 200000},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cost, trace, err := billingexpr.RunExprWithDimensions(
+				expr,
+				billingexpr.TokenParams{},
+				billingexpr.BillingDimensions{Units: 1, ReferenceVideoCount: test.count},
+			)
+			require.NoError(t, err)
+			assert.Equal(t, test.tier, trace.MatchedTier)
+			assert.InDelta(t, test.cost, cost, 0.0001)
+		})
+	}
+}
+
+func TestV2MediaBillingCombinesResolutionAndReferenceCountTiers(t *testing.T) {
+	expr := `v2:resolution_tier == "720p" && reference_video_count > 0 ? tier("720p_with_reference", usd(0.12 * units)) : resolution_tier == "720p" && reference_video_count == 0 ? tier("720p_without_reference", usd(0.08 * units)) : resolution_tier == "1080p" && reference_video_count > 0 ? tier("1080p_with_reference", usd(0.18 * units)) : resolution_tier == "1080p" && reference_video_count == 0 ? tier("1080p_without_reference", usd(0.14 * units)) : tier("fallback", usd(0.20 * units))`
+	tests := []struct {
+		name       string
+		resolution string
+		count      float64
+		tier       string
+		cost       float64
+	}{
+		{name: "720p with reference", resolution: "720p", count: 1, tier: "720p_with_reference", cost: 120000},
+		{name: "720p without reference", resolution: "720p", count: 0, tier: "720p_without_reference", cost: 80000},
+		{name: "1080p with reference", resolution: "1080p", count: 2, tier: "1080p_with_reference", cost: 180000},
+		{name: "1080p without reference", resolution: "1080p", count: 0, tier: "1080p_without_reference", cost: 140000},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cost, trace, err := billingexpr.RunExprWithDimensions(
+				expr,
+				billingexpr.TokenParams{},
+				billingexpr.BillingDimensions{
+					Units:               1,
+					ResolutionTier:      test.resolution,
+					ReferenceVideoCount: test.count,
+				},
+			)
+			require.NoError(t, err)
+			assert.Equal(t, test.tier, trace.MatchedTier)
+			assert.InDelta(t, test.cost, cost, 0.0001)
+		})
+	}
+}
+
 func TestV1RejectsV2MediaVariables(t *testing.T) {
 	_, err := billingexpr.CompileFromCache(`tier("base", units * 1)`)
 	require.Error(t, err)
@@ -59,6 +119,22 @@ func TestValidateBillingDimensionsAllowsUnusedMissingValues(t *testing.T) {
 		map[string]bool{"units": true},
 	)
 	require.NoError(t, err)
+}
+
+func TestValidateBillingDimensionsAllowsZeroReferenceCounts(t *testing.T) {
+	err := billingexpr.ValidateBillingDimensions(
+		billingexpr.BillingDimensions{Units: 1},
+		map[string]bool{"units": true, "reference_video_count": true},
+	)
+	require.NoError(t, err)
+}
+
+func TestValidateBillingDimensionsRejectsFractionalReferenceCounts(t *testing.T) {
+	err := billingexpr.ValidateBillingDimensions(
+		billingexpr.BillingDimensions{Units: 1, ReferenceAudioCount: 1.5},
+		map[string]bool{"units": true, "reference_audio_count": true},
+	)
+	require.ErrorContains(t, err, "reference_audio_count must be a non-negative integer")
 }
 
 // ---------------------------------------------------------------------------

@@ -89,6 +89,8 @@ export function UpstreamHTTPTrace(props: { trace?: TaskUpstreamHTTPTrace }) {
   const { t } = useTranslation()
 
   const hasTrace = Boolean(
+    props.trace?.preparation_request ||
+    props.trace?.preparation_response ||
     props.trace?.submit_request ||
     props.trace?.submit_response ||
     props.trace?.poll_request ||
@@ -100,6 +102,11 @@ export function UpstreamHTTPTrace(props: { trace?: TaskUpstreamHTTPTrace }) {
       <h3 className='text-sm font-medium'>{t('Upstream HTTP diagnostics')}</h3>
       {hasTrace ? (
         <div className='space-y-3'>
+          <HTTPExchange
+            title={t('Asset preparation')}
+            request={props.trace?.preparation_request}
+            response={props.trace?.preparation_response}
+          />
           <HTTPExchange
             title={t('Task submission')}
             request={props.trace?.submit_request}

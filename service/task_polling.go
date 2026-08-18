@@ -38,6 +38,54 @@ type taskMediaBillingAdaptor interface {
 	AdjustBillingDimensionsOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) *billingexpr.BillingDimensions
 }
 
+type TaskPreparationResult struct {
+	Waiting           bool
+	UpstreamTaskID    string
+	TaskData          []byte
+	UpstreamHTTPTrace *dto.TaskUpstreamHTTPTrace
+}
+
+const taskPreparationPublicErrorLimit = 512
+
+// TaskPreparationError separates a safe user-facing reason from the internal cause.
+type TaskPreparationError struct {
+	PublicMessage string
+	Err           error
+}
+
+// NewTaskPreparationError normalizes and bounds the public reason while preserving the internal cause.
+func NewTaskPreparationError(publicMessage string, err error) *TaskPreparationError {
+	publicMessage = strings.Join(strings.Fields(publicMessage), " ")
+	runes := []rune(publicMessage)
+	if len(runes) > taskPreparationPublicErrorLimit {
+		publicMessage = string(runes[:taskPreparationPublicErrorLimit-3]) + "..."
+	}
+	return &TaskPreparationError{PublicMessage: publicMessage, Err: err}
+}
+
+func (e *TaskPreparationError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Err != nil {
+		return e.Err.Error()
+	}
+	return e.PublicMessage
+}
+
+func (e *TaskPreparationError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+type TaskPreparationAdaptor interface {
+	PrepareTask(ctx context.Context, channel *model.Channel, task *model.Task) (*TaskPreparationResult, error)
+}
+
+const preparingVideoTaskLimitPerPass = 10
+
 // GetTaskAdaptorFunc 由 main 包注入，用于获取指定平台的任务适配器。
 // 打破 service -> relay -> relay/channel -> service 的循环依赖。
 var GetTaskAdaptorFunc func(platform constant.TaskPlatform) TaskPollingAdaptor
@@ -118,8 +166,15 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 
 	common.SysLog("任务进度轮询开始")
 	sweepTimedOutTasks(ctx)
+	preparingTasks := model.GetPreparingVideoTasks(preparingVideoTaskLimitPerPass)
 	allTasks := model.GetAllUnFinishSyncTasks(constant.TaskQueryLimit)
-	summary.UnfinishedTasks = len(allTasks)
+	summary.UnfinishedTasks = len(preparingTasks) + len(allTasks)
+	for _, task := range preparingTasks {
+		if ctx.Err() != nil {
+			break
+		}
+		updatePreparingVideoTask(ctx, task)
+	}
 	platformTask := make(map[constant.TaskPlatform][]*model.Task)
 	for _, t := range allTasks {
 		platformTask[t.Platform] = append(platformTask[t.Platform], t)
@@ -175,6 +230,77 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 	}
 	common.SysLog("任务进度轮询完成")
 	return summary
+}
+
+func updatePreparingVideoTask(ctx context.Context, task *model.Task) {
+	if task == nil || task.Status != model.TaskStatusPreparing {
+		return
+	}
+	channel, err := model.CacheGetChannel(task.ChannelId)
+	if err != nil {
+		failPreparingVideoTask(ctx, task, "video input preparation failed", err)
+		return
+	}
+	adaptor := GetTaskAdaptorFunc(task.Platform)
+	preparer, ok := adaptor.(TaskPreparationAdaptor)
+	if !ok {
+		failPreparingVideoTask(ctx, task, "video input preparation is unavailable", errors.New("task adaptor does not support input preparation"))
+		return
+	}
+	result, err := preparer.PrepareTask(ctx, channel, task)
+	if err != nil {
+		publicReason := "video input preparation failed"
+		var preparationErr *TaskPreparationError
+		if errors.As(err, &preparationErr) && preparationErr.PublicMessage != "" {
+			publicReason += ": " + preparationErr.PublicMessage
+		}
+		failPreparingVideoTask(ctx, task, publicReason, err)
+		return
+	}
+	if result == nil || result.Waiting {
+		if _, err := task.UpdatePrivateDataWithStatus(model.TaskStatusPreparing); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("save video input preparation state for task %s: %v", task.TaskID, err))
+		}
+		return
+	}
+	if strings.TrimSpace(result.UpstreamTaskID) == "" {
+		failPreparingVideoTask(ctx, task, "video generation submission failed", errors.New("prepared submission returned no upstream task ID"))
+		return
+	}
+
+	task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
+	task.PrivateData.VideoPreparation = nil
+	task.PrivateData.UpstreamHTTPTrace = result.UpstreamHTTPTrace
+	task.Data = result.TaskData
+	task.Status = model.TaskStatusQueued
+	task.Progress = taskcommon.ProgressQueued
+	if task.StartTime == 0 {
+		task.StartTime = time.Now().Unix()
+	}
+	won, err := task.UpdateWithStatus(model.TaskStatusPreparing)
+	if err != nil {
+		logger.LogError(ctx, fmt.Sprintf("activate prepared video task %s: %v", task.TaskID, err))
+		return
+	}
+	if !won {
+		logger.LogWarn(ctx, fmt.Sprintf("prepared video task %s changed state before upstream submission was saved", task.TaskID))
+	}
+}
+
+func failPreparingVideoTask(ctx context.Context, task *model.Task, publicReason string, internalErr error) {
+	logger.LogError(ctx, fmt.Sprintf("prepare video task %s: %v", task.TaskID, internalErr))
+	task.Status = model.TaskStatusFailure
+	task.Progress = taskcommon.ProgressComplete
+	task.FailReason = publicReason
+	task.FinishTime = time.Now().Unix()
+	won, err := task.UpdateWithStatus(model.TaskStatusPreparing)
+	if err != nil {
+		logger.LogError(ctx, fmt.Sprintf("fail prepared video task %s: %v", task.TaskID, err))
+		return
+	}
+	if won {
+		RefundTaskQuota(ctx, task, publicReason)
+	}
 }
 
 // DispatchPlatformUpdate 按平台分发轮询更新
