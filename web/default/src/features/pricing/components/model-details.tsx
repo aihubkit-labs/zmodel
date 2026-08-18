@@ -62,7 +62,7 @@ import { cn } from '@/lib/utils'
 import { DEFAULT_TOKEN_UNIT } from '../constants'
 import { usePricingData } from '../hooks/use-pricing-data'
 import {
-  formatMediaConditionSummary,
+  formatMediaConditionsSummary,
   inferMediaUnit,
 } from '../lib/billing-expr'
 import {
@@ -1061,9 +1061,9 @@ function GroupPricingSection(props: {
                         <div className='min-w-0'>
                           <div>{tier.label || t('Default')}</div>
                           <div className='text-muted-foreground/70 mt-0.5 text-xs'>
-                            {tier.mediaCondition
-                              ? formatMediaConditionSummary(
-                                  tier.mediaCondition,
+                            {tier.mediaConditions.length > 0
+                              ? formatMediaConditionsSummary(
+                                  tier.mediaConditions,
                                   t
                                 )
                               : t('Fallback tier')}

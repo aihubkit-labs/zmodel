@@ -21,7 +21,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import type { PricingModel } from '../types'
-import { formatMediaConditionSummary, inferMediaUnit } from './billing-expr'
+import { formatMediaConditionsSummary, inferMediaUnit } from './billing-expr'
 import {
   formatDynamicMediaPrice,
   getDynamicPricingSummary,
@@ -32,7 +32,7 @@ describe('dynamic media pricing display', () => {
     const model = {
       billing_mode: 'tiered_expr',
       billing_expr:
-        'v2:reference_video_count >= 1 && reference_video_count <= 10 ? tier("one_to_ten", usd(0.15 * units)) : tier("over_ten", usd(0.2 * units))',
+        'v2:resolution_tier == "720p" && reference_video_count > 0 ? tier("720p_with_reference", usd(0.15 * units)) : tier("fallback", usd(0.2 * units))',
     } as PricingModel
 
     const summary = getDynamicPricingSummary(model, { tokenUnit: 'M' })
@@ -40,10 +40,10 @@ describe('dynamic media pricing display', () => {
     assert.ok(summary)
     assert.equal(summary.tierCount, 2)
     assert.equal(inferMediaUnit(summary.tiers), 'video')
-    assert.ok(summary.tier?.mediaCondition)
+    assert.ok(summary.tier)
     assert.equal(
-      formatMediaConditionSummary(summary.tier.mediaCondition, (key) => key),
-      'Reference video count 1–10'
+      formatMediaConditionsSummary(summary.tier.mediaConditions, (key) => key),
+      'Video resolution tier = 720p · Reference video count > 0'
     )
     const price = formatDynamicMediaPrice(
       summary.tier,

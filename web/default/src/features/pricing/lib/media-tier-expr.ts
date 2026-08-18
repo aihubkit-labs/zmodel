@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import {
   parseTiersFromExpr,
+  type MediaCondition as ParsedMediaCondition,
   type MediaConditionOperator as BillingMediaConditionOperator,
   type MediaConditionVariable as ParsedMediaConditionVariable,
 } from './billing-expr'
@@ -29,7 +30,6 @@ export const MEDIA_BILLING_PER_UNIT = 'per_unit'
 export const MEDIA_BILLING_PER_SECOND = 'per_second'
 export const MEDIA_BILLING_FIXED_PLUS_SECOND = 'fixed_plus_second'
 
-export const MEDIA_CONDITION_NONE = 'none'
 export const MEDIA_CONDITION_EQ = 'eq'
 export const MEDIA_CONDITION_LT = 'lt'
 export const MEDIA_CONDITION_LTE = 'lte'
@@ -42,16 +42,13 @@ export type MediaBillingMethod =
   | typeof MEDIA_BILLING_PER_SECOND
   | typeof MEDIA_BILLING_FIXED_PLUS_SECOND
 
-export type MediaConditionVariable =
-  | typeof MEDIA_CONDITION_NONE
-  | ParsedMediaConditionVariable
+export type MediaConditionVariable = ParsedMediaConditionVariable
+
+export type MediaTierCondition = ParsedMediaCondition
 
 export type MediaTier = {
   label: string
-  conditionVariable: MediaConditionVariable
-  conditionValue: string
-  conditionOperator?: MediaConditionOperator
-  conditionRangeEnd?: string
+  conditions: MediaTierCondition[]
   billingMethod: MediaBillingMethod
   unitPrice: number
   fixedPrice: number
@@ -74,8 +71,7 @@ export type MediaVisualConfig = {
 export function createDefaultMediaTier(index = 0): MediaTier {
   return {
     label: index === 0 ? 'base' : `tier_${index + 1}`,
-    conditionVariable: MEDIA_CONDITION_NONE,
-    conditionValue: '',
+    conditions: [],
     billingMethod: MEDIA_BILLING_PER_UNIT,
     unitPrice: 0,
     fixedPrice: 0,
@@ -103,21 +99,20 @@ function parseReferenceCount(value: string): number | null {
   return Number.isSafeInteger(count) ? count : null
 }
 
-function buildMediaCondition(tier: MediaTier): string | null {
-  if (tier.conditionVariable === MEDIA_CONDITION_NONE) return null
-  if (!isReferenceCountCondition(tier.conditionVariable)) {
-    const value = tier.conditionValue.trim()
+function buildMediaCondition(condition: MediaTierCondition): string | null {
+  if (!isReferenceCountCondition(condition.variable)) {
+    const value = condition.value.trim()
     if (!value) return null
-    return `${tier.conditionVariable} == "${escapeExprString(value)}"`
+    return `${condition.variable} == "${escapeExprString(value)}"`
   }
 
-  const value = parseReferenceCount(tier.conditionValue)
+  const value = parseReferenceCount(condition.value)
   if (value == null) return null
-  const operator = tier.conditionOperator || MEDIA_CONDITION_EQ
+  const operator = condition.operator || MEDIA_CONDITION_EQ
   if (operator === MEDIA_CONDITION_RANGE) {
-    const rangeEnd = parseReferenceCount(tier.conditionRangeEnd || '')
+    const rangeEnd = parseReferenceCount(condition.rangeEnd || '')
     if (rangeEnd == null || value > rangeEnd) return null
-    return `${tier.conditionVariable} >= ${value} && ${tier.conditionVariable} <= ${rangeEnd}`
+    return `${condition.variable} >= ${value} && ${condition.variable} <= ${rangeEnd}`
   }
   const symbols: Record<Exclude<MediaConditionOperator, 'range'>, string> = {
     eq: '==',
@@ -126,7 +121,14 @@ function buildMediaCondition(tier: MediaTier): string | null {
     gt: '>',
     gte: '>=',
   }
-  return `${tier.conditionVariable} ${symbols[operator]} ${value}`
+  return `${condition.variable} ${symbols[operator]} ${value}`
+}
+
+function buildMediaTierCondition(tier: MediaTier): string | null {
+  if (tier.conditions.length === 0) return null
+  const conditions = tier.conditions.map(buildMediaCondition)
+  if (conditions.some((condition) => condition == null)) return null
+  return conditions.join(' && ')
 }
 
 function buildMediaCost(tier: MediaTier): string {
@@ -144,7 +146,7 @@ export function generateMediaExpr(config: MediaVisualConfig): string {
     config.tiers.length > 0 ? config.tiers : [createDefaultMediaTier()]
   const fallback = sourceTiers.at(-1) || createDefaultMediaTier()
   const conditionalTiers = sourceTiers.slice(0, -1).flatMap((tier) => {
-    const condition = buildMediaCondition(tier)
+    const condition = buildMediaTierCondition(tier)
     return condition ? [{ tier, condition }] : []
   })
   const tiers = [...conditionalTiers.map(({ tier }) => tier), fallback]
@@ -171,21 +173,20 @@ export function tryParseMediaConfig(
   if (parsed.length === 0 || parsed.some((tier) => !tier.mediaPricing)) {
     return null
   }
-  if (parsed.slice(0, -1).some((tier) => tier.mediaCondition == null)) {
+  if (
+    parsed
+      .slice(0, -1)
+      .some(
+        (tier) =>
+          tier.mediaConditions.length === 0 || tier.conditions.length > 0
+      )
+  ) {
     return null
   }
   return {
     tiers: parsed.map((tier) => ({
       label: tier.label,
-      conditionVariable: tier.mediaCondition?.variable || MEDIA_CONDITION_NONE,
-      conditionValue: tier.mediaCondition?.value || '',
-      ...(tier.mediaCondition?.operator &&
-      tier.mediaCondition.operator !== MEDIA_CONDITION_EQ
-        ? { conditionOperator: tier.mediaCondition.operator }
-        : {}),
-      ...(tier.mediaCondition?.rangeEnd
-        ? { conditionRangeEnd: tier.mediaCondition.rangeEnd }
-        : {}),
+      conditions: tier.mediaConditions,
       billingMethod: tier.mediaPricing?.method || MEDIA_BILLING_PER_UNIT,
       unitPrice: finitePrice(tier.mediaPricing?.unitPrice),
       fixedPrice: finitePrice(tier.mediaPricing?.fixedPrice),

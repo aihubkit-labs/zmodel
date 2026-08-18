@@ -91,7 +91,6 @@ import {
   MEDIA_CONDITION_GTE,
   MEDIA_CONDITION_LT,
   MEDIA_CONDITION_LTE,
-  MEDIA_CONDITION_NONE,
   MEDIA_CONDITION_RANGE,
   createDefaultMediaConfig,
   createDefaultMediaTier,
@@ -101,8 +100,8 @@ import {
   tryParseMediaConfig,
   type MediaBillingMethod,
   type MediaConditionOperator,
-  type MediaConditionVariable,
   type MediaTier,
+  type MediaTierCondition,
   type MediaVisualConfig,
 } from '@/features/pricing/lib/media-tier-expr'
 import {
@@ -922,10 +921,9 @@ function VisualEditor({ visualConfig, onChange }: VisualEditorProps) {
 // ---------------------------------------------------------------------------
 
 const MEDIA_CONDITION_OPTIONS: Array<{
-  value: MediaConditionVariable
+  value: MediaTierCondition['variable']
   labelKey: string
 }> = [
-  { value: MEDIA_CONDITION_NONE, labelKey: 'Fallback tier' },
   { value: 'quality', labelKey: 'Image quality' },
   { value: 'resolution_tier', labelKey: 'Video resolution tier' },
   { value: 'image_size_tier', labelKey: 'Image size tier' },
@@ -969,7 +967,7 @@ const MEDIA_BILLING_OPTIONS: Array<{
 ]
 
 const MEDIA_CONDITION_VALUE_PLACEHOLDERS: Record<
-  Exclude<MediaConditionVariable, typeof MEDIA_CONDITION_NONE>,
+  MediaTierCondition['variable'],
   string
 > = {
   quality: 'Enter a provider-supported image quality value, for example high',
@@ -979,6 +977,180 @@ const MEDIA_CONDITION_VALUE_PLACEHOLDERS: Record<
   reference_image_count: 'Enter a non-negative integer',
   reference_video_count: 'Enter a non-negative integer',
   reference_audio_count: 'Enter a non-negative integer',
+}
+
+function createMediaTierCondition(
+  variable: MediaTierCondition['variable'] = 'resolution_tier'
+): MediaTierCondition {
+  return { variable, operator: MEDIA_CONDITION_EQ, value: '' }
+}
+
+type MediaConditionRowProps = {
+  condition: MediaTierCondition
+  canRemove: boolean
+  onChange: (next: MediaTierCondition) => void
+  onRemove: () => void
+}
+
+function MediaConditionRow(props: MediaConditionRowProps) {
+  const { t } = useTranslation()
+  const option = MEDIA_CONDITION_OPTIONS.find(
+    (candidate) => candidate.value === props.condition.variable
+  )
+  const isCountCondition = isReferenceCountCondition(props.condition.variable)
+  const operator = props.condition.operator || MEDIA_CONDITION_EQ
+  const operatorOption = MEDIA_COUNT_OPERATOR_OPTIONS.find(
+    (candidate) => candidate.value === operator
+  )
+  const rangeEnd = props.condition.rangeEnd || ''
+  const rangeInvalid =
+    operator === MEDIA_CONDITION_RANGE &&
+    /^\d+$/.test(props.condition.value) &&
+    /^\d+$/.test(rangeEnd) &&
+    Number(props.condition.value) > Number(rangeEnd)
+  let placeholder = MEDIA_CONDITION_VALUE_PLACEHOLDERS[props.condition.variable]
+  if (props.condition.variable === 'quality') {
+    placeholder = t(
+      'Enter a provider-supported image quality value, for example high'
+    )
+  }
+
+  const updateCountValue = (field: 'value' | 'rangeEnd', value: string) => {
+    if (value !== '' && !/^\d+$/.test(value)) return
+    props.onChange({ ...props.condition, [field]: value })
+  }
+
+  return (
+    <div className='bg-muted/20 grid grid-cols-[minmax(0,1fr)_2rem] gap-2 rounded-md border p-2 md:grid-cols-[minmax(10rem,1fr)_minmax(0,1.5fr)_2rem]'>
+      <Select
+        items={MEDIA_CONDITION_OPTIONS.map((candidate) => ({
+          value: candidate.value,
+          label: t(candidate.labelKey),
+        }))}
+        value={props.condition.variable}
+        onValueChange={(value) =>
+          props.onChange(
+            createMediaTierCondition(value as MediaTierCondition['variable'])
+          )
+        }
+      >
+        <SelectTrigger
+          size='sm'
+          className='col-span-2 min-w-0 md:col-span-1'
+          aria-label={t('Tier condition')}
+        >
+          <SelectValue>{t(option?.labelKey || 'Tier condition')}</SelectValue>
+        </SelectTrigger>
+        <SelectContent alignItemWithTrigger={false}>
+          <SelectGroup>
+            {MEDIA_CONDITION_OPTIONS.map((candidate) => (
+              <SelectItem key={candidate.value} value={candidate.value}>
+                {t(candidate.labelKey)}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+
+      {isCountCondition ? (
+        <div
+          className={cn(
+            'grid min-w-0 gap-2',
+            operator === MEDIA_CONDITION_RANGE
+              ? 'grid-cols-[6rem_minmax(0,1fr)_minmax(0,1fr)]'
+              : 'grid-cols-[6rem_minmax(0,1fr)]'
+          )}
+        >
+          <Select
+            items={MEDIA_COUNT_OPERATOR_OPTIONS.map((candidate) => ({
+              value: candidate.value,
+              label: t(candidate.labelKey),
+            }))}
+            value={operator}
+            onValueChange={(value) =>
+              props.onChange({
+                ...props.condition,
+                operator: value as MediaConditionOperator,
+                rangeEnd:
+                  value === MEDIA_CONDITION_RANGE
+                    ? props.condition.rangeEnd || ''
+                    : undefined,
+              })
+            }
+          >
+            <SelectTrigger
+              size='sm'
+              title={t(operatorOption?.labelKey || 'Equals')}
+              aria-label={t(operatorOption?.labelKey || 'Equals')}
+            >
+              <SelectValue>{operatorOption?.symbol || '='}</SelectValue>
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                {MEDIA_COUNT_OPERATOR_OPTIONS.map((candidate) => (
+                  <SelectItem key={candidate.value} value={candidate.value}>
+                    {candidate.symbol} {t(candidate.labelKey)}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <Input
+            type='number'
+            min={0}
+            step={1}
+            inputMode='numeric'
+            value={props.condition.value}
+            onChange={(event) => updateCountValue('value', event.target.value)}
+            placeholder={
+              operator === MEDIA_CONDITION_RANGE
+                ? t('Minimum')
+                : t('Enter a non-negative integer')
+            }
+            aria-label={t('Condition value')}
+            aria-invalid={rangeInvalid}
+            className='placeholder:text-muted-foreground/50 h-8 min-w-0'
+          />
+          {operator === MEDIA_CONDITION_RANGE && (
+            <Input
+              type='number'
+              min={0}
+              step={1}
+              inputMode='numeric'
+              value={rangeEnd}
+              onChange={(event) =>
+                updateCountValue('rangeEnd', event.target.value)
+              }
+              placeholder={t('Maximum')}
+              aria-label={t('Maximum')}
+              aria-invalid={rangeInvalid}
+              className='placeholder:text-muted-foreground/50 h-8 min-w-0'
+            />
+          )}
+        </div>
+      ) : (
+        <Input
+          value={props.condition.value}
+          onChange={(event) =>
+            props.onChange({ ...props.condition, value: event.target.value })
+          }
+          placeholder={placeholder}
+          aria-label={t('Condition value')}
+          className='placeholder:text-muted-foreground/50 h-8 min-w-0'
+        />
+      )}
+
+      <Button
+        variant='ghost'
+        size='icon'
+        onClick={props.onRemove}
+        disabled={!props.canRemove}
+        aria-label={t('Remove condition')}
+      >
+        <Trash2 className='text-destructive h-4 w-4' />
+      </Button>
+    </div>
+  )
 }
 
 type MediaTierCardProps = {
@@ -991,28 +1163,43 @@ type MediaTierCardProps = {
 
 function MediaTierCard(props: MediaTierCardProps) {
   const { t } = useTranslation()
-  const condition = MEDIA_CONDITION_OPTIONS.find(
-    (option) => option.value === props.tier.conditionVariable
-  )
   const billing = MEDIA_BILLING_OPTIONS.find(
     (option) => option.value === props.tier.billingMethod
   )
   const isFallback = props.index === props.total - 1
-  const isCountCondition = isReferenceCountCondition(
-    props.tier.conditionVariable
-  )
-  const conditionOperator = props.tier.conditionOperator || MEDIA_CONDITION_EQ
-  const operatorOption = MEDIA_COUNT_OPERATOR_OPTIONS.find(
-    (option) => option.value === conditionOperator
-  )
-  let conditionValuePlaceholder =
-    isFallback || props.tier.conditionVariable === MEDIA_CONDITION_NONE
-      ? t('No condition value required')
-      : MEDIA_CONDITION_VALUE_PLACEHOLDERS[props.tier.conditionVariable]
-  if (props.tier.conditionVariable === 'quality') {
-    conditionValuePlaceholder = t(
-      'Enter a provider-supported image quality value, for example high'
+
+  const updateCondition = (
+    conditionIndex: number,
+    next: MediaTierCondition
+  ) => {
+    const conditions = [...props.tier.conditions]
+    conditions[conditionIndex] = next
+    props.onChange({ ...props.tier, conditions })
+  }
+
+  const removeCondition = (conditionIndex: number) => {
+    props.onChange({
+      ...props.tier,
+      conditions: props.tier.conditions.filter(
+        (_, index) => index !== conditionIndex
+      ),
+    })
+  }
+
+  const addCondition = () => {
+    const usedVariables = new Set(
+      props.tier.conditions.map((condition) => condition.variable)
     )
+    const nextVariable =
+      MEDIA_CONDITION_OPTIONS.find((option) => !usedVariables.has(option.value))
+        ?.value || 'resolution_tier'
+    props.onChange({
+      ...props.tier,
+      conditions: [
+        ...props.tier.conditions,
+        createMediaTierCondition(nextVariable),
+      ],
+    })
   }
 
   return (
@@ -1045,143 +1232,50 @@ function MediaTierCard(props: MediaTierCardProps) {
         </Button>
       </div>
 
-      <div className='grid gap-3 md:grid-cols-2'>
-        <Field className='gap-1.5'>
-          <FieldLabel>{t('Tier condition')}</FieldLabel>
-          <Select
-            items={MEDIA_CONDITION_OPTIONS.map((option) => ({
-              value: option.value,
-              label: t(option.labelKey),
-            }))}
-            value={
-              isFallback ? MEDIA_CONDITION_NONE : props.tier.conditionVariable
-            }
-            disabled={isFallback}
-            onValueChange={(value) =>
-              props.onChange({
-                ...props.tier,
-                conditionVariable: value as MediaConditionVariable,
-                conditionValue: '',
-                conditionOperator: MEDIA_CONDITION_EQ,
-                conditionRangeEnd: '',
-              })
-            }
-          >
-            <SelectTrigger size='sm'>
-              <SelectValue>
-                {isFallback
-                  ? t('Fallback tier')
-                  : t(condition?.labelKey || 'Fallback tier')}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent alignItemWithTrigger={false}>
-              <SelectGroup>
-                {MEDIA_CONDITION_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {t(option.labelKey)}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field className='gap-1.5'>
-          <FieldLabel>{t('Condition value')}</FieldLabel>
-          {isCountCondition && !isFallback ? (
-            <div
-              className={cn(
-                'grid gap-2',
-                conditionOperator === MEDIA_CONDITION_RANGE
-                  ? 'grid-cols-[7rem_minmax(0,1fr)_minmax(0,1fr)]'
-                  : 'grid-cols-[7rem_minmax(0,1fr)]'
-              )}
-            >
-              <Select
-                items={MEDIA_COUNT_OPERATOR_OPTIONS.map((option) => ({
-                  value: option.value,
-                  label: t(option.labelKey),
-                }))}
-                value={conditionOperator}
-                onValueChange={(value) =>
-                  props.onChange({
-                    ...props.tier,
-                    conditionOperator: value as MediaConditionOperator,
-                    conditionRangeEnd:
-                      value === MEDIA_CONDITION_RANGE
-                        ? props.tier.conditionRangeEnd || ''
-                        : '',
-                  })
-                }
-              >
-                <SelectTrigger
-                  size='sm'
-                  title={t(operatorOption?.labelKey || 'Equals')}
-                >
-                  <SelectValue>{operatorOption?.symbol || '='}</SelectValue>
-                </SelectTrigger>
-                <SelectContent alignItemWithTrigger={false}>
-                  <SelectGroup>
-                    {MEDIA_COUNT_OPERATOR_OPTIONS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.symbol} {t(option.labelKey)}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              <Input
-                type='number'
-                min={0}
-                step={1}
-                value={props.tier.conditionValue}
-                onChange={(event) =>
-                  props.onChange({
-                    ...props.tier,
-                    conditionValue: event.target.value,
-                  })
-                }
-                placeholder={
-                  conditionOperator === MEDIA_CONDITION_RANGE
-                    ? t('Minimum')
-                    : t('Enter a non-negative integer')
-                }
-                className='placeholder:text-muted-foreground/50 h-8 min-w-0'
-              />
-              {conditionOperator === MEDIA_CONDITION_RANGE && (
-                <Input
-                  type='number'
-                  min={0}
-                  step={1}
-                  value={props.tier.conditionRangeEnd || ''}
-                  onChange={(event) =>
-                    props.onChange({
-                      ...props.tier,
-                      conditionRangeEnd: event.target.value,
-                    })
-                  }
-                  placeholder={t('Maximum')}
-                  className='placeholder:text-muted-foreground/50 h-8 min-w-0'
-                />
-              )}
-            </div>
-          ) : (
-            <Input
-              value={props.tier.conditionValue}
+      <div className='space-y-2'>
+        <div className='flex items-center justify-between gap-2'>
+          <div>
+            <Label className='text-xs font-medium'>
+              {t('Tier conditions')}
+            </Label>
+            {!isFallback && props.tier.conditions.length > 1 && (
+              <p className='text-muted-foreground mt-0.5 text-xs'>
+                {t('All conditions must match before this tier is used.')}
+              </p>
+            )}
+          </div>
+          {!isFallback && (
+            <Button
+              variant='ghost'
+              size='sm'
+              onClick={addCondition}
               disabled={
-                isFallback ||
-                props.tier.conditionVariable === MEDIA_CONDITION_NONE
+                props.tier.conditions.length >= MEDIA_CONDITION_OPTIONS.length
               }
-              onChange={(event) =>
-                props.onChange({
-                  ...props.tier,
-                  conditionValue: event.target.value,
-                })
-              }
-              placeholder={conditionValuePlaceholder}
-              className='placeholder:text-muted-foreground/50 disabled:placeholder:text-muted-foreground/60 h-8'
-            />
+              className='h-7 px-2 text-xs'
+            >
+              <Plus className='mr-1 h-3 w-3' />
+              {t('Add condition')}
+            </Button>
           )}
-        </Field>
+        </div>
+        {isFallback ? (
+          <p className='text-muted-foreground text-xs'>
+            {t('Always matches (default tier).')}
+          </p>
+        ) : (
+          props.tier.conditions.map((condition, conditionIndex) => (
+            <MediaConditionRow
+              // Media condition rows are positional until saved.
+              // eslint-disable-next-line react/no-array-index-key
+              key={conditionIndex}
+              condition={condition}
+              canRemove={props.tier.conditions.length > 1}
+              onChange={(next) => updateCondition(conditionIndex, next)}
+              onRemove={() => removeCondition(conditionIndex)}
+            />
+          ))
+        )}
       </div>
 
       <div className='grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]'>
@@ -1260,7 +1354,9 @@ function MediaVisualEditor(props: MediaVisualEditorProps) {
     [props.config]
   )
   const mediaUnit = useMemo(() => {
-    const variables = props.config.tiers.map((tier) => tier.conditionVariable)
+    const variables = props.config.tiers.flatMap((tier) =>
+      tier.conditions.map((condition) => condition.variable)
+    )
     const hasVideo = variables.some(
       (variable) =>
         variable === 'resolution_tier' || isReferenceCountCondition(variable)
@@ -1273,9 +1369,8 @@ function MediaVisualEditor(props: MediaVisualEditorProps) {
     return t('Per output')
   }, [props.config.tiers, t])
   const inheritedConditionVariable =
-    props.config.tiers.find(
-      (tier) => tier.conditionVariable !== MEDIA_CONDITION_NONE
-    )?.conditionVariable || 'resolution_tier'
+    props.config.tiers.flatMap((tier) => tier.conditions).at(0)?.variable ||
+    'resolution_tier'
 
   return (
     <div className='space-y-3'>
@@ -1301,6 +1396,13 @@ function MediaVisualEditor(props: MediaVisualEditorProps) {
             const tiers = props.config.tiers.filter(
               (_, tierIndex) => tierIndex !== index
             )
+            const fallback = tiers.at(-1)
+            if (fallback) {
+              tiers[tiers.length - 1] = {
+                ...fallback,
+                conditions: [],
+              }
+            }
             props.onChange({
               tiers: tiers.length > 0 ? tiers : props.config.tiers,
             })
@@ -1317,10 +1419,9 @@ function MediaVisualEditor(props: MediaVisualEditorProps) {
               ...props.config.tiers.slice(0, -1),
               {
                 ...createDefaultMediaTier(props.config.tiers.length),
-                conditionVariable: inheritedConditionVariable,
-                conditionValue: '',
-                conditionOperator: MEDIA_CONDITION_EQ,
-                conditionRangeEnd: '',
+                conditions: [
+                  createMediaTierCondition(inheritedConditionVariable),
+                ],
               },
               props.config.tiers.at(-1) || createDefaultMediaTier(),
             ],

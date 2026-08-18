@@ -34,7 +34,7 @@ import {
   MATCH_LT,
   MATCH_RANGE,
   SOURCE_TIME,
-  formatMediaConditionSummary,
+  formatMediaConditionsSummary,
   inferMediaUnit,
   normalizeTierLabel,
   parseTiersFromExpr,
@@ -102,8 +102,8 @@ function formatConditionSummary(
   tier: ParsedTier,
   t: (key: string) => string
 ): string {
-  if (tier.mediaCondition) {
-    return formatMediaConditionSummary(tier.mediaCondition, t)
+  if (tier.mediaConditions.length > 0) {
+    return formatMediaConditionsSummary(tier.mediaConditions, t)
   }
   const summary = tier.conditions
     .map((c) => {

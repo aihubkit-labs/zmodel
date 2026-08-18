@@ -163,6 +163,18 @@ v2:reference_video_count == 0
     : tier("reference_11_plus", usd(0.20 * units))
 ```
 
+Media tier conditions can be combined with `&&`. This allows the same
+resolution to use different prices depending on whether reference media was
+provided:
+
+```
+v2:resolution_tier == "720p" && reference_video_count > 0
+  ? tier("720p_with_reference", usd(0.15 * units))
+  : resolution_tier == "720p" && reference_video_count == 0
+    ? tier("720p_without_reference", usd(0.10 * units))
+    : tier("fallback", usd(0.20 * units))
+```
+
 Media quantities are populated only after request validation and provider/model
 normalization. User-controlled counts and durations must not be read through
 `param()` when they affect the charge.
