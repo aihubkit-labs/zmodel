@@ -234,12 +234,31 @@ export type TierCondition = {
   value: number
 }
 
+export type MediaConditionVariable =
+  | 'quality'
+  | 'resolution_tier'
+  | 'image_size_tier'
+  | 'image_size'
+  | 'reference_image_count'
+  | 'reference_video_count'
+  | 'reference_audio_count'
+
+export type MediaConditionOperator =
+  | 'eq'
+  | 'lt'
+  | 'lte'
+  | 'gt'
+  | 'gte'
+  | 'range'
+
 export type ParsedTier = {
   label: string
   conditions: TierCondition[]
   mediaCondition?: {
-    variable: 'quality' | 'resolution_tier' | 'image_size_tier' | 'image_size'
+    variable: MediaConditionVariable
+    operator: MediaConditionOperator
     value: string
+    rangeEnd?: string
   }
   mediaPricing?: {
     method: 'per_unit' | 'per_second' | 'fixed_plus_second'
@@ -252,9 +271,39 @@ export type ParsedTier = {
 
 export type MediaUnit = 'image' | 'video' | 'output'
 
+const MEDIA_CONDITION_LABELS: Record<MediaConditionVariable, string> = {
+  quality: 'Image quality',
+  resolution_tier: 'Video resolution tier',
+  image_size_tier: 'Image size tier',
+  image_size: 'Image size',
+  reference_image_count: 'Reference image count',
+  reference_video_count: 'Reference video count',
+  reference_audio_count: 'Reference audio count',
+}
+
+export function formatMediaConditionSummary(
+  condition: NonNullable<ParsedTier['mediaCondition']>,
+  t: (key: string) => string
+): string {
+  const label = t(MEDIA_CONDITION_LABELS[condition.variable])
+  if (condition.operator === 'range') {
+    return `${label} ${condition.value}–${condition.rangeEnd}`
+  }
+  const symbols: Record<Exclude<MediaConditionOperator, 'range'>, string> = {
+    eq: '=',
+    lt: '<',
+    lte: '≤',
+    gt: '>',
+    gte: '≥',
+  }
+  return `${label} ${symbols[condition.operator]} ${condition.value}`
+}
+
 export function inferMediaUnit(tiers: ParsedTier[]): MediaUnit {
   const hasVideo = tiers.some(
-    (tier) => tier.mediaCondition?.variable === 'resolution_tier'
+    (tier) =>
+      tier.mediaCondition?.variable === 'resolution_tier' ||
+      tier.mediaCondition?.variable.startsWith('reference_')
   )
   const hasImage = tiers.some((tier) =>
     ['quality', 'image_size_tier', 'image_size'].includes(
@@ -318,10 +367,12 @@ export function parseTiersFromExpr(exprStr: string): ParsedTier[] {
   if (!exprStr) return []
   try {
     const { body } = stripExprVersion(exprStr)
-    const condGroup =
-      `((?:(?:p|c|len)\\s*(?:<|<=|>|>=)\\s*[\\d.eE+]+)` +
-      `(?:\\s*&&\\s*(?:p|c|len)\\s*(?:<|<=|>|>=)\\s*[\\d.eE+]+)*|` +
-      `(?:quality|resolution_tier|image_size_tier|image_size)\\s*==\\s*"[^"]+")`
+    const numericVars =
+      'p|c|len|reference_image_count|reference_video_count|reference_audio_count'
+    const numericCondition = `(?:${numericVars})\\s*(?:==|<=|>=|<|>)\\s*[\\d.eE+]+`
+    const textCondition =
+      '(?:quality|resolution_tier|image_size_tier|image_size)\\s*==\\s*"[^"]+"'
+    const condGroup = `((?:${numericCondition}|${textCondition})(?:\\s*&&\\s*${numericCondition})*)`
     const tierRe = new RegExp(
       `(?:${condGroup}\\s*\\?\\s*)?tier\\("([^"]*)",\\s*(usd\\((?:[^()]|\\([^()]*\\))*\\)|[^)]+)\\)`,
       'g'
@@ -354,7 +405,46 @@ export function parseTiersFromExpr(exprStr: string): ParsedTier[] {
           variable: mediaCondition[1] as NonNullable<
             ParsedTier['mediaCondition']
           >['variable'],
+          operator: 'eq',
           value: mediaCondition[2],
+        }
+      } else if (condStr) {
+        const countParts = condStr.split(/\s*&&\s*/).flatMap((part) => {
+          const match = part
+            .trim()
+            .match(
+              /^(reference_image_count|reference_video_count|reference_audio_count)\s*(==|<=|>=|<|>)\s*([\d.eE+]+)$/
+            )
+          if (!match) return []
+          return [{ variable: match[1], symbol: match[2], value: match[3] }]
+        })
+        if (countParts.length === 1 && condStr.split(/\s*&&\s*/).length === 1) {
+          const operatorMap: Record<string, MediaConditionOperator> = {
+            '==': 'eq',
+            '<': 'lt',
+            '<=': 'lte',
+            '>': 'gt',
+            '>=': 'gte',
+          }
+          tier.mediaCondition = {
+            variable: countParts[0].variable as MediaConditionVariable,
+            operator: operatorMap[countParts[0].symbol],
+            value: countParts[0].value,
+          }
+        } else if (
+          countParts.length === 2 &&
+          countParts[0].variable === countParts[1].variable
+        ) {
+          const lower = countParts.find((part) => part.symbol === '>=')
+          const upper = countParts.find((part) => part.symbol === '<=')
+          if (lower && upper) {
+            tier.mediaCondition = {
+              variable: lower.variable as MediaConditionVariable,
+              operator: 'range',
+              value: lower.value,
+              rangeEnd: upper.value,
+            }
+          }
         }
       }
       tier.mediaPricing = parseMediaPricing(m[3])

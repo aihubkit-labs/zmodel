@@ -140,6 +140,9 @@ dimensions plus `usd(amount)`:
 | `resolution_tier` | Normalized video resolution tier |
 | `image_size_tier` | Provider-compatible image size tier such as `1K`, `2K`, or `4K` |
 | `image_size` | Exact normalized image size such as `1024x1536` |
+| `reference_image_count` | Validated number of reference images in the request |
+| `reference_video_count` | Validated number of reference videos in the request |
+| `reference_audio_count` | Validated number of reference audio files in the request |
 
 `usd(amount)` converts a fixed dollar amount into the expression's existing
 micro-dollar unit, so token and fixed media charges can be combined without a
@@ -147,6 +150,17 @@ second quota conversion formula:
 
 ```
 v2:tier("720p", usd(0.025 * seconds * units))
+```
+
+Reference media counts support exact and range-based tiers. Zero is a valid
+value and means that the request did not include that reference media type:
+
+```
+v2:reference_video_count == 0
+  ? tier("no_reference", usd(0.10 * units))
+  : reference_video_count <= 10
+    ? tier("reference_1_10", usd(0.15 * units))
+    : tier("reference_11_plus", usd(0.20 * units))
 ```
 
 Media quantities are populated only after request validation and provider/model

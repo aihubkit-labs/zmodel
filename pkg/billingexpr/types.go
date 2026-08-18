@@ -35,14 +35,17 @@ type TokenParams struct {
 // by media billing expressions. Request and provider-specific parsing happens
 // before values reach this type.
 type BillingDimensions struct {
-	Units          float64 `json:"units"`
-	Seconds        float64 `json:"seconds"`
-	Width          float64 `json:"width"`
-	Height         float64 `json:"height"`
-	Quality        string  `json:"quality"`
-	ResolutionTier string  `json:"resolution_tier"`
-	ImageSizeTier  string  `json:"image_size_tier"`
-	ImageSize      string  `json:"image_size"`
+	Units               float64 `json:"units"`
+	Seconds             float64 `json:"seconds"`
+	Width               float64 `json:"width"`
+	Height              float64 `json:"height"`
+	ReferenceImageCount float64 `json:"reference_image_count"`
+	ReferenceVideoCount float64 `json:"reference_video_count"`
+	ReferenceAudioCount float64 `json:"reference_audio_count"`
+	Quality             string  `json:"quality"`
+	ResolutionTier      string  `json:"resolution_tier"`
+	ImageSizeTier       string  `json:"image_size_tier"`
+	ImageSize           string  `json:"image_size"`
 }
 
 // ValidateBillingDimensions checks the trusted dimensions required by an
@@ -64,6 +67,17 @@ func ValidateBillingDimensions(dimensions BillingDimensions, usedVars map[string
 		}
 	}
 
+	counts := map[string]float64{
+		"reference_image_count": dimensions.ReferenceImageCount,
+		"reference_video_count": dimensions.ReferenceVideoCount,
+		"reference_audio_count": dimensions.ReferenceAudioCount,
+	}
+	for name, value := range counts {
+		if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || math.Trunc(value) != value {
+			return fmt.Errorf("billing dimension %s must be a non-negative integer", name)
+		}
+	}
+
 	text := map[string]string{
 		"quality":         dimensions.Quality,
 		"resolution_tier": dimensions.ResolutionTier,
@@ -78,9 +92,9 @@ func ValidateBillingDimensions(dimensions BillingDimensions, usedVars map[string
 	return nil
 }
 
-// MergeBillingDimensions overlays non-zero/non-empty actual values onto a
-// frozen estimate. Providers frequently return only a subset of dimensions at
-// completion time, so missing actual fields retain the validated request value.
+// MergeBillingDimensions overlays non-zero/non-empty actual output values onto
+// a frozen estimate. Reference media counts are immutable request dimensions,
+// so they always retain the values captured at submission time.
 func MergeBillingDimensions(estimated, actual BillingDimensions) BillingDimensions {
 	merged := estimated
 	if actual.Units > 0 {

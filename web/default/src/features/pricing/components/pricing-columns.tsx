@@ -29,7 +29,9 @@ import { StatusBadge } from '@/components/status-badge'
 import { getLobeIcon } from '@/lib/lobe-icon'
 
 import { DEFAULT_TOKEN_UNIT } from '../constants'
+import { inferMediaUnit } from '../lib/billing-expr'
 import {
+  formatDynamicMediaPrice,
   getDynamicDisplayGroupRatio,
   getDynamicPricingSummary,
 } from '../lib/dynamic-price'
@@ -114,7 +116,7 @@ export function usePricingColumns(
       ),
       cell: ({ row }) => {
         const model = row.original
-        const dynamicSummary = getDynamicPricingSummary(model, {
+        const dynamicPriceOptions = {
           tokenUnit,
           showRechargePrice,
           priceRate,
@@ -123,7 +125,11 @@ export function usePricingColumns(
             model,
             selectedGroup
           ),
-        })
+        }
+        const dynamicSummary = getDynamicPricingSummary(
+          model,
+          dynamicPriceOptions
+        )
 
         if (dynamicSummary) {
           if (dynamicSummary.isSpecialExpression) {
@@ -142,8 +148,38 @@ export function usePricingColumns(
             )
           }
 
+          const dynamicMediaPrice =
+            dynamicSummary.tier?.mediaPricing != null
+              ? formatDynamicMediaPrice(
+                  dynamicSummary.tier,
+                  inferMediaUnit(dynamicSummary.tiers),
+                  dynamicPriceOptions,
+                  {
+                    perImage: t('Per image'),
+                    perVideo: t('Per video'),
+                    perOutput: t('Per output'),
+                    second: t('second'),
+                  }
+                )
+              : null
           const primaryEntries = dynamicSummary.primaryEntries.slice(0, 2)
           if (primaryEntries.length === 0) {
+            if (dynamicMediaPrice) {
+              return (
+                <div className='max-w-full min-w-0'>
+                  <div className='font-mono text-sm tabular-nums'>
+                    {dynamicMediaPrice}
+                  </div>
+                  {dynamicSummary.tierCount > 1 && (
+                    <div className='text-muted-foreground/50 text-[10px]'>
+                      {t('{{count}} tiers', {
+                        count: dynamicSummary.tierCount,
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            }
             return (
               <span className='text-muted-foreground text-xs'>
                 {t('Dynamic Pricing')}

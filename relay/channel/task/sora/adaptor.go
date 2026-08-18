@@ -195,14 +195,21 @@ func (a *TaskAdaptor) EstimateBillingDimensions(c *gin.Context, info *relaycommo
 	if err != nil {
 		return billingexpr.BillingDimensions{}, err
 	}
+	dimensions := billingexpr.BillingDimensions{
+		Units:               1,
+		ReferenceImageCount: float64(len(req.ReferenceImages) + req.ReferenceImageFiles),
+		ReferenceVideoCount: float64(len(req.ReferenceVideos) + req.ReferenceVideoFiles),
+		ReferenceAudioCount: float64(len(req.ReferenceAudios) + req.ReferenceAudioFiles),
+	}
 	seconds, _ := strconv.Atoi(req.Seconds)
 	if seconds == 0 {
 		seconds = req.Duration
 	}
 	resolution := strings.ToLower(strings.TrimSpace(req.Resolution))
+	dimensions.ResolutionTier = resolution
 	if usesConfiguredDurationVideoProtocol(info) {
 		if seconds == 0 && !info.VideoDurationRequired {
-			return billingexpr.BillingDimensions{Units: 1, ResolutionTier: resolution}, nil
+			return dimensions, nil
 		}
 		if seconds < info.VideoMinDurationSeconds || seconds > info.VideoMaxDurationSeconds {
 			return billingexpr.BillingDimensions{}, fmt.Errorf(
@@ -216,16 +223,14 @@ func (a *TaskAdaptor) EstimateBillingDimensions(c *gin.Context, info *relaycommo
 		}
 	}
 	if seconds <= 0 {
-		return billingexpr.BillingDimensions{}, nil
+		return dimensions, nil
 	}
 	if resolution == "" {
 		resolution = strings.ToLower(strings.TrimSpace(req.Size))
 	}
-	return billingexpr.BillingDimensions{
-		Units:          1,
-		Seconds:        float64(seconds),
-		ResolutionTier: resolution,
-	}, nil
+	dimensions.Seconds = float64(seconds)
+	dimensions.ResolutionTier = resolution
+	return dimensions, nil
 }
 
 // EstimateBilling 根据用户请求的 seconds 和 size 计算 OtherRatios。

@@ -86,13 +86,21 @@ import {
   MEDIA_BILLING_FIXED_PLUS_SECOND,
   MEDIA_BILLING_PER_SECOND,
   MEDIA_BILLING_PER_UNIT,
+  MEDIA_CONDITION_EQ,
+  MEDIA_CONDITION_GT,
+  MEDIA_CONDITION_GTE,
+  MEDIA_CONDITION_LT,
+  MEDIA_CONDITION_LTE,
   MEDIA_CONDITION_NONE,
+  MEDIA_CONDITION_RANGE,
   createDefaultMediaConfig,
   createDefaultMediaTier,
   generateMediaExpr,
+  isReferenceCountCondition,
   isMediaBillingExpr,
   tryParseMediaConfig,
   type MediaBillingMethod,
+  type MediaConditionOperator,
   type MediaConditionVariable,
   type MediaTier,
   type MediaVisualConfig,
@@ -922,6 +930,30 @@ const MEDIA_CONDITION_OPTIONS: Array<{
   { value: 'resolution_tier', labelKey: 'Video resolution tier' },
   { value: 'image_size_tier', labelKey: 'Image size tier' },
   { value: 'image_size', labelKey: 'Image size' },
+  { value: 'reference_image_count', labelKey: 'Reference image count' },
+  { value: 'reference_video_count', labelKey: 'Reference video count' },
+  { value: 'reference_audio_count', labelKey: 'Reference audio count' },
+]
+
+const MEDIA_COUNT_OPERATOR_OPTIONS: Array<{
+  value: MediaConditionOperator
+  labelKey: string
+  symbol: string
+}> = [
+  { value: MEDIA_CONDITION_EQ, labelKey: 'Equals', symbol: '=' },
+  { value: MEDIA_CONDITION_LT, labelKey: 'Less than', symbol: '<' },
+  {
+    value: MEDIA_CONDITION_LTE,
+    labelKey: 'Less than or equal',
+    symbol: '≤',
+  },
+  { value: MEDIA_CONDITION_GT, labelKey: 'Greater than', symbol: '>' },
+  {
+    value: MEDIA_CONDITION_GTE,
+    labelKey: 'Greater than or equal',
+    symbol: '≥',
+  },
+  { value: MEDIA_CONDITION_RANGE, labelKey: 'Between', symbol: '↔' },
 ]
 
 const MEDIA_BILLING_OPTIONS: Array<{
@@ -944,6 +976,9 @@ const MEDIA_CONDITION_VALUE_PLACEHOLDERS: Record<
   resolution_tier: '480p / 720p / 1080p / 4K',
   image_size_tier: '1K / 2K / 4K',
   image_size: '1024x1024 / 1024x1536 / 1536x1024',
+  reference_image_count: 'Enter a non-negative integer',
+  reference_video_count: 'Enter a non-negative integer',
+  reference_audio_count: 'Enter a non-negative integer',
 }
 
 type MediaTierCardProps = {
@@ -963,6 +998,13 @@ function MediaTierCard(props: MediaTierCardProps) {
     (option) => option.value === props.tier.billingMethod
   )
   const isFallback = props.index === props.total - 1
+  const isCountCondition = isReferenceCountCondition(
+    props.tier.conditionVariable
+  )
+  const conditionOperator = props.tier.conditionOperator || MEDIA_CONDITION_EQ
+  const operatorOption = MEDIA_COUNT_OPERATOR_OPTIONS.find(
+    (option) => option.value === conditionOperator
+  )
   let conditionValuePlaceholder =
     isFallback || props.tier.conditionVariable === MEDIA_CONDITION_NONE
       ? t('No condition value required')
@@ -1020,6 +1062,8 @@ function MediaTierCard(props: MediaTierCardProps) {
                 ...props.tier,
                 conditionVariable: value as MediaConditionVariable,
                 conditionValue: '',
+                conditionOperator: MEDIA_CONDITION_EQ,
+                conditionRangeEnd: '',
               })
             }
           >
@@ -1043,21 +1087,100 @@ function MediaTierCard(props: MediaTierCardProps) {
         </Field>
         <Field className='gap-1.5'>
           <FieldLabel>{t('Condition value')}</FieldLabel>
-          <Input
-            value={props.tier.conditionValue}
-            disabled={
-              isFallback ||
-              props.tier.conditionVariable === MEDIA_CONDITION_NONE
-            }
-            onChange={(event) =>
-              props.onChange({
-                ...props.tier,
-                conditionValue: event.target.value,
-              })
-            }
-            placeholder={conditionValuePlaceholder}
-            className='placeholder:text-muted-foreground/50 disabled:placeholder:text-muted-foreground/60 h-8'
-          />
+          {isCountCondition && !isFallback ? (
+            <div
+              className={cn(
+                'grid gap-2',
+                conditionOperator === MEDIA_CONDITION_RANGE
+                  ? 'grid-cols-[7rem_minmax(0,1fr)_minmax(0,1fr)]'
+                  : 'grid-cols-[7rem_minmax(0,1fr)]'
+              )}
+            >
+              <Select
+                items={MEDIA_COUNT_OPERATOR_OPTIONS.map((option) => ({
+                  value: option.value,
+                  label: t(option.labelKey),
+                }))}
+                value={conditionOperator}
+                onValueChange={(value) =>
+                  props.onChange({
+                    ...props.tier,
+                    conditionOperator: value as MediaConditionOperator,
+                    conditionRangeEnd:
+                      value === MEDIA_CONDITION_RANGE
+                        ? props.tier.conditionRangeEnd || ''
+                        : '',
+                  })
+                }
+              >
+                <SelectTrigger
+                  size='sm'
+                  title={t(operatorOption?.labelKey || 'Equals')}
+                >
+                  <SelectValue>{operatorOption?.symbol || '='}</SelectValue>
+                </SelectTrigger>
+                <SelectContent alignItemWithTrigger={false}>
+                  <SelectGroup>
+                    {MEDIA_COUNT_OPERATOR_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.symbol} {t(option.labelKey)}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <Input
+                type='number'
+                min={0}
+                step={1}
+                value={props.tier.conditionValue}
+                onChange={(event) =>
+                  props.onChange({
+                    ...props.tier,
+                    conditionValue: event.target.value,
+                  })
+                }
+                placeholder={
+                  conditionOperator === MEDIA_CONDITION_RANGE
+                    ? t('Minimum')
+                    : t('Enter a non-negative integer')
+                }
+                className='placeholder:text-muted-foreground/50 h-8 min-w-0'
+              />
+              {conditionOperator === MEDIA_CONDITION_RANGE && (
+                <Input
+                  type='number'
+                  min={0}
+                  step={1}
+                  value={props.tier.conditionRangeEnd || ''}
+                  onChange={(event) =>
+                    props.onChange({
+                      ...props.tier,
+                      conditionRangeEnd: event.target.value,
+                    })
+                  }
+                  placeholder={t('Maximum')}
+                  className='placeholder:text-muted-foreground/50 h-8 min-w-0'
+                />
+              )}
+            </div>
+          ) : (
+            <Input
+              value={props.tier.conditionValue}
+              disabled={
+                isFallback ||
+                props.tier.conditionVariable === MEDIA_CONDITION_NONE
+              }
+              onChange={(event) =>
+                props.onChange({
+                  ...props.tier,
+                  conditionValue: event.target.value,
+                })
+              }
+              placeholder={conditionValuePlaceholder}
+              className='placeholder:text-muted-foreground/50 disabled:placeholder:text-muted-foreground/60 h-8'
+            />
+          )}
         </Field>
       </div>
 
@@ -1138,7 +1261,10 @@ function MediaVisualEditor(props: MediaVisualEditorProps) {
   )
   const mediaUnit = useMemo(() => {
     const variables = props.config.tiers.map((tier) => tier.conditionVariable)
-    const hasVideo = variables.includes('resolution_tier')
+    const hasVideo = variables.some(
+      (variable) =>
+        variable === 'resolution_tier' || isReferenceCountCondition(variable)
+    )
     const hasImage = variables.some((variable) =>
       ['quality', 'image_size_tier', 'image_size'].includes(variable)
     )
@@ -1193,6 +1319,8 @@ function MediaVisualEditor(props: MediaVisualEditorProps) {
                 ...createDefaultMediaTier(props.config.tiers.length),
                 conditionVariable: inheritedConditionVariable,
                 conditionValue: '',
+                conditionOperator: MEDIA_CONDITION_EQ,
+                conditionRangeEnd: '',
               },
               props.config.tiers.at(-1) || createDefaultMediaTier(),
             ],
@@ -1260,7 +1388,9 @@ function RawExprEditor({ exprString, onChange }: RawExprEditorProps) {
             <code>ao</code>, <code>units</code>, <code>seconds</code>,{' '}
             <code>width</code>, <code>height</code>, <code>quality</code>,{' '}
             <code>resolution_tier</code>, <code>image_size_tier</code>,{' '}
-            <code>image_size</code>
+            <code>image_size</code>, <code>reference_image_count</code>,{' '}
+            <code>reference_video_count</code>,{' '}
+            <code>reference_audio_count</code>
           </div>
           <div>
             {t('Functions')}: <code>tier(name, value)</code>, <code>max</code>,{' '}
@@ -2031,7 +2161,7 @@ function MediaEditorHelp(props: { modelName?: string }) {
           </span>
           <p>
             {t(
-              'Choose image quality, image size tier, or exact image size for images; choose video resolution tier for videos. Enter values exactly as supported by the upstream model.'
+              'Choose image quality, image size tier, or exact image size for images; choose video resolution or validated reference media counts for videos.'
             )}
           </p>
         </div>

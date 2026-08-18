@@ -25,7 +25,9 @@ import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
 import { DEFAULT_TOKEN_UNIT } from '../constants'
+import { inferMediaUnit } from '../lib/billing-expr'
 import {
+  formatDynamicMediaPrice,
   getDynamicDisplayGroupRatio,
   getDynamicPricingSummary,
 } from '../lib/dynamic-price'
@@ -66,18 +68,33 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     props.model.billing_mode === 'tiered_expr' &&
     Boolean(props.model.billing_expr)
   const hasCachedPrice = isTokenBased && props.model.cache_ratio != null
+  const dynamicPriceOptions = {
+    tokenUnit,
+    showRechargePrice,
+    priceRate,
+    usdExchangeRate,
+    groupRatioMultiplier: getDynamicDisplayGroupRatio(
+      props.model,
+      props.selectedGroup
+    ),
+  }
   const dynamicSummary = isDynamicPricing
-    ? getDynamicPricingSummary(props.model, {
-        tokenUnit,
-        showRechargePrice,
-        priceRate,
-        usdExchangeRate,
-        groupRatioMultiplier: getDynamicDisplayGroupRatio(
-          props.model,
-          props.selectedGroup
-        ),
-      })
+    ? getDynamicPricingSummary(props.model, dynamicPriceOptions)
     : null
+  const dynamicMediaPrice =
+    dynamicSummary?.tier?.mediaPricing != null
+      ? formatDynamicMediaPrice(
+          dynamicSummary.tier,
+          inferMediaUnit(dynamicSummary.tiers),
+          dynamicPriceOptions,
+          {
+            perImage: t('Per image'),
+            perVideo: t('Per video'),
+            perOutput: t('Per output'),
+            second: t('second'),
+          }
+        )
+      : null
 
   const primaryGroup = groups[0]
   const bottomTags = [...endpoints.slice(0, 2), ...tags.slice(0, 2)]
@@ -119,6 +136,19 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
             </span>
           ))}
         </>
+      )
+    } else if (dynamicMediaPrice) {
+      priceSummary = (
+        <span className='text-muted-foreground min-w-0 text-sm'>
+          <span className='text-foreground font-mono font-semibold'>
+            {dynamicMediaPrice}
+          </span>
+          {dynamicSummary.tierCount > 1 && (
+            <span className='ml-1.5 text-xs whitespace-nowrap'>
+              · {t('{{count}} tiers', { count: dynamicSummary.tierCount })}
+            </span>
+          )}
+        </span>
       )
     } else {
       priceSummary = (
@@ -263,9 +293,11 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
               {item}
             </span>
           ))}
-          <span className='text-muted-foreground/50 text-xs'>
-            {tokenUnitLabel}
-          </span>
+          {(isTokenBased || dynamicSummary?.primaryEntries.length) && (
+            <span className='text-muted-foreground/50 text-xs'>
+              {tokenUnitLabel}
+            </span>
+          )}
           {hiddenCount > 0 && (
             <span className='text-muted-foreground/40 text-xs'>
               +{hiddenCount}

@@ -100,6 +100,86 @@ describe('media tier expression editor', () => {
     assert.deepEqual(tryParseMediaConfig(generateMediaExpr(config)), config)
   })
 
+  test('round-trips reference media count comparisons', () => {
+    const variables = [
+      'reference_image_count',
+      'reference_video_count',
+      'reference_audio_count',
+    ] as const
+
+    for (const conditionVariable of variables) {
+      const config: MediaVisualConfig = {
+        tiers: [
+          {
+            label: 'with_reference',
+            conditionVariable,
+            conditionValue: '10',
+            conditionOperator: 'lte',
+            billingMethod: MEDIA_BILLING_PER_UNIT,
+            unitPrice: 0.15,
+            fixedPrice: 0,
+            perSecondPrice: 0,
+          },
+          {
+            label: 'base',
+            conditionVariable: MEDIA_CONDITION_NONE,
+            conditionValue: '',
+            billingMethod: MEDIA_BILLING_PER_UNIT,
+            unitPrice: 0.2,
+            fixedPrice: 0,
+            perSecondPrice: 0,
+          },
+        ],
+      }
+
+      assert.deepEqual(tryParseMediaConfig(generateMediaExpr(config)), config)
+    }
+  })
+
+  test('generates inclusive reference count ranges', () => {
+    const config: MediaVisualConfig = {
+      tiers: [
+        {
+          label: 'none',
+          conditionVariable: 'reference_video_count',
+          conditionValue: '0',
+          billingMethod: MEDIA_BILLING_PER_UNIT,
+          unitPrice: 0.1,
+          fixedPrice: 0,
+          perSecondPrice: 0,
+        },
+        {
+          label: 'one_to_ten',
+          conditionVariable: 'reference_video_count',
+          conditionValue: '1',
+          conditionOperator: 'range',
+          conditionRangeEnd: '10',
+          billingMethod: MEDIA_BILLING_PER_UNIT,
+          unitPrice: 0.15,
+          fixedPrice: 0,
+          perSecondPrice: 0,
+        },
+        {
+          label: 'over_ten',
+          conditionVariable: MEDIA_CONDITION_NONE,
+          conditionValue: '',
+          billingMethod: MEDIA_BILLING_PER_UNIT,
+          unitPrice: 0.2,
+          fixedPrice: 0,
+          perSecondPrice: 0,
+        },
+      ],
+    }
+
+    const expr = generateMediaExpr(config)
+
+    assert.equal(
+      expr,
+      'v2:reference_video_count == 0 ? tier("none", usd(0.1 * units)) : reference_video_count >= 1 && reference_video_count <= 10 ? tier("one_to_ten", usd(0.15 * units)) : tier("over_ten", usd(0.2 * units))'
+    )
+    assert.deepEqual(tryParseMediaConfig(expr), config)
+  })
+
   test('does not emit incomplete conditional tiers before the fallback', () => {
     const expr = generateMediaExpr({
       tiers: [

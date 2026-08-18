@@ -61,7 +61,10 @@ import { cn } from '@/lib/utils'
 
 import { DEFAULT_TOKEN_UNIT } from '../constants'
 import { usePricingData } from '../hooks/use-pricing-data'
-import { inferMediaUnit } from '../lib/billing-expr'
+import {
+  formatMediaConditionSummary,
+  inferMediaUnit,
+} from '../lib/billing-expr'
 import {
   formatDynamicMediaPrice,
   getDynamicPriceEntries,
@@ -606,6 +609,26 @@ function PriceSection(props: {
     usdExchangeRate: props.usdExchangeRate,
     groupRatioMultiplier: 1,
   })
+  const dynamicMediaPrice =
+    dynamicSummary?.tier?.mediaPricing != null
+      ? formatDynamicMediaPrice(
+          dynamicSummary.tier,
+          inferMediaUnit(dynamicSummary.tiers),
+          {
+            tokenUnit: props.tokenUnit,
+            showRechargePrice: props.showRechargePrice,
+            priceRate: props.priceRate,
+            usdExchangeRate: props.usdExchangeRate,
+            groupRatioMultiplier: 1,
+          },
+          {
+            perImage: t('Per image'),
+            perVideo: t('Per video'),
+            perOutput: t('Per output'),
+            second: t('second'),
+          }
+        )
+      : null
 
   const primaryPriceTypes: { label: string; type: PriceType }[] = [
     { label: t('Input'), type: 'input' },
@@ -670,33 +693,46 @@ function PriceSection(props: {
       )
     }
 
+    let primaryPriceContent: React.ReactNode
+    if (dynamicSummary.primaryEntries.length > 0) {
+      primaryPriceContent = (
+        <div className='grid grid-cols-2 gap-2'>
+          {dynamicSummary.primaryEntries.map((entry) => (
+            <div key={entry.key} className='bg-muted/20 rounded-lg border p-3'>
+              <div className='text-muted-foreground text-xs'>
+                {t(entry.shortLabel)}
+              </div>
+              <div className='text-foreground mt-1 font-mono text-base font-semibold tabular-nums'>
+                {entry.formatted}
+                <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
+                  / {tokenUnitLabel}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )
+    } else if (dynamicMediaPrice) {
+      primaryPriceContent = (
+        <div className='bg-muted/20 rounded-lg border p-3'>
+          <div className='text-muted-foreground text-xs'>
+            {dynamicSummary.tier?.label || t('Media price')}
+          </div>
+          <div className='text-foreground mt-1 font-mono text-base font-semibold tabular-nums'>
+            {dynamicMediaPrice}
+          </div>
+        </div>
+      )
+    } else {
+      primaryPriceContent = (
+        <p className='text-muted-foreground text-sm'>{t('Dynamic Pricing')}</p>
+      )
+    }
+
     return (
       <section>
         <SectionTitle>{t('Base Price')}</SectionTitle>
-        {dynamicSummary.primaryEntries.length > 0 ? (
-          <div className='grid grid-cols-2 gap-2'>
-            {dynamicSummary.primaryEntries.map((entry) => (
-              <div
-                key={entry.key}
-                className='bg-muted/20 rounded-lg border p-3'
-              >
-                <div className='text-muted-foreground text-xs'>
-                  {t(entry.shortLabel)}
-                </div>
-                <div className='text-foreground mt-1 font-mono text-base font-semibold tabular-nums'>
-                  {entry.formatted}
-                  <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
-                    / {tokenUnitLabel}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className='text-muted-foreground text-sm'>
-            {t('Dynamic Pricing')}
-          </p>
-        )}
+        {primaryPriceContent}
         {dynamicSummary.secondaryEntries.length > 0 && (
           <div className='bg-muted/20 mt-3 rounded-lg border px-3 py-2.5'>
             <div className='space-y-1.5'>
@@ -1021,7 +1057,19 @@ function GroupPricingSection(props: {
                       header: t('Tier'),
                       className: thClass,
                       cellClassName: 'text-muted-foreground py-2.5',
-                      cell: (tier) => tier.label || t('Default'),
+                      cell: (tier) => (
+                        <div className='min-w-0'>
+                          <div>{tier.label || t('Default')}</div>
+                          <div className='text-muted-foreground/70 mt-0.5 text-xs'>
+                            {tier.mediaCondition
+                              ? formatMediaConditionSummary(
+                                  tier.mediaCondition,
+                                  t
+                                )
+                              : t('Fallback tier')}
+                          </div>
+                        </div>
+                      ),
                     },
                     ...priceFields.map((fieldEntry) => ({
                       id: fieldEntry.field,

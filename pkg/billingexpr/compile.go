@@ -77,7 +77,7 @@ var compileEnvPrototypeV1 = map[string]interface{}{
 }
 
 var compileEnvPrototypeV2 = func() map[string]interface{} {
-	env := make(map[string]interface{}, len(compileEnvPrototypeV1)+9)
+	env := make(map[string]interface{}, len(compileEnvPrototypeV1)+12)
 	for key, value := range compileEnvPrototypeV1 {
 		env[key] = value
 	}
@@ -89,6 +89,9 @@ var compileEnvPrototypeV2 = func() map[string]interface{} {
 	env["resolution_tier"] = ""
 	env["image_size_tier"] = ""
 	env["image_size"] = ""
+	env["reference_image_count"] = float64(0)
+	env["reference_video_count"] = float64(0)
+	env["reference_audio_count"] = float64(0)
 	env["usd"] = func(float64) float64 { return 0 }
 	return env
 }()

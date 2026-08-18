@@ -242,6 +242,12 @@ func TestSeedanceBuildRequestBodyPreservesReferenceMedia(t *testing.T) {
 	assert.Equal(t, []string{"https://example.com/1.mp4"}, parsed.ReferenceVideos)
 	assert.Equal(t, []string{"https://example.com/1.mp3"}, parsed.ReferenceAudios)
 
+	dimensions, err := adaptor.EstimateBillingDimensions(ctx, info)
+	require.NoError(t, err)
+	assert.Equal(t, float64(2), dimensions.ReferenceImageCount)
+	assert.Equal(t, float64(1), dimensions.ReferenceVideoCount)
+	assert.Equal(t, float64(1), dimensions.ReferenceAudioCount)
+
 	body, err := adaptor.BuildRequestBody(ctx, info)
 	require.NoError(t, err)
 	data, err := io.ReadAll(body)
