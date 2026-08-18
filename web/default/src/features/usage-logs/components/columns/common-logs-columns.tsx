@@ -222,6 +222,8 @@ function buildTypeDetailSegments(
           text = `${formatPriceCompact(pricing.perSecondPrice || 0)} / ${t('second')}`
         } else if (pricing.method === 'fixed_plus_second') {
           text = `${formatPriceCompact(pricing.fixedPrice || 0)} / ${unit} + ${formatPriceCompact(pricing.perSecondPrice || 0)} / ${t('second')}`
+        } else if (pricing.method === 'per_token') {
+          text = `${formatPriceCompact(pricing.inputTokenPrice || 0)} ${t('Input')} + ${formatPriceCompact(pricing.outputTokenPrice || 0)} ${t('Output')} / 1M ${t('tokens')}`
         } else {
           text = `${formatPriceCompact(pricing.unitPrice || 0)} / ${unit}`
         }

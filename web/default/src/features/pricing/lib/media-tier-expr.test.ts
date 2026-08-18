@@ -23,6 +23,7 @@ import { describe, test } from 'node:test'
 import {
   MEDIA_BILLING_FIXED_PLUS_SECOND,
   MEDIA_BILLING_PER_SECOND,
+  MEDIA_BILLING_PER_TOKEN,
   MEDIA_BILLING_PER_UNIT,
   generateMediaExpr,
   tryParseMediaConfig,
@@ -97,6 +98,41 @@ describe('media tier expression editor', () => {
       ],
     }
 
+    assert.deepEqual(tryParseMediaConfig(generateMediaExpr(config)), config)
+  })
+
+  test('round-trips input and output prices per million tokens', () => {
+    const config: MediaVisualConfig = {
+      tiers: [
+        {
+          label: '720p',
+          conditions: [
+            { variable: 'resolution_tier', operator: 'eq', value: '720p' },
+          ],
+          billingMethod: MEDIA_BILLING_PER_TOKEN,
+          unitPrice: 0,
+          fixedPrice: 0,
+          perSecondPrice: 0,
+          inputTokenPrice: 1.5,
+          outputTokenPrice: 6,
+        },
+        {
+          label: 'base',
+          conditions: [],
+          billingMethod: MEDIA_BILLING_PER_TOKEN,
+          unitPrice: 0,
+          fixedPrice: 0,
+          perSecondPrice: 0,
+          inputTokenPrice: 2,
+          outputTokenPrice: 8,
+        },
+      ],
+    }
+
+    assert.equal(
+      generateMediaExpr(config),
+      'v2:resolution_tier == "720p" ? tier("720p", p * 1.5 + c * 6) : tier("base", p * 2 + c * 8)'
+    )
     assert.deepEqual(tryParseMediaConfig(generateMediaExpr(config)), config)
   })
 

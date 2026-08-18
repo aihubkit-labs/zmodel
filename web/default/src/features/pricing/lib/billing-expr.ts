@@ -263,10 +263,12 @@ export type ParsedTier = {
   conditions: TierCondition[]
   mediaConditions: MediaCondition[]
   mediaPricing?: {
-    method: 'per_unit' | 'per_second' | 'fixed_plus_second'
+    method: 'per_unit' | 'per_second' | 'fixed_plus_second' | 'per_token'
     unitPrice?: number
     fixedPrice?: number
     perSecondPrice?: number
+    inputTokenPrice?: number
+    outputTokenPrice?: number
   }
   [field: string]: unknown
 }
@@ -354,6 +356,16 @@ function parseTierBody(bodyStr: string): Record<string, number> {
 function parseMediaPricing(bodyStr: string): ParsedTier['mediaPricing'] {
   const normalized = bodyStr.replaceAll(/\s+/g, '')
   let match = normalized.match(
+    /^p\*([-+\d.eE]+)\+c\*([-+\d.eE]+)$/
+  )
+  if (match) {
+    return {
+      method: 'per_token',
+      inputTokenPrice: Number(match[1]),
+      outputTokenPrice: Number(match[2]),
+    }
+  }
+  match = normalized.match(
     /^usd\(\(([-+\d.eE]+)\+([-+\d.eE]+)\*seconds\)\*units\)$/
   )
   if (match) {

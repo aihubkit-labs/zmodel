@@ -134,6 +134,9 @@ function formatMediaPrice(
   } else if (mediaUnit === 'image') {
     perUnitLabel = t('Per image')
   }
+  if (pricing.method === 'per_token') {
+    return `${format(pricing.inputTokenPrice)} ${t('Input')} + ${format(pricing.outputTokenPrice)} ${t('Output')} / 1M ${t('tokens')}`
+  }
   if (pricing.method === 'per_second') {
     return `${format(pricing.perSecondPrice)} / ${t('second')}`
   }
@@ -261,7 +264,9 @@ export function DynamicPricingBreakdown({
       (tier) => Number(tier[v.field as string as keyof ParsedTier] || 0) > 0
     )
   })
-  const hasMediaPricing = tiers.some((tier) => tier.mediaPricing != null)
+  const hasMediaPricing = tiers.some(
+    (tier) => tier.mediaPricing != null && tier.mediaPricing.method !== 'per_token'
+  )
   const mediaUnit = inferMediaUnit(tiers)
 
   return (
@@ -354,7 +359,7 @@ export function DynamicPricingBreakdown({
                         </div>
                       )
                     })}
-                    {tier.mediaPricing && (
+                    {tier.mediaPricing && tier.mediaPricing.method !== 'per_token' && (
                       <div className='col-span-2 min-w-0'>
                         <div className='text-muted-foreground text-[10px] font-medium tracking-wider uppercase'>
                           {t('Media price')}

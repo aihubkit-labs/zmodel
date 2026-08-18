@@ -626,6 +626,9 @@ function PriceSection(props: {
             perVideo: t('Per video'),
             perOutput: t('Per output'),
             second: t('second'),
+            input: t('Input'),
+            output: t('Output'),
+            tokens: t('tokens'),
           }
         )
       : null
@@ -1104,6 +1107,9 @@ function GroupPricingSection(props: {
                                   perVideo: t('Per video'),
                                   perOutput: t('Per output'),
                                   second: t('second'),
+                                  input: t('Input'),
+                                  output: t('Output'),
+                                  tokens: t('tokens'),
                                 }
                               ),
                           },

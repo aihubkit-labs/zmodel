@@ -85,6 +85,7 @@ import {
 import {
   MEDIA_BILLING_FIXED_PLUS_SECOND,
   MEDIA_BILLING_PER_SECOND,
+  MEDIA_BILLING_PER_TOKEN,
   MEDIA_BILLING_PER_UNIT,
   MEDIA_CONDITION_EQ,
   MEDIA_CONDITION_GT,
@@ -964,6 +965,7 @@ const MEDIA_BILLING_OPTIONS: Array<{
     value: MEDIA_BILLING_FIXED_PLUS_SECOND,
     labelKey: 'Fixed fee + per second',
   },
+  { value: MEDIA_BILLING_PER_TOKEN, labelKey: 'Per 1M tokens' },
 ]
 
 const MEDIA_CONDITION_VALUE_PLACEHOLDERS: Record<
@@ -1327,7 +1329,8 @@ function MediaTierCard(props: MediaTierCardProps) {
               }
             />
           )}
-          {props.tier.billingMethod !== MEDIA_BILLING_PER_UNIT && (
+          {props.tier.billingMethod !== MEDIA_BILLING_PER_UNIT &&
+            props.tier.billingMethod !== MEDIA_BILLING_PER_TOKEN && (
             <PriceField
               label={`${t('Per-second price')} ($)`}
               value={props.tier.perSecondPrice}
@@ -1335,6 +1338,24 @@ function MediaTierCard(props: MediaTierCardProps) {
                 props.onChange({ ...props.tier, perSecondPrice: value })
               }
             />
+          )}
+          {props.tier.billingMethod === MEDIA_BILLING_PER_TOKEN && (
+            <>
+              <PriceField
+                label={`${t('Input token price')} ($/1M)`}
+                value={props.tier.inputTokenPrice || 0}
+                onChange={(value) =>
+                  props.onChange({ ...props.tier, inputTokenPrice: value })
+                }
+              />
+              <PriceField
+                label={`${t('Output token price')} ($/1M)`}
+                value={props.tier.outputTokenPrice || 0}
+                onChange={(value) =>
+                  props.onChange({ ...props.tier, outputTokenPrice: value })
+                }
+              />
+            </>
           )}
         </div>
       </div>
@@ -1440,6 +1461,8 @@ function MediaVisualEditor(props: MediaVisualEditorProps) {
               price = `$${tier.perSecondPrice} / ${t('second')}`
             } else if (tier.billingMethod === MEDIA_BILLING_FIXED_PLUS_SECOND) {
               price = `$${tier.fixedPrice} / ${mediaUnit} + $${tier.perSecondPrice} / ${t('second')}`
+            } else if (tier.billingMethod === MEDIA_BILLING_PER_TOKEN) {
+              price = `$${tier.inputTokenPrice || 0} ${t('Input')} + $${tier.outputTokenPrice || 0} ${t('Output')} / 1M ${t('tokens')}`
             }
             return (
               <div
@@ -2274,6 +2297,10 @@ function MediaEditorHelp(props: { modelName?: string }) {
             <li>
               <span className='text-foreground'>{t('Each')}:</span>{' '}
               {t('unit price × output count')}
+            </li>
+            <li>
+              <span className='text-foreground'>{t('Per 1M tokens')}:</span>{' '}
+              {t('input token price × input tokens + output token price × output tokens')}
             </li>
             <li>
               <span className='text-foreground'>{t('Per second')}:</span>{' '}

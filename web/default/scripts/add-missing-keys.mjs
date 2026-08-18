@@ -102,8 +102,13 @@ const newKeys = {
     'Per image': 'image',
     'Per output': 'output',
     'Per second': 'Per second',
+    'Per 1M tokens': 'Per 1M tokens',
     'Per video': 'video',
     'Per-second price': 'Per-second price',
+    'Input token price': 'Input token price',
+    'Output token price': 'Output token price',
+    'input token price × input tokens + output token price × output tokens':
+      'input token price × input tokens + output token price × output tokens',
     'per-second price × duration × output count':
       'per-second price × duration × output count',
     'Price preview shows the configured rate. Actual charges use the validated output count and video duration.':
@@ -198,8 +203,13 @@ const newKeys = {
     'Per image': '张',
     'Per output': '个输出',
     'Per second': '每秒',
+    'Per 1M tokens': '每百万 Token',
     'Per video': '个',
     'Per-second price': '每秒价格',
+    'Input token price': '输入 Token 价格',
+    'Output token price': '输出 Token 价格',
+    'input token price × input tokens + output token price × output tokens':
+      '输入 Token 价格 × 输入 Token 数 + 输出 Token 价格 × 输出 Token 数',
     'per-second price × duration × output count': '每秒价格 × 时长 × 输出数量',
     'Price preview shows the configured rate. Actual charges use the validated output count and video duration.':
       '价格预览展示配置的费率；实际费用会使用已校验的输出数量和视频时长计算。',
@@ -2436,6 +2446,37 @@ Object.assign(newKeys.vi, {
     'Mô tả yêu cầu về dữ liệu đầu vào, tình huống được hỗ trợ, các tổ hợp không tương thích và giới hạn đã biết. Có hỗ trợ Markdown.',
   'This customer-facing content appears in the model details page. Markdown is supported.':
     'Nội dung dành cho khách hàng này xuất hiện trên trang chi tiết mô hình. Có hỗ trợ Markdown.',
+})
+
+Object.assign(newKeys.fr, {
+  'Input token price': 'Prix du token d’entrée',
+  'Output token price': 'Prix du token de sortie',
+  'input token price × input tokens + output token price × output tokens':
+    'prix du token d’entrée × tokens d’entrée + prix du token de sortie × tokens de sortie',
+})
+Object.assign(newKeys.ja, {
+  'Input token price': '入力トークン価格',
+  'Output token price': '出力トークン価格',
+  'input token price × input tokens + output token price × output tokens':
+    '入力トークン価格 × 入力トークン数 + 出力トークン価格 × 出力トークン数',
+})
+Object.assign(newKeys.ru, {
+  'Input token price': 'Цена входных токенов',
+  'Output token price': 'Цена выходных токенов',
+  'input token price × input tokens + output token price × output tokens':
+    'цена входных токенов × входные токены + цена выходных токенов × выходные токены',
+})
+Object.assign(newKeys.vi, {
+  'Input token price': 'Giá token đầu vào',
+  'Output token price': 'Giá token đầu ra',
+  'input token price × input tokens + output token price × output tokens':
+    'giá token đầu vào × số token đầu vào + giá token đầu ra × số token đầu ra',
+})
+Object.assign(newKeys['zh-TW'], {
+  'Input token price': '輸入 Token 價格',
+  'Output token price': '輸出 Token 價格',
+  'input token price × input tokens + output token price × output tokens':
+    '輸入 Token 價格 × 輸入 Token 數 + 輸出 Token 價格 × 輸出 Token 數',
 })
 
 async function main() {
