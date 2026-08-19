@@ -169,6 +169,7 @@ type TaskBillingContext struct {
 	ActualDimensions        billingexpr.BillingDimensions `json:"actual_dimensions,omitempty"`
 	ActualTier              string                        `json:"actual_tier,omitempty"`
 	ActualQuota             int                           `json:"actual_quota,omitempty"`
+	ActualTokenUsage        *billingexpr.TokenUsage       `json:"actual_token_usage,omitempty"`
 	RequestInput            billingexpr.RequestInput      `json:"request_input,omitempty"`
 }
 

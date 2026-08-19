@@ -121,20 +121,38 @@ func TestGlobalAIOpcReportsHTTP200BusinessFailureWithoutLeakingUpstreamDetails(t
 
 func TestGlobalAIOpcParsesResultAndReturnsOnlyUnifiedFields(t *testing.T) {
 	result, err := (&TaskAdaptor{}).ParseTaskResult([]byte(`{
-		"id":"upstream-task",
-		"status":"completed",
-		"progress":100,
-		"result_url":"https://upstream.example/result.mp4",
-		"video_url":"https://upstream.example/fallback.mp4",
-		"actualDuration":8,
-		"resolution":"2k",
-		"amount":0.32
+		"data": {
+			"id":"upstream-task",
+			"status":"completed",
+			"progress":100,
+			"result_url":"https://upstream.example/result.mp4",
+			"video_url":"https://upstream.example/fallback.mp4",
+			"actualDuration":8,
+			"resolution":"2k",
+			"amount":0.32,
+			"totalTokens":"123456",
+			"usage":{"output_tokens":"123456","total_tokens":"999999"}
+		}
 	}`))
 	require.NoError(t, err)
 	assert.Equal(t, model.TaskStatusSuccess, result.Status)
 	assert.Equal(t, "https://upstream.example/result.mp4", result.Url)
 	assert.Equal(t, 8, result.Duration)
 	assert.Equal(t, "2k", result.Resolution)
+	require.NotNil(t, result.TokenUsage)
+	require.NotNil(t, result.TokenUsage.TotalTokens)
+	assert.Equal(t, int64(123456), *result.TokenUsage.TotalTokens)
+
+	result, err = (&TaskAdaptor{}).ParseTaskResult([]byte(`{
+		"data": {
+			"status":"completed",
+			"usage":{"total_tokens":"654321"}
+		}
+	}`))
+	require.NoError(t, err)
+	require.NotNil(t, result.TokenUsage)
+	require.NotNil(t, result.TokenUsage.TotalTokens)
+	assert.Equal(t, int64(654321), *result.TokenUsage.TotalTokens)
 
 	task := &model.Task{
 		TaskID:   "task_public",

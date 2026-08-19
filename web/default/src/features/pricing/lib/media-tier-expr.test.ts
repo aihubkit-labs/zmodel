@@ -23,6 +23,7 @@ import { describe, test } from 'node:test'
 import {
   MEDIA_BILLING_FIXED_PLUS_SECOND,
   MEDIA_BILLING_PER_SECOND,
+  MEDIA_BILLING_PER_TOTAL_TOKEN,
   MEDIA_BILLING_PER_UNIT,
   generateMediaExpr,
   tryParseMediaConfig,
@@ -98,6 +99,46 @@ describe('media tier expression editor', () => {
     }
 
     assert.deepEqual(tryParseMediaConfig(generateMediaExpr(config)), config)
+  })
+
+  test('round-trips total-token settlement with duration reserve', () => {
+    const config: MediaVisualConfig = {
+      tiers: [
+        {
+          label: 'without_reference',
+          conditions: [
+            {
+              variable: 'reference_video_count',
+              operator: 'eq',
+              value: '0',
+            },
+          ],
+          billingMethod: MEDIA_BILLING_PER_TOTAL_TOKEN,
+          unitPrice: 0,
+          fixedPrice: 0,
+          perSecondPrice: 0,
+          totalTokenPrice: 70,
+          reservePerSecond: 1.5,
+        },
+        {
+          label: 'with_reference',
+          conditions: [],
+          billingMethod: MEDIA_BILLING_PER_TOTAL_TOKEN,
+          unitPrice: 0,
+          fixedPrice: 0,
+          perSecondPrice: 0,
+          totalTokenPrice: 42,
+          reservePerSecond: 3,
+        },
+      ],
+    }
+
+    const expr = generateMediaExpr(config)
+    assert.equal(
+      expr,
+      'v3:reference_video_count == 0 ? tier("without_reference", deferred(total * 70, usd(1.5 * seconds * units))) : tier("with_reference", deferred(total * 42, usd(3 * seconds * units)))'
+    )
+    assert.deepEqual(tryParseMediaConfig(expr), config)
   })
 
   test('round-trips reference media count comparisons', () => {

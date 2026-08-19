@@ -19,17 +19,75 @@ type RequestInput struct {
 // Fields beyond P and C are optional — when absent they default to 0,
 // which means cache-unaware expressions keep working unchanged.
 type TokenParams struct {
-	P    float64 // prompt tokens (text) — auto-excludes sub-categories priced separately
-	C    float64 // completion tokens (text) — auto-excludes sub-categories priced separately
-	Len  float64 // total input context length for tier conditions (non-Claude: raw prompt_tokens; Claude: text + cache read + cache creation)
-	CR   float64 // cache read (hit) tokens
-	CC   float64 // cache creation tokens (5-min TTL for Claude, generic for others)
-	CC1h float64 // cache creation tokens — 1-hour TTL (Claude only)
-	Img  float64 // image input tokens
-	ImgO float64 // image output tokens
-	AI   float64 // audio input tokens
-	AO   float64 // audio output tokens
+	P     float64 // prompt tokens (text) — auto-excludes sub-categories priced separately
+	C     float64 // completion tokens (text) — auto-excludes sub-categories priced separately
+	Len   float64 // total input context length for tier conditions (non-Claude: raw prompt_tokens; Claude: text + cache read + cache creation)
+	CR    float64 // cache read (hit) tokens
+	CC    float64 // cache creation tokens (5-min TTL for Claude, generic for others)
+	CC1h  float64 // cache creation tokens — 1-hour TTL (Claude only)
+	Img   float64 // image input tokens
+	ImgO  float64 // image output tokens
+	AI    float64 // audio input tokens
+	AO    float64 // audio output tokens
+	Total float64 // provider-reported total tokens for asynchronous media tasks
 }
+
+// TokenUsage is the provider-neutral usage contract for asynchronous tasks.
+// Pointer fields distinguish an omitted upstream value from an explicit zero.
+type TokenUsage struct {
+	InputTokens  *int64 `json:"input_tokens,omitempty"`
+	OutputTokens *int64 `json:"output_tokens,omitempty"`
+	TotalTokens  *int64 `json:"total_tokens,omitempty"`
+}
+
+func (u *TokenUsage) Params() (TokenParams, error) {
+	if u == nil {
+		return TokenParams{}, nil
+	}
+	params := TokenParams{}
+	values := []struct {
+		name   string
+		value  *int64
+		target *float64
+	}{
+		{name: "input_tokens", value: u.InputTokens, target: &params.P},
+		{name: "output_tokens", value: u.OutputTokens, target: &params.C},
+		{name: "total_tokens", value: u.TotalTokens, target: &params.Total},
+	}
+	for _, item := range values {
+		if item.value == nil {
+			continue
+		}
+		if *item.value < 0 {
+			return TokenParams{}, fmt.Errorf("task billing usage %s must be non-negative", item.name)
+		}
+		*item.target = float64(*item.value)
+	}
+	return params, nil
+}
+
+func (u *TokenUsage) Provides(variable string) bool {
+	if u == nil {
+		return false
+	}
+	switch variable {
+	case "p":
+		return u.InputTokens != nil
+	case "c":
+		return u.OutputTokens != nil
+	case "total":
+		return u.TotalTokens != nil
+	default:
+		return true
+	}
+}
+
+type EvaluationPhase int
+
+const (
+	EvaluationPhaseActual EvaluationPhase = iota
+	EvaluationPhaseEstimate
+)
 
 // BillingDimensions contains validated, normalized non-token dimensions used
 // by media billing expressions. Request and provider-specific parsing happens

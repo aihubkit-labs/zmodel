@@ -59,4 +59,32 @@ describe('dynamic media pricing display', () => {
     assert.match(price, /0\.15/)
     assert.match(price, /\/ video$/)
   })
+
+  test('renders total-token price and duration reserve', () => {
+    const model = {
+      billing_mode: 'tiered_expr',
+      billing_expr:
+        'v3:tier("base", deferred(total * 70, usd(1.5 * seconds * units)))',
+    } as PricingModel
+    const summary = getDynamicPricingSummary(model, { tokenUnit: 'M' })
+
+    assert.ok(summary?.tier)
+    const price = formatDynamicMediaPrice(
+      summary.tier,
+      'video',
+      { tokenUnit: 'M' },
+      {
+        perImage: 'image',
+        perVideo: 'video',
+        perOutput: 'output',
+        second: 'second',
+        totalTokens: 'total tokens',
+        reserve: 'Reserve',
+      }
+    )
+    assert.match(price, /70/)
+    assert.match(price, /1M total tokens/)
+    assert.match(price, /Reserve/)
+    assert.match(price, /1\.5/)
+  })
 })

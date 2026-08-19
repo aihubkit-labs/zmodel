@@ -100,9 +100,34 @@ func TestV2RejectsNegativeDollarCharge(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestV3DeferredMediaBillingUsesReserveThenTotalTokens(t *testing.T) {
+	expr := `v3:tier("base", deferred(total * 70, usd(1.5 * seconds * units)))`
+	dimensions := billingexpr.BillingDimensions{Units: 1, Seconds: 8}
+
+	reserved, trace, err := billingexpr.RunExprForPhaseWithDimensionsAndRequest(
+		expr,
+		billingexpr.TokenParams{},
+		dimensions,
+		billingexpr.RequestInput{},
+		billingexpr.EvaluationPhaseEstimate,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "base", trace.MatchedTier)
+	assert.InDelta(t, 12_000_000, reserved, 0.0001)
+
+	actual, trace, err := billingexpr.RunExprWithDimensions(
+		expr,
+		billingexpr.TokenParams{Total: 200_000},
+		dimensions,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "base", trace.MatchedTier)
+	assert.InDelta(t, 14_000_000, actual, 0.0001)
+}
+
 func TestUnsupportedExpressionVersionRejected(t *testing.T) {
-	_, err := billingexpr.CompileFromCache(`v3:tier("base", p)`)
-	require.ErrorContains(t, err, "unsupported billing expression version v3")
+	_, err := billingexpr.CompileFromCache(`v4:tier("base", p)`)
+	require.ErrorContains(t, err, "unsupported billing expression version v4")
 }
 
 func TestValidateBillingDimensionsRejectsMissingReferencedTier(t *testing.T) {

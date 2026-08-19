@@ -142,6 +142,42 @@ func TestModelPriceHelperTieredPreConsumeMaxTokensFallback(t *testing.T) {
 	}
 }
 
+func TestModelPriceHelperMediaUsesDurationReserveForDeferredTokenBilling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
+	})
+
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":    `{"video-token-model":"tiered_expr"}`,
+		"billing_setting.billing_expr":    `{"video-token-model":"v3:tier(\"base\", deferred(total * 70, usd(1.5 * seconds * units)))"}`,
+		"group_ratio_setting.group_ratio": `{"default":1}`,
+	}))
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
+	ctx.Set("group", "default")
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "video-token-model",
+		UserGroup:       "default",
+		UsingGroup:      "default",
+	}
+
+	priceData, err := ModelPriceHelperMedia(ctx, info, billingexpr.BillingDimensions{
+		Units: 1, Seconds: 8,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, info.TieredBillingSnapshot)
+	require.Equal(t, int(12*common.QuotaPerUnit), priceData.QuotaToPreConsume)
+}
+
 func TestModelPriceHelperTieredRejectsPreConsumeOverflow(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

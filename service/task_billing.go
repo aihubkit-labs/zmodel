@@ -145,7 +145,10 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 			if bc.ActualTier != "" {
 				other["matched_tier"] = bc.ActualTier
 			}
-			if bc.ActualQuota != 0 || bc.EstimatedQuota != 0 {
+			if bc.ActualTokenUsage != nil {
+				other["actual_token_usage"] = bc.ActualTokenUsage
+			}
+			if bc.ActualTokenUsage != nil || bc.ActualQuota != 0 || bc.EstimatedQuota != 0 {
 				other["actual_quota"] = bc.ActualQuota
 				other["settlement_delta"] = bc.ActualQuota - bc.EstimatedQuota
 			}
@@ -250,6 +253,29 @@ func recalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	if quotaDelta == 0 {
 		if err := task.UpdateQuotaAndPrivateData(); err != nil {
 			logger.LogError(ctx, fmt.Sprintf("差额结算回写计费快照失败 task %s: %s", task.TaskID, err.Error()))
+		}
+		// A zero-delta tiered media settlement still needs a visible usage-log
+		// entry so users can reconcile the provider-reported token usage. This
+		// records no additional charge and is limited to completed settlements
+		// that actually returned token usage.
+		if bc := task.PrivateData.BillingContext; bc != nil && bc.BillingMode == "tiered_expr" && bc.ActualTokenUsage != nil {
+			other := taskBillingOther(task)
+			other["task_id"] = task.TaskID
+			other["pre_consumed_quota"] = preConsumedQuota
+			other["actual_quota"] = actualQuota
+			other["settlement_delta"] = 0
+			model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
+				UserId:    task.UserId,
+				LogType:   model.LogTypeConsume,
+				Content:   reason,
+				ChannelId: task.ChannelId,
+				ModelName: taskModelName(task),
+				Quota:     0,
+				TokenId:   task.PrivateData.TokenId,
+				Group:     task.Group,
+				Other:     other,
+				NodeName:  task.PrivateData.NodeName,
+			})
 		}
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 预扣费准确（%s，%s）",
 			task.TaskID, logger.LogQuota(actualQuota), reason))

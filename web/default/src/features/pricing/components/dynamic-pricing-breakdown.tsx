@@ -134,6 +134,9 @@ function formatMediaPrice(
   } else if (mediaUnit === 'image') {
     perUnitLabel = t('Per image')
   }
+  if (pricing.method === 'per_total_token') {
+    return `${format(pricing.totalTokenPrice)} / 1M ${t('total tokens')} · ${t('Reserve')} ${format(pricing.reservePerSecond)} / ${t('second')}`
+  }
   if (pricing.method === 'per_second') {
     return `${format(pricing.perSecondPrice)} / ${t('second')}`
   }

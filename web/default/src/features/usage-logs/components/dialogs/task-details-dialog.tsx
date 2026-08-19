@@ -28,7 +28,7 @@ import { Button } from '@/components/ui/button'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Spinner } from '@/components/ui/spinner'
-import { formatTimestampToDate } from '@/lib/format'
+import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
 
 import { retryVideoUpload } from '../../api'
 import { taskActionMapper, taskStatusMapper } from '../../lib/mappers'
@@ -212,6 +212,7 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
     '-'
   const request = parseJSONValue(props.log.properties?.input)
   const mediaItems = getMediaItems(request)
+  const tokenUsage = props.log.token_usage
   const canUploadVideo = props.isAdmin && canUploadVideoTaskToS3(props.log)
   const showVideoStorage =
     props.isAdmin &&
@@ -288,6 +289,34 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
             <DetailItem label={t('Progress')}>
               <span className='font-mono text-xs'>
                 {props.log.progress || '-'}
+              </span>
+            </DetailItem>
+            {tokenUsage ? (
+              <>
+                <DetailItem label={t('Total Tokens')}>
+                  <span className='font-mono text-xs tabular-nums'>
+                    {tokenUsage.total_tokens?.toLocaleString() || '-'}
+                  </span>
+                </DetailItem>
+                {tokenUsage.input_tokens != null ? (
+                  <DetailItem label={t('Input Tokens')}>
+                    <span className='font-mono text-xs tabular-nums'>
+                      {tokenUsage.input_tokens.toLocaleString()}
+                    </span>
+                  </DetailItem>
+                ) : null}
+                {tokenUsage.output_tokens != null ? (
+                  <DetailItem label={t('Output Tokens')}>
+                    <span className='font-mono text-xs tabular-nums'>
+                      {tokenUsage.output_tokens.toLocaleString()}
+                    </span>
+                  </DetailItem>
+                ) : null}
+              </>
+            ) : null}
+            <DetailItem label={t('Total Cost')}>
+              <span className='font-mono text-xs tabular-nums'>
+                {formatLogQuota(props.log.quota)}
               </span>
             </DetailItem>
             <DetailItem label={t('Submit Time')}>

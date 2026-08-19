@@ -77,16 +77,17 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, usedVa
 	}
 
 	return billingexpr.TokenParams{
-		P:    p,
-		C:    c,
-		Len:  inputLen,
-		CR:   cr,
-		CC:   cc5m,
-		CC1h: cc1h,
-		Img:  img,
-		ImgO: imgO,
-		AI:   ai,
-		AO:   ao,
+		P:     p,
+		C:     c,
+		Len:   inputLen,
+		CR:    cr,
+		CC:    cc5m,
+		CC1h:  cc1h,
+		Img:   img,
+		ImgO:  imgO,
+		AI:    ai,
+		AO:    ao,
+		Total: float64(usage.TotalTokens),
 	}
 }
 

@@ -302,11 +302,11 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 		return types.PriceData{}, fmt.Errorf("model %s tiered billing dimensions invalid: %w", info.OriginModelName, err)
 	}
 
-	rawCost, trace, err := billingexpr.RunExprWithDimensionsAndRequest(exprStr, billingexpr.TokenParams{
+	rawCost, trace, err := billingexpr.RunExprForPhaseWithDimensionsAndRequest(exprStr, billingexpr.TokenParams{
 		P:   float64(promptTokens),
 		C:   float64(estimatedCompletionTokens),
 		Len: float64(promptTokens),
-	}, dimensions, requestInput)
+	}, dimensions, requestInput, billingexpr.EvaluationPhaseEstimate)
 	if err != nil {
 		return types.PriceData{}, fmt.Errorf("model %s tiered expr run failed: %w", info.OriginModelName, err)
 	}

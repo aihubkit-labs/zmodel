@@ -175,6 +175,57 @@ v2:resolution_tier == "720p" && reference_video_count > 0
     : tier("fallback", usd(0.20 * units))
 ```
 
+### Version 3 Deferred Token Billing
+
+`v3:` retains the v2 media dimensions and adds provider-reported total-token
+pricing for asynchronous media tasks:
+
+| Variable/function | Meaning |
+|-------------------|---------|
+| `total` | Final total token count mapped from the upstream task result |
+| `deferred(actual, reserve)` | Uses `reserve` during pre-consume and `actual` during settlement |
+
+The `deferred` function keeps the final price and the reserve rule in one
+expression. For example:
+
+```
+v3:tier(
+  "base",
+  deferred(total * 70, usd(1.5 * seconds * units))
+)
+```
+
+This means a final price of `$70 / 1M total tokens`; the reserve is calculated
+from the requested duration at `$1.5 / second × output count`. The expression
+runtime evaluates the same frozen expression twice, using the estimate phase
+for pre-consume and the actual phase after the provider reports usage.
+
+Asynchronous task adapters map provider-specific response fields into the
+provider-neutral `TokenUsage` structure (`input_tokens`, `output_tokens`, and
+`total_tokens`). If a task result does not contain a field referenced by the
+expression, settlement preserves the reserve instead of charging zero. This
+allows each future provider adapter to select its own response field mapping
+without changing the billing engine.
+
+For GlobalAiOpc, the real task-detail response is wrapped in `data`. Its adapter
+maps `data.totalTokens` to `TokenUsage.total_tokens` first and falls back to
+`data.usage.total_tokens` only when `data.totalTokens` is absent:
+
+```json
+{
+  "data": {
+    "totalTokens": "123456",
+    "usage": {
+      "total_tokens": "123456"
+    }
+  }
+}
+```
+
+This provider-specific precedence stays in the adapter. The expression and
+settlement layers consume only the normalized `TokenUsage`, so another provider
+can map a different response shape without adding provider branches to billing.
+
 Media quantities are populated only after request validation and provider/model
 normalization. User-controlled counts and durations must not be read through
 `param()` when they affect the charge.

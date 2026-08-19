@@ -159,6 +159,8 @@ export function usePricingColumns(
                     perVideo: t('Per video'),
                     perOutput: t('Per output'),
                     second: t('second'),
+                    totalTokens: t('total tokens'),
+                    reserve: t('Reserve'),
                   }
                 )
               : null

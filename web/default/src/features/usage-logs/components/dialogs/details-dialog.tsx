@@ -250,6 +250,12 @@ function BillingBreakdown(props: {
       label: t('Billing Mode'),
       value: t('Dynamic Pricing'),
     })
+    if (other.task_id) {
+      rows.push({
+        label: t('Task ID'),
+        value: other.task_id,
+      })
+    }
     if (tieredSummary) {
       if (tieredSummary.tier.label) {
         rows.push({
@@ -268,6 +274,28 @@ function BillingBreakdown(props: {
         label: t('Matched Tier'),
         value: t('No matching results'),
       })
+    }
+
+    const tokenUsage = other.actual_token_usage
+    if (tokenUsage) {
+      if (tokenUsage.total_tokens != null) {
+        rows.push({
+          label: t('Total Tokens'),
+          value: tokenUsage.total_tokens.toLocaleString(),
+        })
+      }
+      if (tokenUsage.input_tokens != null) {
+        rows.push({
+          label: t('Input Tokens'),
+          value: tokenUsage.input_tokens.toLocaleString(),
+        })
+      }
+      if (tokenUsage.output_tokens != null) {
+        rows.push({
+          label: t('Output Tokens'),
+          value: tokenUsage.output_tokens.toLocaleString(),
+        })
+      }
     }
   } else if (isPerCall) {
     rows.push({ label: t('Billing Mode'), value: t('Per-call') })
@@ -402,7 +430,11 @@ function BillingBreakdown(props: {
 
   rows.push({
     label: t('Total Cost'),
-    value: formatLogQuota(log.quota),
+    value: formatLogQuota(
+      isTieredExpr && other.actual_quota != null
+        ? other.actual_quota
+        : log.quota
+    ),
   })
 
   if (rows.length === 0) return null
@@ -503,10 +535,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const isManage = props.log.type === 3
   const isSubscription = other?.billing_source === 'subscription'
   const isTieredBilling =
-    isConsume &&
-    !isViolation &&
-    other?.billing_mode === 'tiered_expr' &&
-    !!other?.expr_b64
+    !isViolation && other?.billing_mode === 'tiered_expr' && !!other?.expr_b64
   const hasAudioTokens = other?.ws || other?.audio
   const showTiming = isTimingLogType(props.log.type)
   const showAdminIp =
@@ -1079,8 +1108,8 @@ export function DetailsDialog(props: DetailsDialogProps) {
           <TokenBreakdown log={props.log} other={other} />
         )}
 
-        {/* Billing breakdown (consume type) */}
-        {isConsume && other && !isViolation && (
+        {/* Billing breakdown for tiered consume and settlement records */}
+        {isTieredBilling && other && !isViolation && (
           <BillingBreakdown
             log={props.log}
             other={other}

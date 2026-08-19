@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	rootcommon "github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -135,4 +136,53 @@ func TestUpstreamHTTPResponseFromBodyBuildsMissingStatusLineFields(t *testing.T)
 
 	assert.Equal(t, "HTTP/1.1", message.Protocol)
 	assert.Equal(t, "502 Bad Gateway", message.Status)
+}
+
+func TestUpstreamHTTPTraceKeepsTokenCountsAndRedactsCredentials(t *testing.T) {
+	body := []byte(`{
+		"totalTokens":"123456",
+		"usage":{
+			"input_tokens":"100000",
+			"output_tokens":"23456",
+			"total_tokens":"123456",
+			"totalTokenCount":123456
+		},
+		"access_token":"access-secret",
+		"refresh_token":"refresh-secret",
+		"api_key":"key-secret"
+	}`)
+
+	message := UpstreamHTTPResponseFromBody(&http.Response{
+		StatusCode: http.StatusOK,
+		Status:     "200 OK",
+		Header: http.Header{
+			"Authorization": {"Bearer header-secret"},
+		},
+	}, body)
+
+	require.NotNil(t, message)
+	assert.Equal(t, upstreamHTTPRedactedValue, message.Headers["Authorization"])
+	var payload map[string]any
+	require.NoError(t, rootcommon.Unmarshal([]byte(message.Body), &payload))
+	assert.Equal(t, "123456", payload["totalTokens"])
+	usage, ok := payload["usage"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "100000", usage["input_tokens"])
+	assert.Equal(t, "23456", usage["output_tokens"])
+	assert.Equal(t, "123456", usage["total_tokens"])
+	assert.Equal(t, float64(123456), usage["totalTokenCount"])
+	assert.Equal(t, upstreamHTTPRedactedValue, payload["access_token"])
+	assert.Equal(t, upstreamHTTPRedactedValue, payload["refresh_token"])
+	assert.Equal(t, upstreamHTTPRedactedValue, payload["api_key"])
+}
+
+func TestSanitizeUpstreamHTTPTextKeepsStringTokenCounts(t *testing.T) {
+	text := `{"totalTokens":"123456","output_tokens":"23456","access_token":"access-secret"}`
+
+	sanitized := SanitizeUpstreamHTTPText(text)
+
+	assert.Contains(t, sanitized, `"totalTokens":"123456"`)
+	assert.Contains(t, sanitized, `"output_tokens":"23456"`)
+	assert.Contains(t, sanitized, `"access_token":"[REDACTED]"`)
+	assert.NotContains(t, sanitized, "access-secret")
 }

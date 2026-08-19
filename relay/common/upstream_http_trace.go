@@ -62,7 +62,10 @@ func UpstreamHTTPTransportError(err error) *dto.TaskHTTPMessage {
 }
 
 var (
-	upstreamHTTPSensitiveJSONValuePattern = regexp.MustCompile(`(?i)("(?:key|[^"\\]*(?:authorization|cookie|token|secret|signature|credential|password|passwd|api[_-]?key|subscription[_-]?key)[^"\\]*)"\s*:\s*)"(?:\\.|[^"\\])*"`)
+	// Match string-valued JSON fields so text responses get the same field-aware
+	// redaction as parsed JSON responses. Token-count fields are explicitly
+	// allow-listed below because they are billing diagnostics, not credentials.
+	upstreamHTTPSensitiveJSONValuePattern = regexp.MustCompile(`(?is)"([^"\\]*)"(\s*:\s*)"(?:\\.|[^"\\])*"`)
 	upstreamHTTPURLPattern                = regexp.MustCompile(`https?://[^\s"'<>]+`)
 )
 
@@ -268,7 +271,13 @@ func sanitizeUpstreamHTTPJSONValue(value any) any {
 }
 
 func sanitizeUpstreamHTTPText(value string) string {
-	value = upstreamHTTPSensitiveJSONValuePattern.ReplaceAllString(value, `${1}"`+upstreamHTTPRedactedValue+`"`)
+	value = upstreamHTTPSensitiveJSONValuePattern.ReplaceAllStringFunc(value, func(match string) string {
+		parts := upstreamHTTPSensitiveJSONValuePattern.FindStringSubmatch(match)
+		if len(parts) != 3 || !isSensitiveUpstreamHTTPField(parts[1]) {
+			return match
+		}
+		return `"` + parts[1] + `"` + parts[2] + `"` + upstreamHTTPRedactedValue + `"`
+	})
 	return upstreamHTTPURLPattern.ReplaceAllStringFunc(value, SanitizeURLForLog)
 }
 
@@ -279,6 +288,9 @@ func SanitizeUpstreamHTTPText(value string) string {
 
 func isSensitiveUpstreamHTTPField(name string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(name))
+	if isUpstreamHTTPTokenCountField(normalized) {
+		return false
+	}
 	switch normalized {
 	case "authorization", "proxy-authorization", "cookie", "set-cookie", "key", "api-key", "api_key", "apikey", "x-api-key", "x-goog-api-key", "password", "passwd", "client-secret", "client_secret":
 		return true
@@ -291,4 +303,22 @@ func isSensitiveUpstreamHTTPField(name string) bool {
 		strings.Contains(normalized, "cookie") ||
 		strings.HasSuffix(normalized, "-key") ||
 		strings.HasSuffix(normalized, "_key")
+}
+
+func isUpstreamHTTPTokenCountField(normalized string) bool {
+	compact := strings.NewReplacer("_", "", "-", "").Replace(normalized)
+	if strings.HasSuffix(compact, "tokencount") {
+		return true
+	}
+	switch compact {
+	case "totaltokens", "inputtokens", "outputtokens",
+		"prompttokens", "completiontokens", "cachedtokens",
+		"cachereadtokens", "cachecreationtokens", "cachewritetokens",
+		"imagetokens", "audiotokens", "candidatestokencount",
+		"prompttokencount", "completiontokencount", "inputtokencount",
+		"outputtokencount":
+		return true
+	default:
+		return false
+	}
 }

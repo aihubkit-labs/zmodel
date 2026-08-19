@@ -263,10 +263,12 @@ export type ParsedTier = {
   conditions: TierCondition[]
   mediaConditions: MediaCondition[]
   mediaPricing?: {
-    method: 'per_unit' | 'per_second' | 'fixed_plus_second'
+    method: 'per_unit' | 'per_second' | 'fixed_plus_second' | 'per_total_token'
     unitPrice?: number
     fixedPrice?: number
     perSecondPrice?: number
+    totalTokenPrice?: number
+    reservePerSecond?: number
   }
   [field: string]: unknown
 }
@@ -354,6 +356,16 @@ function parseTierBody(bodyStr: string): Record<string, number> {
 function parseMediaPricing(bodyStr: string): ParsedTier['mediaPricing'] {
   const normalized = bodyStr.replaceAll(/\s+/g, '')
   let match = normalized.match(
+    /^deferred\(total\*([-+\d.eE]+),usd\(([-+\d.eE]+)\*seconds\*units\)\)$/
+  )
+  if (match) {
+    return {
+      method: 'per_total_token',
+      totalTokenPrice: Number(match[1]),
+      reservePerSecond: Number(match[2]),
+    }
+  }
+  match = normalized.match(
     /^usd\(\(([-+\d.eE]+)\+([-+\d.eE]+)\*seconds\)\*units\)$/
   )
   if (match) {
@@ -446,8 +458,9 @@ export function parseTiersFromExpr(exprStr: string): ParsedTier[] {
       '(?:quality|resolution_tier|image_size_tier|image_size)\\s*==\\s*"[^"]+"'
     const condition = `(?:${numericCondition}|${textCondition})`
     const condGroup = `(${condition}(?:\\s*&&\\s*${condition})*)`
+    const tierBody = `((?:[^()]|\\((?:[^()]|\\([^()]*\\))*\\))+)`
     const tierRe = new RegExp(
-      `(?:${condGroup}\\s*\\?\\s*)?tier\\("([^"]*)",\\s*(usd\\((?:[^()]|\\([^()]*\\))*\\)|[^)]+)\\)`,
+      `(?:${condGroup}\\s*\\?\\s*)?tier\\("([^"]*)",\\s*${tierBody}\\)`,
       'g'
     )
     const tiers: ParsedTier[] = []

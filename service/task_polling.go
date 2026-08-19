@@ -858,7 +858,24 @@ func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor
 			// Compatibility for tasks submitted before quota_per_unit was persisted.
 			snapshot.QuotaPerUnit = common.QuotaPerUnit
 		}
-		result, err := billingexpr.ComputeTieredQuotaWithDimensionsAndRequest(snapshot, billingexpr.TokenParams{}, dimensions, bc.RequestInput)
+		usage := taskResult.TokenUsage
+		if usage == nil && taskResult.TotalTokens > 0 {
+			totalTokens := int64(taskResult.TotalTokens)
+			usage = &billingexpr.TokenUsage{TotalTokens: &totalTokens}
+		}
+		usedVars := billingexpr.UsedVars(snapshot.ExprString)
+		for _, variable := range []string{"p", "c", "total"} {
+			if usedVars[variable] && !usage.Provides(variable) {
+				logger.LogWarn(ctx, fmt.Sprintf("任务 %s 完成但上游未返回计费所需的 %s，保留预扣额度", task.TaskID, variable))
+				return
+			}
+		}
+		params, usageErr := usage.Params()
+		if usageErr != nil {
+			logger.LogWarn(ctx, fmt.Sprintf("任务 %s 返回的 Token 用量无效，保留预扣额度: %s", task.TaskID, usageErr.Error()))
+			return
+		}
+		result, err := billingexpr.ComputeTieredQuotaWithDimensionsAndRequest(snapshot, params, dimensions, bc.RequestInput)
 		if err != nil {
 			logger.LogWarn(ctx, fmt.Sprintf("任务 %s 阶梯表达式结算失败，保留预扣额度: %s", task.TaskID, err.Error()))
 			return
@@ -866,6 +883,7 @@ func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor
 		bc.ActualDimensions = result.ActualDimensions
 		bc.ActualTier = result.MatchedTier
 		bc.ActualQuota = result.ActualQuotaAfterGroup
+		bc.ActualTokenUsage = usage
 		RecalculateTaskQuotaAllowZero(ctx, task, result.ActualQuotaAfterGroup, "阶梯媒体计费", result.Clamp)
 		return
 	}

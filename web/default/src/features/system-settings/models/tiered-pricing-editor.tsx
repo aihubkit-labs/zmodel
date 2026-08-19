@@ -85,6 +85,7 @@ import {
 import {
   MEDIA_BILLING_FIXED_PLUS_SECOND,
   MEDIA_BILLING_PER_SECOND,
+  MEDIA_BILLING_PER_TOTAL_TOKEN,
   MEDIA_BILLING_PER_UNIT,
   MEDIA_CONDITION_EQ,
   MEDIA_CONDITION_GT,
@@ -964,6 +965,7 @@ const MEDIA_BILLING_OPTIONS: Array<{
     value: MEDIA_BILLING_FIXED_PLUS_SECOND,
     labelKey: 'Fixed fee + per second',
   },
+  { value: MEDIA_BILLING_PER_TOTAL_TOKEN, labelKey: 'Per 1M total tokens' },
 ]
 
 const MEDIA_CONDITION_VALUE_PLACEHOLDERS: Record<
@@ -1327,14 +1329,33 @@ function MediaTierCard(props: MediaTierCardProps) {
               }
             />
           )}
-          {props.tier.billingMethod !== MEDIA_BILLING_PER_UNIT && (
-            <PriceField
-              label={`${t('Per-second price')} ($)`}
-              value={props.tier.perSecondPrice}
-              onChange={(value) =>
-                props.onChange({ ...props.tier, perSecondPrice: value })
-              }
-            />
+          {props.tier.billingMethod !== MEDIA_BILLING_PER_UNIT &&
+            props.tier.billingMethod !== MEDIA_BILLING_PER_TOTAL_TOKEN && (
+              <PriceField
+                label={`${t('Per-second price')} ($)`}
+                value={props.tier.perSecondPrice}
+                onChange={(value) =>
+                  props.onChange({ ...props.tier, perSecondPrice: value })
+                }
+              />
+            )}
+          {props.tier.billingMethod === MEDIA_BILLING_PER_TOTAL_TOKEN && (
+            <>
+              <PriceField
+                label={`${t('Total token price')} ($/1M)`}
+                value={props.tier.totalTokenPrice || 0}
+                onChange={(value) =>
+                  props.onChange({ ...props.tier, totalTokenPrice: value })
+                }
+              />
+              <PriceField
+                label={`${t('Reserve price per second')} ($)`}
+                value={props.tier.reservePerSecond || 0}
+                onChange={(value) =>
+                  props.onChange({ ...props.tier, reservePerSecond: value })
+                }
+              />
+            </>
           )}
         </div>
       </div>
@@ -1440,6 +1461,8 @@ function MediaVisualEditor(props: MediaVisualEditorProps) {
               price = `$${tier.perSecondPrice} / ${t('second')}`
             } else if (tier.billingMethod === MEDIA_BILLING_FIXED_PLUS_SECOND) {
               price = `$${tier.fixedPrice} / ${mediaUnit} + $${tier.perSecondPrice} / ${t('second')}`
+            } else if (tier.billingMethod === MEDIA_BILLING_PER_TOTAL_TOKEN) {
+              price = `$${tier.totalTokenPrice || 0} / 1M ${t('total tokens')} · ${t('Reserve')} $${tier.reservePerSecond || 0} / ${t('second')}`
             }
             return (
               <div
@@ -2278,6 +2301,14 @@ function MediaEditorHelp(props: { modelName?: string }) {
             <li>
               <span className='text-foreground'>{t('Per second')}:</span>{' '}
               {t('per-second price × duration × output count')}
+            </li>
+            <li>
+              <span className='text-foreground'>
+                {t('Per 1M total tokens')}:
+              </span>{' '}
+              {t(
+                'final charge uses total tokens; reserve uses requested duration × reserve price per second × output count'
+              )}
             </li>
             <li>
               <span className='text-foreground'>

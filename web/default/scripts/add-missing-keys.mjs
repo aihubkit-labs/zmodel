@@ -2438,6 +2438,74 @@ Object.assign(newKeys.vi, {
     'Nội dung dành cho khách hàng này xuất hiện trên trang chi tiết mô hình. Có hỗ trợ Markdown.',
 })
 
+for (const [locale, values] of Object.entries({
+  en: {
+    'Per 1M total tokens': 'Per 1M total tokens',
+    'Total token price': 'Total token price',
+    'Reserve price per second': 'Reserve price per second',
+    'total tokens': 'total tokens',
+    Reserve: 'Reserve',
+    'final charge uses total tokens; reserve uses requested duration × reserve price per second × output count':
+      'Final charge uses total tokens; reserve uses requested duration × reserve price per second × output count',
+  },
+  zh: {
+    'Per 1M total tokens': '每百万总 Token',
+    'Total token price': '总 Token 单价',
+    'Reserve price per second': '每秒预扣价格',
+    'total tokens': '总 Token',
+    Reserve: '预扣',
+    'final charge uses total tokens; reserve uses requested duration × reserve price per second × output count':
+      '最终费用按总 Token 计算；预扣费用按请求时长 × 每秒预扣价格 × 输出数量计算',
+  },
+  'zh-TW': {
+    'Per 1M total tokens': '每百萬總 Token',
+    'Total token price': '總 Token 單價',
+    'Reserve price per second': '每秒預扣價格',
+    'total tokens': '總 Token',
+    Reserve: '預扣',
+    'final charge uses total tokens; reserve uses requested duration × reserve price per second × output count':
+      '最終費用按總 Token 計算；預扣費用按請求時長 × 每秒預扣價格 × 輸出數量計算',
+  },
+  fr: {
+    'Per 1M total tokens': 'Par million de tokens au total',
+    'Total token price': 'Prix total des tokens',
+    'Reserve price per second': 'Prix de réserve par seconde',
+    'total tokens': 'tokens au total',
+    Reserve: 'Réserve',
+    'final charge uses total tokens; reserve uses requested duration × reserve price per second × output count':
+      'Le montant final utilise le total de tokens ; la réserve utilise la durée demandée × le prix de réserve par seconde × le nombre de sorties',
+  },
+  ja: {
+    'Per 1M total tokens': '合計トークン 100 万個あたり',
+    'Total token price': '合計トークン単価',
+    'Reserve price per second': '1 秒あたりの仮押さえ価格',
+    'total tokens': '合計トークン',
+    Reserve: '仮押さえ',
+    'final charge uses total tokens; reserve uses requested duration × reserve price per second × output count':
+      '最終料金は合計トークン数で計算し、仮押さえはリクエスト時間 × 1 秒あたりの仮押さえ価格 × 出力数で計算します',
+  },
+  ru: {
+    'Per 1M total tokens': 'За 1 млн общих токенов',
+    'Total token price': 'Цена общих токенов',
+    'Reserve price per second': 'Резервная цена за секунду',
+    'total tokens': 'общие токены',
+    Reserve: 'Резерв',
+    'final charge uses total tokens; reserve uses requested duration × reserve price per second × output count':
+      'Итоговая сумма рассчитывается по общему числу токенов; резерв — по запрошенной длительности × резервной цене за секунду × числу выходов',
+  },
+  vi: {
+    'Per 1M total tokens': 'Mỗi 1 triệu token tổng',
+    'Total token price': 'Đơn giá token tổng',
+    'Reserve price per second': 'Giá tạm giữ mỗi giây',
+    'total tokens': 'tổng token',
+    Reserve: 'Tạm giữ',
+    'final charge uses total tokens; reserve uses requested duration × reserve price per second × output count':
+      'Chi phí cuối tính theo tổng token; khoản tạm giữ tính theo thời lượng yêu cầu × giá tạm giữ mỗi giây × số đầu ra',
+  },
+})) {
+  Object.assign(newKeys[locale], values)
+}
+
 async function main() {
   for (const [locale, trans] of Object.entries(newKeys)) {
     const filePath = path.join(LOCALES_DIR, `${locale}.json`)

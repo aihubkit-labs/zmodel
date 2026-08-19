@@ -7,6 +7,9 @@
 - 表达式版本：`v2`
 - 现有合法 `v1` 价格表达式：保持不变
 
+> 后续扩展：异步媒体按上游总 Token 结算使用 `v3`，具体语义以
+> [`pkg/billingexpr/expr.md`](../../../pkg/billingexpr/expr.md) 为准。
+
 ## 1. 背景
 
 当前计费表达式系统主要围绕 Token 定价设计。例如，表达式
@@ -79,6 +82,20 @@ p * 2.5 + c * 10 + usd(0.02 * units)
 `$10/1M`，再加上每个生成单位 `$0.02`。
 
 ## 5. 表达式语义
+
+### 5.0 v3 异步总 Token 结算扩展
+
+`v3` 继承 `v2` 的媒体维度，新增上游最终总 Token 变量 `total` 和
+`deferred(actual, reserve)`。预扣阶段选择 `reserve`，任务完成后的结算阶段选择 `actual`：
+
+```text
+v3:tier("base", deferred(total * 70, usd(1.5 * seconds * units)))
+```
+
+异步任务适配器负责把供应商响应转换成统一 `TokenUsage`。例如 GlobalAiOpc 的真实任务详情
+响应位于 `data` 内，优先使用 `data.totalTokens`，缺失时使用
+`data.usage.total_tokens`。结算层只读取统一用量，不识别供应商字段。如果表达式依赖的实际
+用量缺失，则保持预扣额度，禁止使用空的 `TokenParams` 按零结算。
 
 ### 5.1 变量
 
@@ -844,6 +861,10 @@ $0.050 / 个 + $0.040 / 秒
 - 预估和实际可信计费维度。
 - 可以从表达式结构中确定时，记录单价和计费单位。
 - 预扣配额、实际配额和结算差额。
+- 上游返回 Token 用量时，在任务 DTO 的 `token_usage` 和使用日志的
+  `other.actual_token_usage` 中保留 `total_tokens`（以及可用的输入、输出 Token），
+  供用户核对最终费用。即使实际费用与预扣费用相同，也记录一条额度为 0 的阶梯媒体结算日志，
+  确保使用日志不会丢失这份用量信息。
 - 在现有仅管理员可见的审计位置记录配额饱和元数据。
 
 ## 12. 错误处理和安全性
