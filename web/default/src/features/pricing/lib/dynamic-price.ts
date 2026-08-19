@@ -116,9 +116,8 @@ export function formatDynamicMediaPrice(
     perVideo: string
     perOutput: string
     second: string
-    input?: string
-    output?: string
-    tokens?: string
+    totalTokens?: string
+    reserve?: string
   }
 ): string {
   const pricing = tier.mediaPricing
@@ -149,8 +148,8 @@ export function formatDynamicMediaPrice(
     perUnitLabel = labels.perVideo
   }
 
-  if (pricing.method === 'per_token') {
-    return `${format(pricing.inputTokenPrice)} ${labels.input ?? 'Input'} + ${format(pricing.outputTokenPrice)} ${labels.output ?? 'Output'} / 1M ${labels.tokens ?? 'tokens'}`
+  if (pricing.method === 'per_total_token') {
+    return `${format(pricing.totalTokenPrice)} / 1M ${labels.totalTokens ?? 'total tokens'} · ${labels.reserve ?? 'Reserve'} ${format(pricing.reservePerSecond)} / ${labels.second}`
   }
   if (pricing.method === 'per_second') {
     return `${format(pricing.perSecondPrice)} / ${labels.second}`

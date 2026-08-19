@@ -874,6 +874,81 @@ func TestSettle_TieredMediaUsesFrozenQuotaPerUnitAndActualDuration(t *testing.T)
 	assert.Equal(t, 50, reloaded.PrivateData.BillingContext.ActualQuota)
 }
 
+func TestSettle_TieredMediaUsesProviderNeutralTotalTokens(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 37, 37, 37
+	const initQuota, preConsumed, tokenRemain = 100000, 12000, 80000
+	seedUser(t, userID, initQuota)
+	seedToken(t, tokenID, userID, "sk-tiered-total", tokenRemain)
+	seedChannel(t, channelID)
+
+	exprStr := `v3:tier("base", deferred(total * 70, usd(1.5 * seconds * units)))`
+	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext = &model.TaskBillingContext{
+		BillingMode:         "tiered_expr",
+		ExprString:          exprStr,
+		ExprHash:            billingexpr.ExprHashString(exprStr),
+		ExprVersion:         3,
+		GroupRatio:          1,
+		OriginModelName:     "test-model",
+		EstimatedDimensions: billingexpr.BillingDimensions{Units: 1, Seconds: 8},
+		EstimatedTier:       "base",
+		EstimatedQuota:      preConsumed,
+		QuotaPerUnit:        1000,
+	}
+	require.NoError(t, model.DB.Create(task).Error)
+	totalTokens := int64(200000)
+
+	settleTaskBillingOnComplete(ctx, &mockAdaptor{}, task, &relaycommon.TaskInfo{
+		Status:     model.TaskStatusSuccess,
+		TokenUsage: &billingexpr.TokenUsage{TotalTokens: &totalTokens},
+	})
+
+	assert.Equal(t, 14000, task.Quota)
+	assert.Equal(t, initQuota-2000, getUserQuota(t, userID))
+	assert.Equal(t, tokenRemain-2000, getTokenRemainQuota(t, tokenID))
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	require.NotNil(t, reloaded.PrivateData.BillingContext.ActualTokenUsage)
+	require.NotNil(t, reloaded.PrivateData.BillingContext.ActualTokenUsage.TotalTokens)
+	assert.Equal(t, totalTokens, *reloaded.PrivateData.BillingContext.ActualTokenUsage.TotalTokens)
+}
+
+func TestSettle_TieredMediaKeepsReserveWhenRequiredTokenUsageIsMissing(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 38, 38, 38
+	const initQuota, preConsumed, tokenRemain = 100000, 12000, 80000
+	seedUser(t, userID, initQuota)
+	seedToken(t, tokenID, userID, "sk-tiered-missing-total", tokenRemain)
+	seedChannel(t, channelID)
+
+	exprStr := `v3:tier("base", deferred(total * 70, usd(1.5 * seconds * units)))`
+	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext = &model.TaskBillingContext{
+		BillingMode:         "tiered_expr",
+		ExprString:          exprStr,
+		ExprHash:            billingexpr.ExprHashString(exprStr),
+		ExprVersion:         3,
+		GroupRatio:          1,
+		OriginModelName:     "test-model",
+		EstimatedDimensions: billingexpr.BillingDimensions{Units: 1, Seconds: 8},
+		EstimatedTier:       "base",
+		EstimatedQuota:      preConsumed,
+		QuotaPerUnit:        1000,
+	}
+	require.NoError(t, model.DB.Create(task).Error)
+
+	settleTaskBillingOnComplete(ctx, &mockAdaptor{}, task, &relaycommon.TaskInfo{Status: model.TaskStatusSuccess})
+
+	assert.Equal(t, preConsumed, task.Quota)
+	assert.Equal(t, initQuota, getUserQuota(t, userID))
+	assert.Equal(t, tokenRemain, getTokenRemainQuota(t, tokenID))
+}
+
 func TestSettle_TieredMediaCanRefundToZero(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
@@ -938,8 +1013,12 @@ func TestSettle_TieredMediaPersistsActualDimensionsWithoutQuotaDelta(t *testing.
 	}
 	require.NoError(t, model.DB.Create(task).Error)
 	adaptor := &mockAdaptor{actualMedia: &billingexpr.BillingDimensions{Seconds: 5}}
+	totalTokens := int64(12345)
 
-	settleTaskBillingOnComplete(ctx, adaptor, task, &relaycommon.TaskInfo{Status: model.TaskStatusSuccess})
+	settleTaskBillingOnComplete(ctx, adaptor, task, &relaycommon.TaskInfo{
+		Status:     model.TaskStatusSuccess,
+		TokenUsage: &billingexpr.TokenUsage{TotalTokens: &totalTokens},
+	})
 
 	assert.Equal(t, preConsumed, task.Quota)
 	assert.Equal(t, initQuota, getUserQuota(t, userID))
@@ -952,6 +1031,15 @@ func TestSettle_TieredMediaPersistsActualDimensionsWithoutQuotaDelta(t *testing.
 	assert.Equal(t, "720p", reloaded.PrivateData.BillingContext.ActualDimensions.ResolutionTier)
 	assert.Equal(t, "fixed", reloaded.PrivateData.BillingContext.ActualTier)
 	assert.Equal(t, preConsumed, reloaded.PrivateData.BillingContext.ActualQuota)
+	log := getLastLog(t)
+	require.NotNil(t, log)
+	assert.Equal(t, model.LogTypeConsume, log.Type)
+	assert.Equal(t, 0, log.Quota)
+	var other map[string]interface{}
+	require.NoError(t, common.Unmarshal([]byte(log.Other), &other))
+	usage, ok := other["actual_token_usage"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, float64(12345), usage["total_tokens"])
 }
 
 func TestSettle_TieredMediaSnapshotSurvivesDatabaseRoundTrip(t *testing.T) {

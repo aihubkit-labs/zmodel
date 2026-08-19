@@ -302,6 +302,22 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
       size: 80,
     },
     {
+      id: 'total_tokens',
+      header: t('Total Tokens'),
+      accessorFn: (row) => row.token_usage?.total_tokens ?? null,
+      cell: ({ row }) => {
+        const totalTokens = row.original.token_usage?.total_tokens
+        return totalTokens != null ? (
+          <span className='font-mono text-xs tabular-nums'>
+            {totalTokens.toLocaleString()}
+          </span>
+        ) : (
+          <span className='text-muted-foreground/60 text-xs'>-</span>
+        )
+      },
+      size: 110,
+    },
+    {
       ...createProgressColumn<TaskLog>({ headerLabel: t('Progress') }),
       size: 145,
     },

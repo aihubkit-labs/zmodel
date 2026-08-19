@@ -60,9 +60,15 @@ type responseTask struct {
 	ResultURL      string          `json:"result_url,omitempty"`
 	VideoURL       string          `json:"video_url,omitempty"`
 	ActualDuration json.RawMessage `json:"actualDuration,omitempty"`
-	Message        string          `json:"message,omitempty"`
-	Msg            string          `json:"msg,omitempty"`
-	Metadata       *struct {
+	TotalTokens    json.RawMessage `json:"totalTokens,omitempty"`
+	Usage          *struct {
+		InputTokens  json.RawMessage `json:"input_tokens,omitempty"`
+		OutputTokens json.RawMessage `json:"output_tokens,omitempty"`
+		TotalTokens  json.RawMessage `json:"total_tokens,omitempty"`
+	} `json:"usage,omitempty"`
+	Message  string `json:"message,omitempty"`
+	Msg      string `json:"msg,omitempty"`
+	Metadata *struct {
 		SizeMapping struct {
 			Resolution string `json:"resolution,omitempty"`
 			Ratio      string `json:"ratio,omitempty"`
@@ -70,6 +76,10 @@ type responseTask struct {
 	} `json:"metadata,omitempty"`
 	RemixedFromVideoID string          `json:"remixed_from_video_id,omitempty"`
 	Error              json.RawMessage `json:"error,omitempty"`
+}
+
+type responseTaskEnvelope struct {
+	Data *responseTask `json:"data,omitempty"`
 }
 
 // ============================
@@ -577,7 +587,13 @@ func (a *TaskAdaptor) GetChannelName() string {
 
 func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
 	resTask := responseTask{}
-	if err := common.Unmarshal(respBody, &resTask); err != nil {
+	var envelope responseTaskEnvelope
+	if err := common.Unmarshal(respBody, &envelope); err != nil {
+		return nil, errors.Wrap(err, "unmarshal task result failed")
+	}
+	if envelope.Data != nil {
+		resTask = *envelope.Data
+	} else if err := common.Unmarshal(respBody, &resTask); err != nil {
 		return nil, errors.Wrap(err, "unmarshal task result failed")
 	}
 
@@ -622,8 +638,67 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	if resTask.Progress > 0 && resTask.Progress < 100 {
 		taskResult.Progress = fmt.Sprintf("%d%%", resTask.Progress)
 	}
+	tokenUsage, err := responseTokenUsage(resTask)
+	if err != nil {
+		return nil, err
+	}
+	taskResult.TokenUsage = tokenUsage
 
 	return &taskResult, nil
+}
+
+func responseTokenUsage(task responseTask) (*billingexpr.TokenUsage, error) {
+	usage := &billingexpr.TokenUsage{}
+	var err error
+	if task.Usage != nil {
+		usage.InputTokens, err = parseTaskTokenCount(task.Usage.InputTokens, "usage.input_tokens")
+		if err != nil {
+			return nil, err
+		}
+		usage.OutputTokens, err = parseTaskTokenCount(task.Usage.OutputTokens, "usage.output_tokens")
+		if err != nil {
+			return nil, err
+		}
+	}
+	// GlobalAIOpc treats the top-level totalTokens as the authoritative task
+	// total. Some responses also include usage.total_tokens as a compatibility
+	// field, so only use it when the top-level value is absent.
+	usage.TotalTokens, err = parseTaskTokenCount(task.TotalTokens, "totalTokens")
+	if err != nil {
+		return nil, err
+	}
+	if usage.TotalTokens == nil && task.Usage != nil {
+		usage.TotalTokens, err = parseTaskTokenCount(task.Usage.TotalTokens, "usage.total_tokens")
+		if err != nil {
+			return nil, err
+		}
+	}
+	if usage.InputTokens == nil && usage.OutputTokens == nil && usage.TotalTokens == nil {
+		return nil, nil
+	}
+	return usage, nil
+}
+
+func parseTaskTokenCount(raw json.RawMessage, field string) (*int64, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var count int64
+	if err := common.Unmarshal(raw, &count); err == nil {
+		if count < 0 {
+			return nil, fmt.Errorf("%s must be a non-negative integer", field)
+		}
+		return &count, nil
+	}
+	var text string
+	if err := common.Unmarshal(raw, &text); err != nil {
+		return nil, fmt.Errorf("%s must be a non-negative integer", field)
+	}
+	count, err := strconv.ParseInt(strings.TrimSpace(text), 10, 64)
+	if err != nil || count < 0 {
+		return nil, fmt.Errorf("%s must be a non-negative integer", field)
+	}
+	return &count, nil
 }
 
 func responseDuration(duration json.RawMessage, seconds string) int {

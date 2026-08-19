@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -712,6 +713,10 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 		data = publicVideoTaskData(task)
 	}
 	properties := task.Properties
+	var tokenUsage *billingexpr.TokenUsage
+	if task.PrivateData.BillingContext != nil {
+		tokenUsage = task.PrivateData.BillingContext.ActualTokenUsage
+	}
 	// TaskModel2Dto serves user-facing relay responses. The provider's actual
 	// model ID is routing metadata and must only be restored by admin handlers.
 	properties.UpstreamModelName = ""
@@ -727,6 +732,7 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 		Group:        task.Group,
 		ChannelId:    task.ChannelId,
 		Quota:        task.Quota,
+		TokenUsage:   tokenUsage,
 		Action:       task.Action,
 		Status:       string(task.Status),
 		FailReason:   task.FailReason,

@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/system_setting"
@@ -273,6 +274,23 @@ func TestTaskModel2DtoKeepsInvalidVideoDataUnchanged(t *testing.T) {
 	dtoTask := TaskModel2Dto(task)
 
 	assert.Equal(t, task.Data, dtoTask.Data)
+}
+
+func TestTaskModel2DtoExposesActualTokenUsageWithoutPrivateData(t *testing.T) {
+	totalTokens := int64(123456)
+	task := &model.Task{
+		TaskID: "task_token_usage",
+		PrivateData: model.TaskPrivateData{
+			BillingContext: &model.TaskBillingContext{
+				ActualTokenUsage: &billingexpr.TokenUsage{TotalTokens: &totalTokens},
+			},
+		},
+	}
+
+	dtoTask := TaskModel2Dto(task)
+	require.NotNil(t, dtoTask.TokenUsage)
+	require.NotNil(t, dtoTask.TokenUsage.TotalTokens)
+	assert.Equal(t, totalTokens, *dtoTask.TokenUsage.TotalTokens)
 }
 
 func TestRewriteStoredVideoURLsKeepsOnlyCanonicalPublicVideoLocations(t *testing.T) {

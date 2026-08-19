@@ -29,7 +29,7 @@ export type MediaConditionOperator = BillingMediaConditionOperator
 export const MEDIA_BILLING_PER_UNIT = 'per_unit'
 export const MEDIA_BILLING_PER_SECOND = 'per_second'
 export const MEDIA_BILLING_FIXED_PLUS_SECOND = 'fixed_plus_second'
-export const MEDIA_BILLING_PER_TOKEN = 'per_token'
+export const MEDIA_BILLING_PER_TOTAL_TOKEN = 'per_total_token'
 
 export const MEDIA_CONDITION_EQ = 'eq'
 export const MEDIA_CONDITION_LT = 'lt'
@@ -42,7 +42,7 @@ export type MediaBillingMethod =
   | typeof MEDIA_BILLING_PER_UNIT
   | typeof MEDIA_BILLING_PER_SECOND
   | typeof MEDIA_BILLING_FIXED_PLUS_SECOND
-  | typeof MEDIA_BILLING_PER_TOKEN
+  | typeof MEDIA_BILLING_PER_TOTAL_TOKEN
 
 export type MediaConditionVariable = ParsedMediaConditionVariable
 
@@ -55,8 +55,8 @@ export type MediaTier = {
   unitPrice: number
   fixedPrice: number
   perSecondPrice: number
-  inputTokenPrice?: number
-  outputTokenPrice?: number
+  totalTokenPrice?: number
+  reservePerSecond?: number
 }
 
 export function isReferenceCountCondition(
@@ -80,8 +80,8 @@ export function createDefaultMediaTier(index = 0): MediaTier {
     unitPrice: 0,
     fixedPrice: 0,
     perSecondPrice: 0,
-    inputTokenPrice: 0,
-    outputTokenPrice: 0,
+    totalTokenPrice: 0,
+    reservePerSecond: 0,
   }
 }
 
@@ -138,8 +138,8 @@ function buildMediaTierCondition(tier: MediaTier): string | null {
 }
 
 function buildMediaCost(tier: MediaTier): string {
-  if (tier.billingMethod === MEDIA_BILLING_PER_TOKEN) {
-    return `p * ${finitePrice(tier.inputTokenPrice)} + c * ${finitePrice(tier.outputTokenPrice)}`
+  if (tier.billingMethod === MEDIA_BILLING_PER_TOTAL_TOKEN) {
+    return `deferred(total * ${finitePrice(tier.totalTokenPrice)}, usd(${finitePrice(tier.reservePerSecond)} * seconds * units))`
   }
   if (tier.billingMethod === MEDIA_BILLING_PER_SECOND) {
     return `usd(${finitePrice(tier.perSecondPrice)} * seconds * units)`
@@ -167,18 +167,16 @@ export function generateMediaExpr(config: MediaVisualConfig): string {
     }
     return body
   })
-  return `v2:${parts.join(' : ')}`
+  const version = tiers.some(
+    (tier) => tier.billingMethod === MEDIA_BILLING_PER_TOTAL_TOKEN
+  )
+    ? 'v3'
+    : 'v2'
+  return `${version}:${parts.join(' : ')}`
 }
 
 export function isMediaBillingExpr(expr: string | null | undefined): boolean {
-  return Boolean(
-    expr &&
-      expr.startsWith('v2:') &&
-      (/\busd\s*\(/.test(expr) ||
-        /\btier\s*\([^,]+,\s*p\s*\*\s*[-+\d.eE]+\s*\+\s*c\s*\*/.test(
-          expr
-        ))
-  )
+  return Boolean(expr && /^v[23]:/.test(expr) && /\busd\s*\(/.test(expr))
 }
 
 export function tryParseMediaConfig(
@@ -201,18 +199,18 @@ export function tryParseMediaConfig(
   }
   return {
     tiers: parsed.map((tier) => {
-      const mediaPricing = tier.mediaPricing
+      const pricing = tier.mediaPricing
       return {
         label: tier.label,
         conditions: tier.mediaConditions,
-        billingMethod: mediaPricing?.method || MEDIA_BILLING_PER_UNIT,
-        unitPrice: finitePrice(mediaPricing?.unitPrice),
-        fixedPrice: finitePrice(mediaPricing?.fixedPrice),
-        perSecondPrice: finitePrice(mediaPricing?.perSecondPrice),
-        ...(mediaPricing?.method === MEDIA_BILLING_PER_TOKEN
+        billingMethod: pricing?.method || MEDIA_BILLING_PER_UNIT,
+        unitPrice: finitePrice(pricing?.unitPrice),
+        fixedPrice: finitePrice(pricing?.fixedPrice),
+        perSecondPrice: finitePrice(pricing?.perSecondPrice),
+        ...(pricing?.method === MEDIA_BILLING_PER_TOTAL_TOKEN
           ? {
-              inputTokenPrice: finitePrice(mediaPricing.inputTokenPrice),
-              outputTokenPrice: finitePrice(mediaPricing.outputTokenPrice),
+              totalTokenPrice: finitePrice(pricing.totalTokenPrice),
+              reservePerSecond: finitePrice(pricing.reservePerSecond),
             }
           : {}),
       }

@@ -76,10 +76,10 @@ func SmokeTestExpr(exprStr string) error {
 
 func smokeTestExpr(exprStr string) error {
 	vectors := []billingexpr.TokenParams{
-		{P: 0, C: 0, Len: 0},
-		{P: 1000, C: 1000, Len: 1000},
-		{P: 100000, C: 100000, Len: 100000},
-		{P: 1000000, C: 1000000, Len: 1000000},
+		{P: 0, C: 0, Len: 0, Total: 0},
+		{P: 1000, C: 1000, Len: 1000, Total: 2000},
+		{P: 100000, C: 100000, Len: 100000, Total: 200000},
+		{P: 1000000, C: 1000000, Len: 1000000, Total: 2000000},
 	}
 	requests := []billingexpr.RequestInput{
 		{},
@@ -105,6 +105,13 @@ func smokeTestExpr(exprStr string) error {
 				}
 				if result < 0 {
 					return fmt.Errorf("vector {p=%g, c=%g, units=%g, seconds=%g}: result %f < 0", v.P, v.C, media.Units, media.Seconds, result)
+				}
+				reserved, _, err := billingexpr.RunExprForPhaseWithDimensionsAndRequest(exprStr, v, media, request, billingexpr.EvaluationPhaseEstimate)
+				if err != nil {
+					return fmt.Errorf("estimate vector {p=%g, c=%g, units=%g, seconds=%g}: run failed: %w", v.P, v.C, media.Units, media.Seconds, err)
+				}
+				if reserved < 0 {
+					return fmt.Errorf("estimate vector {p=%g, c=%g, units=%g, seconds=%g}: result %f < 0", v.P, v.C, media.Units, media.Seconds, reserved)
 				}
 			}
 		}

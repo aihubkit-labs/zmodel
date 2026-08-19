@@ -34,11 +34,15 @@ func RunExprWithDimensions(exprStr string, params TokenParams, dimensions Billin
 }
 
 func RunExprWithDimensionsAndRequest(exprStr string, params TokenParams, dimensions BillingDimensions, request RequestInput) (float64, TraceResult, error) {
+	return RunExprForPhaseWithDimensionsAndRequest(exprStr, params, dimensions, request, EvaluationPhaseActual)
+}
+
+func RunExprForPhaseWithDimensionsAndRequest(exprStr string, params TokenParams, dimensions BillingDimensions, request RequestInput, phase EvaluationPhase) (float64, TraceResult, error) {
 	prog, err := CompileFromCache(exprStr)
 	if err != nil {
 		return 0, TraceResult{}, err
 	}
-	return runProgram(prog, params, dimensions, request)
+	return runProgram(prog, params, dimensions, request, phase)
 }
 
 // RunExprByHash is like RunExpr but accepts a pre-computed hash for the cache
@@ -57,10 +61,10 @@ func RunExprByHashWithDimensionsAndRequest(exprStr, hash string, params TokenPar
 	if err != nil {
 		return 0, TraceResult{}, err
 	}
-	return runProgram(prog, params, dimensions, request)
+	return runProgram(prog, params, dimensions, request, EvaluationPhaseActual)
 }
 
-func runProgram(prog *vm.Program, params TokenParams, dimensions BillingDimensions, request RequestInput) (float64, TraceResult, error) {
+func runProgram(prog *vm.Program, params TokenParams, dimensions BillingDimensions, request RequestInput, phase EvaluationPhase) (float64, TraceResult, error) {
 	trace := TraceResult{}
 	headers := normalizeHeaders(request.Headers)
 
@@ -75,6 +79,7 @@ func runProgram(prog *vm.Program, params TokenParams, dimensions BillingDimensio
 		"img_o":                 params.ImgO,
 		"ai":                    params.AI,
 		"ao":                    params.AO,
+		"total":                 params.Total,
 		"units":                 dimensions.Units,
 		"seconds":               dimensions.Seconds,
 		"width":                 dimensions.Width,
@@ -91,6 +96,12 @@ func runProgram(prog *vm.Program, params TokenParams, dimensions BillingDimensio
 				return math.NaN()
 			}
 			return amount * 1_000_000
+		},
+		"deferred": func(actual, reserve float64) float64 {
+			if phase == EvaluationPhaseEstimate {
+				return reserve
+			}
+			return actual
 		},
 		"tier": func(name string, value float64) float64 {
 			trace.MatchedTier = name

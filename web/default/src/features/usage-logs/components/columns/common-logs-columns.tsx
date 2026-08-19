@@ -129,7 +129,14 @@ function buildTypeDetailSegments(
   }
 
   if (log.type === 6) {
-    return [{ text: t('Async task refund') }]
+    const segments: DetailSegment[] = [{ text: t('Async task refund') }]
+    if (other?.actual_token_usage?.total_tokens != null) {
+      segments.push({
+        text: `${t('Total Tokens')}: ${other.actual_token_usage.total_tokens.toLocaleString()}`,
+        muted: true,
+      })
+    }
+    return segments
   }
 
   if (log.type !== 2) return []
@@ -222,12 +229,18 @@ function buildTypeDetailSegments(
           text = `${formatPriceCompact(pricing.perSecondPrice || 0)} / ${t('second')}`
         } else if (pricing.method === 'fixed_plus_second') {
           text = `${formatPriceCompact(pricing.fixedPrice || 0)} / ${unit} + ${formatPriceCompact(pricing.perSecondPrice || 0)} / ${t('second')}`
-        } else if (pricing.method === 'per_token') {
-          text = `${formatPriceCompact(pricing.inputTokenPrice || 0)} ${t('Input')} + ${formatPriceCompact(pricing.outputTokenPrice || 0)} ${t('Output')} / 1M ${t('tokens')}`
+        } else if (pricing.method === 'per_total_token') {
+          text = `${formatPriceCompact(pricing.totalTokenPrice || 0)} / 1M ${t('total tokens')} · ${t('Reserve')} ${formatPriceCompact(pricing.reservePerSecond || 0)} / ${t('second')}`
         } else {
           text = `${formatPriceCompact(pricing.unitPrice || 0)} / ${unit}`
         }
         segments.push({ text, muted: true })
+      }
+      if (other.actual_token_usage?.total_tokens != null) {
+        segments.push({
+          text: `${t('Total Tokens')}: ${other.actual_token_usage.total_tokens.toLocaleString()}`,
+          muted: true,
+        })
       }
     } else {
       segments.push({

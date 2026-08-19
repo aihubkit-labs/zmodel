@@ -92,9 +92,8 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
             perVideo: t('Per video'),
             perOutput: t('Per output'),
             second: t('second'),
-            input: t('Input'),
-            output: t('Output'),
-            tokens: t('tokens'),
+            totalTokens: t('total tokens'),
+            reserve: t('Reserve'),
           }
         )
       : null

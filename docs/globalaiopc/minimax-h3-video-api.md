@@ -26,6 +26,24 @@ POST {base_url}/kyyReactApiServer/v2/model-center/tasks
 GET {base_url}/kyyReactApiServer/v2/model-center/tasks/{upstream_task_id}
 ```
 
+上游任务详情的实际响应字段位于 `data` 内。上游接口文档中省略 `data` 包装的示例不作为适配依据：
+
+```json
+{
+  "data": {
+    "status": "completed",
+    "totalTokens": "123456",
+    "usage": {
+      "total_tokens": "123456"
+    }
+  }
+}
+```
+
+平台从 `data` 解析任务状态、结果地址、实际时长、分辨率和 Token 用量。最终计费的总 Token
+优先读取 `data.totalTokens`；该字段不存在时才读取 `data.usage.total_tokens`。字符串和 JSON
+整数均可接受，负数或非整数会被视为无效上游响应。
+
 请求字段转换：
 
 | 平台字段 | 上游字段 | 说明 |
@@ -43,6 +61,16 @@ GET {base_url}/kyyReactApiServer/v2/model-center/tasks/{upstream_task_id}
 该协议仅支持 `application/json` 和上游可访问的 HTTP/HTTPS 素材 URL。multipart 请求在平台侧返回 `unsupported_content_type`。
 
 上游状态转换为平台状态：`queued` 保持 `queued`，`processing` 转为 `in_progress`，`completed` 转为 `completed`，`failed` 转为 `failed`。自动 S3 归档直接使用任务完成轮询当次返回的 `result_url`，缺失时回退 `video_url`。平台不会把该地址持久化为后续交付源，平台 `/content` 地址也不入库，而是根据公开任务 ID实时生成；访问 `/content` 或后台手动上传 S3 时，都使用上游任务 ID和任务密钥实时查询任务详情，取得当前有效地址。
+
+按总 Token 计费的模型使用媒体阶梯表达式统一定义预扣和结算，例如：
+
+```text
+v3:tier("base", deferred(total * 70, usd(1.5 * seconds * units)))
+```
+
+请求阶段按请求时长、每秒预扣价格和输出数量预扣；任务完成后将上述上游字段映射为平台统一的
+`TokenUsage.TotalTokens`，再按每百万总 Token 单价结算。若任务完成但上游未返回表达式所需的
+Token 用量，平台保留预扣额度，不会用零 Token 结算。
 
 ## 能力模板
 

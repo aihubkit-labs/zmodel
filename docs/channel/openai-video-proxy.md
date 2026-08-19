@@ -156,6 +156,12 @@ GET  /kyyReactApiServer/v2/model-center/tasks/{upstream_task_id}
 
 该协议当前只接受 `application/json` 和上游可访问的 HTTP/HTTPS 素材 URL，不支持 multipart 文件。渠道 Base URL 可配置为 `https://zcbservice.aizfw.cn` 或带 `/kyyReactApiServer` 前缀的地址，适配器会统一规范化。首批内置模板覆盖当前文档中的20个模型，所有模板应用后仍可由管理员调整。
 
+GlobalAiOpc 的任务详情实际响应固定使用 `{ "data": { ... } }` 包装，适配器从 `data` 内解析
+状态、视频地址、实际时长、分辨率及计费用量。按总 Token 结算时优先读取
+`data.totalTokens`，不存在时回退 `data.usage.total_tokens`，并映射为渠道无关的
+`TaskInfo.TokenUsage.TotalTokens`。该映射属于渠道适配器职责；后续其他渠道可以从不同响应字段
+构造同一个 `TokenUsage`，任务结算层不依赖供应商字段名。
+
 不论实际命中哪个视频协议，平台对客户重新构造统一响应，只保留平台字段。上游任务 ID、`result_url`、`amount`、`actualDuration`、供应商扩展 `metadata` 和真实下载 URL不会出现在创建或查询响应中。完成后的 `url` 与 `video_url` 始终指向平台 `/v1/videos/{public_task_id}/content`；S3 优先、平台代理或上游重定向仅由内容接口在访问时决定。
 
 ### 3.5 Agnes 时长协议转换

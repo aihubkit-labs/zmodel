@@ -23,7 +23,7 @@ import { describe, test } from 'node:test'
 import {
   MEDIA_BILLING_FIXED_PLUS_SECOND,
   MEDIA_BILLING_PER_SECOND,
-  MEDIA_BILLING_PER_TOKEN,
+  MEDIA_BILLING_PER_TOTAL_TOKEN,
   MEDIA_BILLING_PER_UNIT,
   generateMediaExpr,
   tryParseMediaConfig,
@@ -101,39 +101,44 @@ describe('media tier expression editor', () => {
     assert.deepEqual(tryParseMediaConfig(generateMediaExpr(config)), config)
   })
 
-  test('round-trips input and output prices per million tokens', () => {
+  test('round-trips total-token settlement with duration reserve', () => {
     const config: MediaVisualConfig = {
       tiers: [
         {
-          label: '720p',
+          label: 'without_reference',
           conditions: [
-            { variable: 'resolution_tier', operator: 'eq', value: '720p' },
+            {
+              variable: 'reference_video_count',
+              operator: 'eq',
+              value: '0',
+            },
           ],
-          billingMethod: MEDIA_BILLING_PER_TOKEN,
+          billingMethod: MEDIA_BILLING_PER_TOTAL_TOKEN,
           unitPrice: 0,
           fixedPrice: 0,
           perSecondPrice: 0,
-          inputTokenPrice: 1.5,
-          outputTokenPrice: 6,
+          totalTokenPrice: 70,
+          reservePerSecond: 1.5,
         },
         {
-          label: 'base',
+          label: 'with_reference',
           conditions: [],
-          billingMethod: MEDIA_BILLING_PER_TOKEN,
+          billingMethod: MEDIA_BILLING_PER_TOTAL_TOKEN,
           unitPrice: 0,
           fixedPrice: 0,
           perSecondPrice: 0,
-          inputTokenPrice: 2,
-          outputTokenPrice: 8,
+          totalTokenPrice: 42,
+          reservePerSecond: 3,
         },
       ],
     }
 
+    const expr = generateMediaExpr(config)
     assert.equal(
-      generateMediaExpr(config),
-      'v2:resolution_tier == "720p" ? tier("720p", p * 1.5 + c * 6) : tier("base", p * 2 + c * 8)'
+      expr,
+      'v3:reference_video_count == 0 ? tier("without_reference", deferred(total * 70, usd(1.5 * seconds * units))) : tier("with_reference", deferred(total * 42, usd(3 * seconds * units)))'
     )
-    assert.deepEqual(tryParseMediaConfig(generateMediaExpr(config)), config)
+    assert.deepEqual(tryParseMediaConfig(expr), config)
   })
 
   test('round-trips reference media count comparisons', () => {

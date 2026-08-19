@@ -102,13 +102,8 @@ const newKeys = {
     'Per image': 'image',
     'Per output': 'output',
     'Per second': 'Per second',
-    'Per 1M tokens': 'Per 1M tokens',
     'Per video': 'video',
     'Per-second price': 'Per-second price',
-    'Input token price': 'Input token price',
-    'Output token price': 'Output token price',
-    'input token price × input tokens + output token price × output tokens':
-      'input token price × input tokens + output token price × output tokens',
     'per-second price × duration × output count':
       'per-second price × duration × output count',
     'Price preview shows the configured rate. Actual charges use the validated output count and video duration.':
@@ -203,13 +198,8 @@ const newKeys = {
     'Per image': '张',
     'Per output': '个输出',
     'Per second': '每秒',
-    'Per 1M tokens': '每百万 Token',
     'Per video': '个',
     'Per-second price': '每秒价格',
-    'Input token price': '输入 Token 价格',
-    'Output token price': '输出 Token 价格',
-    'input token price × input tokens + output token price × output tokens':
-      '输入 Token 价格 × 输入 Token 数 + 输出 Token 价格 × 输出 Token 数',
     'per-second price × duration × output count': '每秒价格 × 时长 × 输出数量',
     'Price preview shows the configured rate. Actual charges use the validated output count and video duration.':
       '价格预览展示配置的费率；实际费用会使用已校验的输出数量和视频时长计算。',
@@ -2448,36 +2438,73 @@ Object.assign(newKeys.vi, {
     'Nội dung dành cho khách hàng này xuất hiện trên trang chi tiết mô hình. Có hỗ trợ Markdown.',
 })
 
-Object.assign(newKeys.fr, {
-  'Input token price': 'Prix du token d’entrée',
-  'Output token price': 'Prix du token de sortie',
-  'input token price × input tokens + output token price × output tokens':
-    'prix du token d’entrée × tokens d’entrée + prix du token de sortie × tokens de sortie',
-})
-Object.assign(newKeys.ja, {
-  'Input token price': '入力トークン価格',
-  'Output token price': '出力トークン価格',
-  'input token price × input tokens + output token price × output tokens':
-    '入力トークン価格 × 入力トークン数 + 出力トークン価格 × 出力トークン数',
-})
-Object.assign(newKeys.ru, {
-  'Input token price': 'Цена входных токенов',
-  'Output token price': 'Цена выходных токенов',
-  'input token price × input tokens + output token price × output tokens':
-    'цена входных токенов × входные токены + цена выходных токенов × выходные токены',
-})
-Object.assign(newKeys.vi, {
-  'Input token price': 'Giá token đầu vào',
-  'Output token price': 'Giá token đầu ra',
-  'input token price × input tokens + output token price × output tokens':
-    'giá token đầu vào × số token đầu vào + giá token đầu ra × số token đầu ra',
-})
-Object.assign(newKeys['zh-TW'], {
-  'Input token price': '輸入 Token 價格',
-  'Output token price': '輸出 Token 價格',
-  'input token price × input tokens + output token price × output tokens':
-    '輸入 Token 價格 × 輸入 Token 數 + 輸出 Token 價格 × 輸出 Token 數',
-})
+for (const [locale, values] of Object.entries({
+  en: {
+    'Per 1M total tokens': 'Per 1M total tokens',
+    'Total token price': 'Total token price',
+    'Reserve price per second': 'Reserve price per second',
+    'total tokens': 'total tokens',
+    Reserve: 'Reserve',
+    'final charge uses total tokens; reserve uses requested duration × reserve price per second × output count':
+      'Final charge uses total tokens; reserve uses requested duration × reserve price per second × output count',
+  },
+  zh: {
+    'Per 1M total tokens': '每百万总 Token',
+    'Total token price': '总 Token 单价',
+    'Reserve price per second': '每秒预扣价格',
+    'total tokens': '总 Token',
+    Reserve: '预扣',
+    'final charge uses total tokens; reserve uses requested duration × reserve price per second × output count':
+      '最终费用按总 Token 计算；预扣费用按请求时长 × 每秒预扣价格 × 输出数量计算',
+  },
+  'zh-TW': {
+    'Per 1M total tokens': '每百萬總 Token',
+    'Total token price': '總 Token 單價',
+    'Reserve price per second': '每秒預扣價格',
+    'total tokens': '總 Token',
+    Reserve: '預扣',
+    'final charge uses total tokens; reserve uses requested duration × reserve price per second × output count':
+      '最終費用按總 Token 計算；預扣費用按請求時長 × 每秒預扣價格 × 輸出數量計算',
+  },
+  fr: {
+    'Per 1M total tokens': 'Par million de tokens au total',
+    'Total token price': 'Prix total des tokens',
+    'Reserve price per second': 'Prix de réserve par seconde',
+    'total tokens': 'tokens au total',
+    Reserve: 'Réserve',
+    'final charge uses total tokens; reserve uses requested duration × reserve price per second × output count':
+      'Le montant final utilise le total de tokens ; la réserve utilise la durée demandée × le prix de réserve par seconde × le nombre de sorties',
+  },
+  ja: {
+    'Per 1M total tokens': '合計トークン 100 万個あたり',
+    'Total token price': '合計トークン単価',
+    'Reserve price per second': '1 秒あたりの仮押さえ価格',
+    'total tokens': '合計トークン',
+    Reserve: '仮押さえ',
+    'final charge uses total tokens; reserve uses requested duration × reserve price per second × output count':
+      '最終料金は合計トークン数で計算し、仮押さえはリクエスト時間 × 1 秒あたりの仮押さえ価格 × 出力数で計算します',
+  },
+  ru: {
+    'Per 1M total tokens': 'За 1 млн общих токенов',
+    'Total token price': 'Цена общих токенов',
+    'Reserve price per second': 'Резервная цена за секунду',
+    'total tokens': 'общие токены',
+    Reserve: 'Резерв',
+    'final charge uses total tokens; reserve uses requested duration × reserve price per second × output count':
+      'Итоговая сумма рассчитывается по общему числу токенов; резерв — по запрошенной длительности × резервной цене за секунду × числу выходов',
+  },
+  vi: {
+    'Per 1M total tokens': 'Mỗi 1 triệu token tổng',
+    'Total token price': 'Đơn giá token tổng',
+    'Reserve price per second': 'Giá tạm giữ mỗi giây',
+    'total tokens': 'tổng token',
+    Reserve: 'Tạm giữ',
+    'final charge uses total tokens; reserve uses requested duration × reserve price per second × output count':
+      'Chi phí cuối tính theo tổng token; khoản tạm giữ tính theo thời lượng yêu cầu × giá tạm giữ mỗi giây × số đầu ra',
+  },
+})) {
+  Object.assign(newKeys[locale], values)
+}
 
 async function main() {
   for (const [locale, trans] of Object.entries(newKeys)) {

@@ -116,6 +116,7 @@ export type UsageBillingPath =
   (typeof USAGE_BILLING_PATH)[keyof typeof USAGE_BILLING_PATH]
 
 export interface LogOtherData {
+  actual_token_usage?: TaskTokenUsage
   admin_info?: {
     is_multi_key?: boolean
     multi_key_index?: number
@@ -317,6 +318,8 @@ export interface TaskLog {
   start_time?: number // seconds
   finish_time?: number // seconds
   progress?: string
+  quota: number
+  token_usage?: TaskTokenUsage
   progress_message_en?: string
   properties?: {
     input?: string
@@ -333,6 +336,12 @@ export interface TaskLog {
   video_storage_status?: string
   video_storage_error?: string
   upstream_http_trace?: TaskUpstreamHTTPTrace
+}
+
+export interface TaskTokenUsage {
+  input_tokens?: number
+  output_tokens?: number
+  total_tokens?: number
 }
 
 export interface TaskHTTPMessage {

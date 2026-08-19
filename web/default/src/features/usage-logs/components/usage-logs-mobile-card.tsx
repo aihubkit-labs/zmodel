@@ -398,6 +398,10 @@ function TaskLogsCard<TData>({
         <SummaryField label={t('Model')} cell={cells.get('model')} />
         <SummaryField label={t('Duration')} cell={cells.get('duration')} />
         <SummaryField
+          label={t('Total Tokens')}
+          cell={cells.get('total_tokens')}
+        />
+        <SummaryField
           label={t('Progress')}
           cell={cells.get('progress')}
           className='col-span-2'

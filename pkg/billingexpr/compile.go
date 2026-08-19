@@ -96,8 +96,20 @@ var compileEnvPrototypeV2 = func() map[string]interface{} {
 	return env
 }()
 
+var compileEnvPrototypeV3 = func() map[string]interface{} {
+	env := make(map[string]interface{}, len(compileEnvPrototypeV2)+2)
+	for key, value := range compileEnvPrototypeV2 {
+		env[key] = value
+	}
+	env["total"] = float64(0)
+	env["deferred"] = func(float64, float64) float64 { return 0 }
+	return env
+}()
+
 func getCompileEnv(version int) map[string]interface{} {
 	switch version {
+	case 3:
+		return compileEnvPrototypeV3
 	case 2:
 		return compileEnvPrototypeV2
 	default:
@@ -126,7 +138,7 @@ func compileFromCacheByHash(exprStr, hash string) (*vm.Program, error) {
 	cacheMu.RUnlock()
 
 	version, body := ParseExprVersion(exprStr)
-	if version != 1 && version != 2 {
+	if version != 1 && version != 2 && version != 3 {
 		return nil, fmt.Errorf("unsupported billing expression version v%d", version)
 	}
 	prog, err := expr.Compile(body, expr.Env(getCompileEnv(version)), expr.AsFloat64())
