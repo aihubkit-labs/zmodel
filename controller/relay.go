@@ -619,6 +619,7 @@ func RelayTask(c *gin.Context) {
 			task.PrivateData.BillingContext.ExprString = snap.ExprString
 			task.PrivateData.BillingContext.ExprHash = snap.ExprHash
 			task.PrivateData.BillingContext.ExprVersion = snap.ExprVersion
+			task.PrivateData.BillingContext.EvaluationTime = snap.EvaluationTime
 			task.PrivateData.BillingContext.EstimatedDimensions = snap.EstimatedDimensions
 			task.PrivateData.BillingContext.EstimatedTier = snap.EstimatedTier
 			task.PrivateData.BillingContext.EstimatedQuota = snap.EstimatedQuotaAfterGroup

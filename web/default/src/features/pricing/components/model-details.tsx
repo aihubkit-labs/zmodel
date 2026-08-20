@@ -63,6 +63,7 @@ import { DEFAULT_TOKEN_UNIT } from '../constants'
 import { usePricingData } from '../hooks/use-pricing-data'
 import {
   formatMediaConditionsSummary,
+  formatTierConditionsSummary,
   inferMediaUnit,
 } from '../lib/billing-expr'
 import {
@@ -1059,19 +1060,28 @@ function GroupPricingSection(props: {
                       header: t('Tier'),
                       className: thClass,
                       cellClassName: 'text-muted-foreground py-2.5',
-                      cell: (tier) => (
-                        <div className='min-w-0'>
-                          <div>{tier.label || t('Default')}</div>
-                          <div className='text-muted-foreground/70 mt-0.5 text-xs'>
-                            {tier.mediaConditions.length > 0
-                              ? formatMediaConditionsSummary(
-                                  tier.mediaConditions,
-                                  t
-                                )
-                              : t('Fallback tier')}
+                      cell: (tier) => {
+                        let conditionSummary = t('Fallback tier')
+                        if (tier.mediaConditions.length > 0) {
+                          conditionSummary = formatMediaConditionsSummary(
+                            tier.mediaConditions,
+                            t
+                          )
+                        } else if (tier.conditions.length > 0) {
+                          conditionSummary = formatTierConditionsSummary(
+                            tier.conditions,
+                            t
+                          )
+                        }
+                        return (
+                          <div className='min-w-0'>
+                            <div>{tier.label || t('Default')}</div>
+                            <div className='text-muted-foreground/70 mt-0.5 text-xs'>
+                              {conditionSummary}
+                            </div>
                           </div>
-                        </div>
-                      ),
+                        )
+                      },
                     },
                     ...priceFields.map((fieldEntry) => ({
                       id: fieldEntry.field,

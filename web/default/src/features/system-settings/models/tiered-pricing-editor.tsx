@@ -97,11 +97,13 @@ import {
   createDefaultMediaTier,
   generateMediaExpr,
   isReferenceCountCondition,
+  isTimeRangeCondition,
   isMediaBillingExpr,
   tryParseMediaConfig,
   type MediaBillingMethod,
   type MediaConditionOperator,
   type MediaTier,
+  type MediaTierDimensionCondition,
   type MediaTierCondition,
   type MediaVisualConfig,
 } from '@/features/pricing/lib/media-tier-expr'
@@ -110,6 +112,7 @@ import {
   CACHE_MODE_TIMED,
   type CacheMode,
   type ExtraTokenValues,
+  type TokenTierCondition,
   type TierConditionInput,
   type VisualConfig,
   type VisualTier,
@@ -122,6 +125,7 @@ import {
   normalizeVisualTier,
   tryParseVisualConfig,
 } from '@/features/pricing/lib/tier-expr'
+import type { TimeRangeCondition } from '@/features/pricing/lib/time-range'
 import { cn } from '@/lib/utils'
 
 const PRICE_SUFFIX = '$/1M tokens'
@@ -139,8 +143,9 @@ const CONDITION_INPUT_OPTIONS: {
   { value: 'len', labelKey: 'Full input length' },
   { value: 'p', labelKey: 'Billable input tokens' },
   { value: 'c', labelKey: 'Billable output tokens' },
+  { value: 'time_range', labelKey: 'Time range' },
 ]
-const OPS: TierConditionInput['op'][] = ['<', '<=', '>', '>=']
+const OPS: TokenTierCondition['op'][] = ['<', '<=', '>', '>=']
 
 type Preset = {
   key: string
@@ -471,14 +476,29 @@ type ConditionRowProps = {
   onRemove: () => void
 }
 
+function createVisualTierCondition(
+  variable: TierConditionInput['var'] = 'len'
+): TierConditionInput {
+  if (variable === 'time_range') {
+    return {
+      var: 'time_range',
+      timezone: 'Asia/Shanghai',
+      ranges: [{ start: '09:00', end: '11:59' }],
+    }
+  }
+  return { var: variable, op: '<', value: 200000 }
+}
+
 function ConditionRow({ condition, onChange, onRemove }: ConditionRowProps) {
   const { t } = useTranslation()
   const currentInputOption = CONDITION_INPUT_OPTIONS.find(
     (option) => option.value === condition.var
   )
+  const timeRangeCondition = condition.var === 'time_range' ? condition : null
+  const tokenCondition = condition as TokenTierCondition
 
   return (
-    <div className='flex items-center gap-2'>
+    <div className='flex flex-wrap items-center gap-2'>
       <Select
         items={CONDITION_INPUT_OPTIONS.map((option) => ({
           value: option.value,
@@ -486,7 +506,9 @@ function ConditionRow({ condition, onChange, onRemove }: ConditionRowProps) {
         }))}
         value={condition.var}
         onValueChange={(value) =>
-          onChange({ ...condition, var: value as TierConditionInput['var'] })
+          onChange(
+            createVisualTierCondition(value as TierConditionInput['var'])
+          )
         }
       >
         <SelectTrigger className='w-32' size='sm'>
@@ -506,36 +528,62 @@ function ConditionRow({ condition, onChange, onRemove }: ConditionRowProps) {
           </SelectGroup>
         </SelectContent>
       </Select>
-      <Select
-        items={OPS.map((op) => ({ value: op, label: op }))}
-        value={condition.op}
-        onValueChange={(value) =>
-          onChange({ ...condition, op: value as TierConditionInput['op'] })
-        }
-      >
-        <SelectTrigger className='w-20' size='sm'>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent alignItemWithTrigger={false}>
-          <SelectGroup>
-            {OPS.map((op) => (
-              <SelectItem key={op} value={op}>
-                {op}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-      <DraftNumberInput
-        min={0}
-        value={condition.value}
-        onValueChange={(value) => onChange({ ...condition, value })}
-        placeholder='tokens'
-        className='w-32'
-      />
-      <span className='text-muted-foreground text-xs'>
-        {formatTokenHint(condition.value)}
-      </span>
+      {timeRangeCondition ? (
+        <div className='min-w-0 flex-1 basis-full md:basis-auto'>
+          <TimeRangeEditor
+            condition={{
+              variable: 'time_range',
+              timezone: timeRangeCondition.timezone,
+              ranges: timeRangeCondition.ranges,
+            }}
+            onChange={(next) =>
+              onChange({
+                var: 'time_range',
+                timezone: next.timezone,
+                ranges: next.ranges,
+              })
+            }
+          />
+        </div>
+      ) : (
+        <>
+          <Select
+            items={OPS.map((op) => ({ value: op, label: op }))}
+            value={tokenCondition.op}
+            onValueChange={(value) =>
+              onChange({
+                ...tokenCondition,
+                op: value as TokenTierCondition['op'],
+              })
+            }
+          >
+            <SelectTrigger className='w-20' size='sm'>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                {OPS.map((op) => (
+                  <SelectItem key={op} value={op}>
+                    {op}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <DraftNumberInput
+            min={0}
+            value={tokenCondition.value}
+            onValueChange={(value) =>
+              tokenCondition && onChange({ ...tokenCondition, value })
+            }
+            placeholder='tokens'
+            className='w-32'
+          />
+          <span className='text-muted-foreground text-xs'>
+            {formatTokenHint(tokenCondition.value)}
+          </span>
+        </>
+      )}
       <Button
         variant='ghost'
         size='icon'
@@ -867,7 +915,9 @@ function VisualEditor({ visualConfig, onChange }: VisualEditorProps) {
     // priced separately, which can misroute long-input requests into shorter
     // tiers when cache-hits reduce the effective `p`.
     const usedVars = new Set(tier.conditions.map((c) => c.var))
-    const nextVar: TierConditionInput['var'] = usedVars.has('len') ? 'c' : 'len'
+    let nextVar: TierConditionInput['var'] = 'c'
+    if (!usedVars.has('len')) nextVar = 'len'
+    else if (!usedVars.has('time_range')) nextVar = 'time_range'
     onChange({
       ...config,
       tiers: config.tiers.map((current, i) =>
@@ -876,7 +926,7 @@ function VisualEditor({ visualConfig, onChange }: VisualEditorProps) {
               ...current,
               conditions: [
                 ...tier.conditions,
-                { var: nextVar, op: '<', value: 200000 },
+                createVisualTierCondition(nextVar),
               ],
             }
           : current
@@ -932,6 +982,7 @@ const MEDIA_CONDITION_OPTIONS: Array<{
   { value: 'reference_image_count', labelKey: 'Reference image count' },
   { value: 'reference_video_count', labelKey: 'Reference video count' },
   { value: 'reference_audio_count', labelKey: 'Reference audio count' },
+  { value: 'time_range', labelKey: 'Time range' },
 ]
 
 const MEDIA_COUNT_OPERATOR_OPTIONS: Array<{
@@ -968,10 +1019,7 @@ const MEDIA_BILLING_OPTIONS: Array<{
   { value: MEDIA_BILLING_PER_TOTAL_TOKEN, labelKey: 'Per 1M total tokens' },
 ]
 
-const MEDIA_CONDITION_VALUE_PLACEHOLDERS: Record<
-  MediaTierCondition['variable'],
-  string
-> = {
+const MEDIA_CONDITION_VALUE_PLACEHOLDERS = {
   quality: 'Enter a provider-supported image quality value, for example high',
   resolution_tier: '480p / 720p / 1080p / 4K',
   image_size_tier: '1K / 2K / 4K',
@@ -979,12 +1027,150 @@ const MEDIA_CONDITION_VALUE_PLACEHOLDERS: Record<
   reference_image_count: 'Enter a non-negative integer',
   reference_video_count: 'Enter a non-negative integer',
   reference_audio_count: 'Enter a non-negative integer',
-}
+} as const
+
+type MediaDimensionVariable = Exclude<
+  MediaTierDimensionCondition['variable'],
+  'time_range'
+>
 
 function createMediaTierCondition(
   variable: MediaTierCondition['variable'] = 'resolution_tier'
 ): MediaTierCondition {
+  if (variable === 'time_range') {
+    return {
+      variable,
+      timezone: 'Asia/Shanghai',
+      ranges: [{ start: '09:00', end: '11:59' }],
+    }
+  }
   return { variable, operator: MEDIA_CONDITION_EQ, value: '' }
+}
+
+type TimeRangeEditorProps = {
+  condition: TimeRangeCondition
+  onChange: (next: TimeRangeCondition) => void
+}
+
+function TimeRangeEditor(props: TimeRangeEditorProps) {
+  const { t } = useTranslation()
+
+  const updateRange = (
+    index: number,
+    field: 'start' | 'end',
+    value: string
+  ) => {
+    const ranges = [...props.condition.ranges]
+    ranges[index] = { ...ranges[index], [field]: value }
+    props.onChange({ ...props.condition, ranges })
+  }
+
+  const removeRange = (index: number) => {
+    props.onChange({
+      ...props.condition,
+      ranges: props.condition.ranges.filter(
+        (_, rangeIndex) => rangeIndex !== index
+      ),
+    })
+  }
+
+  return (
+    <div className='min-w-0 space-y-2'>
+      <Select
+        items={COMMON_TIMEZONES.map((timezone) => ({
+          value: timezone.value,
+          label: timezone.label,
+        }))}
+        value={props.condition.timezone}
+        onValueChange={(value) =>
+          value !== null &&
+          props.onChange({ ...props.condition, timezone: value })
+        }
+      >
+        <SelectTrigger
+          size='sm'
+          className='w-full min-w-0'
+          aria-label={t('Time zone')}
+        >
+          <SelectValue>
+            {COMMON_TIMEZONES.find(
+              (timezone) => timezone.value === props.condition.timezone
+            )?.label || props.condition.timezone}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent alignItemWithTrigger={false}>
+          <SelectGroup>
+            {COMMON_TIMEZONES.map((timezone) => (
+              <SelectItem key={timezone.value} value={timezone.value}>
+                {timezone.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+
+      <div className='space-y-2'>
+        {props.condition.ranges.map((range, index) => (
+          <div
+            // Time ranges are positional until saved as one expression.
+            // eslint-disable-next-line react/no-array-index-key
+            key={index}
+            className='grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_2rem] items-center gap-2'
+          >
+            <Input
+              type='time'
+              step={60}
+              value={range.start}
+              onChange={(event) =>
+                updateRange(index, 'start', event.target.value)
+              }
+              aria-label={t('Start time')}
+              className='h-8 min-w-0'
+            />
+            <span className='text-muted-foreground text-xs'>-</span>
+            <Input
+              type='time'
+              step={60}
+              value={range.end}
+              onChange={(event) =>
+                updateRange(index, 'end', event.target.value)
+              }
+              aria-label={t('End time')}
+              className='h-8 min-w-0'
+            />
+            <Button
+              variant='ghost'
+              size='icon'
+              onClick={() => removeRange(index)}
+              disabled={props.condition.ranges.length <= 1}
+              aria-label={t('Remove time range')}
+              className='size-8'
+            >
+              <Trash2 className='text-destructive h-4 w-4' />
+            </Button>
+          </div>
+        ))}
+      </div>
+
+      <Button
+        variant='outline'
+        size='sm'
+        className='h-8'
+        onClick={() =>
+          props.onChange({
+            ...props.condition,
+            ranges: [
+              ...props.condition.ranges,
+              { start: '14:00', end: '17:59' },
+            ],
+          })
+        }
+      >
+        <Plus className='mr-1 h-3.5 w-3.5' />
+        {t('Add time range')}
+      </Button>
+    </div>
+  )
 }
 
 type MediaConditionRowProps = {
@@ -999,27 +1185,39 @@ function MediaConditionRow(props: MediaConditionRowProps) {
   const option = MEDIA_CONDITION_OPTIONS.find(
     (candidate) => candidate.value === props.condition.variable
   )
-  const isCountCondition = isReferenceCountCondition(props.condition.variable)
-  const operator = props.condition.operator || MEDIA_CONDITION_EQ
+  const timeRangeCondition = isTimeRangeCondition(props.condition)
+    ? props.condition
+    : null
+  const dimensionCondition: MediaTierDimensionCondition | null =
+    timeRangeCondition ? null : (props.condition as MediaTierDimensionCondition)
+  const isCountCondition = dimensionCondition
+    ? isReferenceCountCondition(dimensionCondition.variable)
+    : false
+  const countCondition = isCountCondition ? dimensionCondition : null
+  const operator = dimensionCondition?.operator || MEDIA_CONDITION_EQ
   const operatorOption = MEDIA_COUNT_OPERATOR_OPTIONS.find(
     (candidate) => candidate.value === operator
   )
-  const rangeEnd = props.condition.rangeEnd || ''
+  const rangeEnd = dimensionCondition?.rangeEnd || ''
   const rangeInvalid =
     operator === MEDIA_CONDITION_RANGE &&
-    /^\d+$/.test(props.condition.value) &&
+    /^\d+$/.test(dimensionCondition?.value || '') &&
     /^\d+$/.test(rangeEnd) &&
-    Number(props.condition.value) > Number(rangeEnd)
-  let placeholder = MEDIA_CONDITION_VALUE_PLACEHOLDERS[props.condition.variable]
-  if (props.condition.variable === 'quality') {
+    Number(dimensionCondition?.value) > Number(rangeEnd)
+  let placeholder = dimensionCondition
+    ? MEDIA_CONDITION_VALUE_PLACEHOLDERS[
+        dimensionCondition.variable as MediaDimensionVariable
+      ]
+    : ''
+  if (dimensionCondition?.variable === 'quality') {
     placeholder = t(
       'Enter a provider-supported image quality value, for example high'
     )
   }
 
   const updateCountValue = (field: 'value' | 'rangeEnd', value: string) => {
-    if (value !== '' && !/^\d+$/.test(value)) return
-    props.onChange({ ...props.condition, [field]: value })
+    if (!dimensionCondition || (value !== '' && !/^\d+$/.test(value))) return
+    props.onChange({ ...dimensionCondition, [field]: value })
   }
 
   return (
@@ -1054,7 +1252,13 @@ function MediaConditionRow(props: MediaConditionRowProps) {
         </SelectContent>
       </Select>
 
-      {isCountCondition ? (
+      {timeRangeCondition && (
+        <TimeRangeEditor
+          condition={timeRangeCondition}
+          onChange={(next) => props.onChange(next)}
+        />
+      )}
+      {!timeRangeCondition && countCondition && (
         <div
           className={cn(
             'grid min-w-0 gap-2',
@@ -1071,11 +1275,11 @@ function MediaConditionRow(props: MediaConditionRowProps) {
             value={operator}
             onValueChange={(value) =>
               props.onChange({
-                ...props.condition,
+                ...countCondition,
                 operator: value as MediaConditionOperator,
                 rangeEnd:
                   value === MEDIA_CONDITION_RANGE
-                    ? props.condition.rangeEnd || ''
+                    ? countCondition.rangeEnd || ''
                     : undefined,
               })
             }
@@ -1102,7 +1306,7 @@ function MediaConditionRow(props: MediaConditionRowProps) {
             min={0}
             step={1}
             inputMode='numeric'
-            value={props.condition.value}
+            value={countCondition.value}
             onChange={(event) => updateCountValue('value', event.target.value)}
             placeholder={
               operator === MEDIA_CONDITION_RANGE
@@ -1130,11 +1334,15 @@ function MediaConditionRow(props: MediaConditionRowProps) {
             />
           )}
         </div>
-      ) : (
+      )}
+      {!timeRangeCondition && !countCondition && dimensionCondition && (
         <Input
-          value={props.condition.value}
+          value={dimensionCondition.value}
           onChange={(event) =>
-            props.onChange({ ...props.condition, value: event.target.value })
+            props.onChange({
+              ...dimensionCondition,
+              value: event.target.value,
+            })
           }
           placeholder={placeholder}
           aria-label={t('Condition value')}

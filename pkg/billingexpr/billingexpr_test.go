@@ -3,6 +3,7 @@ package billingexpr_test
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/stretchr/testify/assert"
@@ -994,6 +995,36 @@ func TestTimeFunctions_NightDiscountPattern(t *testing.T) {
 	if cost != 7000 && cost != 3500 {
 		t.Errorf("cost = %f, want 7000 or 3500", cost)
 	}
+}
+
+func TestTimeFunctions_SelectIndependentTextTier(t *testing.T) {
+	exprStr := `hour("UTC") >= 0 && minute("UTC") >= 0 ? tier("time_tier", p * 3 + c * 15) : tier("fallback", p * 2 + c * 10)`
+	evaluationTime := time.Date(2026, time.August, 20, 2, 0, 0, 0, time.UTC)
+	cost, trace, err := billingexpr.RunExpr(exprStr, billingexpr.TokenParams{
+		P:              100,
+		C:              10,
+		EvaluationTime: &evaluationTime,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "time_tier", trace.MatchedTier)
+	assert.Equal(t, 450.0, cost)
+}
+
+func TestTimeFunctions_SettlementUsesSnapshotEvaluationTime(t *testing.T) {
+	exprStr := `hour("UTC") >= 9 ? tier("day", p * 3) : tier("night", p)`
+	evaluationTime := time.Date(2026, time.August, 20, 10, 0, 0, 0, time.UTC)
+	result, err := billingexpr.ComputeTieredQuota(&billingexpr.BillingSnapshot{
+		BillingMode:    "tiered_expr",
+		ExprString:     exprStr,
+		ExprHash:       billingexpr.ExprHashString(exprStr),
+		GroupRatio:     1,
+		QuotaPerUnit:   1_000_000,
+		ExprVersion:    1,
+		EvaluationTime: &evaluationTime,
+	}, billingexpr.TokenParams{P: 100})
+	require.NoError(t, err)
+	assert.Equal(t, "day", result.MatchedTier)
+	assert.Equal(t, 300, result.ActualQuotaAfterGroup)
 }
 
 func TestTimeFunctions_WeekdayRange(t *testing.T) {

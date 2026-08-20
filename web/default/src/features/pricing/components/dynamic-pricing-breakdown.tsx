@@ -34,6 +34,7 @@ import {
   MATCH_LT,
   MATCH_RANGE,
   SOURCE_TIME,
+  formatTierConditionsSummary,
   formatMediaConditionsSummary,
   inferMediaUnit,
   normalizeTierLabel,
@@ -67,35 +68,12 @@ type DynamicPricingBreakdownProps = {
   compact?: boolean
 }
 
-const VAR_LABELS: Record<string, string> = {
-  p: 'Input',
-  c: 'Output',
-  len: 'Length',
-}
-const OP_LABELS: Record<string, string> = {
-  '<': '<',
-  '<=': '≤',
-  '>': '>',
-  '>=': '≥',
-}
 const TIME_FUNC_LABELS: Record<string, string> = {
   hour: 'Hour',
   minute: 'Minute',
   weekday: 'Weekday',
   month: 'Month',
   day: 'Day',
-}
-
-function formatTokenHint(value: string | number): string {
-  const n = Number(value)
-  if (!Number.isFinite(n) || n === 0) return ''
-  if (n >= 1_000_000) {
-    return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`
-  }
-  if (n >= 1000) {
-    return `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}K`
-  }
-  return String(n)
 }
 
 function formatConditionSummary(
@@ -105,14 +83,7 @@ function formatConditionSummary(
   if (tier.mediaConditions.length > 0) {
     return formatMediaConditionsSummary(tier.mediaConditions, t)
   }
-  const summary = tier.conditions
-    .map((c) => {
-      const varLabel = t(VAR_LABELS[c.var] || c.var)
-      const hint = formatTokenHint(c.value)
-      return `${varLabel} ${OP_LABELS[c.op] || c.op} ${hint || c.value}`
-    })
-    .filter(Boolean)
-    .join(' && ')
+  const summary = formatTierConditionsSummary(tier.conditions, t)
 
   return summary || t('Fallback tier')
 }

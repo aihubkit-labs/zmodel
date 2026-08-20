@@ -23,6 +23,10 @@ import {
   type MediaConditionOperator as BillingMediaConditionOperator,
   type MediaConditionVariable as ParsedMediaConditionVariable,
 } from './billing-expr'
+import {
+  buildTimeRangeConditionExpr,
+  type TimeRangeCondition,
+} from './time-range'
 
 export type MediaConditionOperator = BillingMediaConditionOperator
 
@@ -48,6 +52,12 @@ export type MediaConditionVariable = ParsedMediaConditionVariable
 
 export type MediaTierCondition = ParsedMediaCondition
 
+export type MediaTierTimeRangeCondition = TimeRangeCondition
+export type MediaTierDimensionCondition = Exclude<
+  MediaTierCondition,
+  MediaTierTimeRangeCondition
+>
+
 export type MediaTier = {
   label: string
   conditions: MediaTierCondition[]
@@ -66,6 +76,12 @@ export function isReferenceCountCondition(
   | 'reference_video_count'
   | 'reference_audio_count' {
   return variable.startsWith('reference_') && variable.endsWith('_count')
+}
+
+export function isTimeRangeCondition(
+  condition: MediaTierCondition
+): condition is TimeRangeCondition {
+  return condition.variable === 'time_range'
 }
 
 export type MediaVisualConfig = {
@@ -106,19 +122,24 @@ function parseReferenceCount(value: string): number | null {
 }
 
 function buildMediaCondition(condition: MediaTierCondition): string | null {
-  if (!isReferenceCountCondition(condition.variable)) {
-    const value = condition.value.trim()
-    if (!value) return null
-    return `${condition.variable} == "${escapeExprString(value)}"`
+  if (isTimeRangeCondition(condition)) {
+    return buildTimeRangeConditionExpr(condition)
   }
 
-  const value = parseReferenceCount(condition.value)
+  const dimensionCondition = condition as MediaTierDimensionCondition
+  if (!isReferenceCountCondition(dimensionCondition.variable)) {
+    const value = dimensionCondition.value.trim()
+    if (!value) return null
+    return `${dimensionCondition.variable} == "${escapeExprString(value)}"`
+  }
+
+  const value = parseReferenceCount(dimensionCondition.value)
   if (value == null) return null
-  const operator = condition.operator || MEDIA_CONDITION_EQ
+  const operator = dimensionCondition.operator || MEDIA_CONDITION_EQ
   if (operator === MEDIA_CONDITION_RANGE) {
-    const rangeEnd = parseReferenceCount(condition.rangeEnd || '')
+    const rangeEnd = parseReferenceCount(dimensionCondition.rangeEnd || '')
     if (rangeEnd == null || value > rangeEnd) return null
-    return `${condition.variable} >= ${value} && ${condition.variable} <= ${rangeEnd}`
+    return `${dimensionCondition.variable} >= ${value} && ${dimensionCondition.variable} <= ${rangeEnd}`
   }
   const symbols: Record<Exclude<MediaConditionOperator, 'range'>, string> = {
     eq: '==',
@@ -127,7 +148,7 @@ function buildMediaCondition(condition: MediaTierCondition): string | null {
     gt: '>',
     gte: '>=',
   }
-  return `${condition.variable} ${symbols[operator]} ${value}`
+  return `${dimensionCondition.variable} ${symbols[operator]} ${value}`
 }
 
 function buildMediaTierCondition(tier: MediaTier): string | null {

@@ -28,6 +28,14 @@ For commercial licensing, please contact support@quantumnous.com
  * expression syntax.
  */
 
+import {
+  parseTimeRangeCondition,
+  splitTopLevelAnd,
+  timeRangeConditionPattern,
+  type TimeRange,
+  type TimeRangeCondition,
+} from './time-range'
+
 // ---------------------------------------------------------------------------
 // Variable registry
 // ---------------------------------------------------------------------------
@@ -228,13 +236,15 @@ export type RequestRuleGroup = {
   multiplier: string
 }
 
-export type TierCondition = {
+export type ParsedTokenTierCondition = {
   var: 'p' | 'c' | 'len'
   op: '<' | '<=' | '>' | '>='
   value: number
 }
 
-export type MediaConditionVariable =
+export type TierCondition = ParsedTokenTierCondition | TimeRangeCondition
+
+export type MediaDimensionConditionVariable =
   | 'quality'
   | 'resolution_tier'
   | 'image_size_tier'
@@ -242,6 +252,10 @@ export type MediaConditionVariable =
   | 'reference_image_count'
   | 'reference_video_count'
   | 'reference_audio_count'
+
+export type MediaConditionVariable =
+  | MediaDimensionConditionVariable
+  | 'time_range'
 
 export type MediaConditionOperator =
   | 'eq'
@@ -251,12 +265,17 @@ export type MediaConditionOperator =
   | 'gte'
   | 'range'
 
-export type MediaCondition = {
-  variable: MediaConditionVariable
+export type MediaDimensionCondition = {
+  variable: MediaDimensionConditionVariable
   operator: MediaConditionOperator
   value: string
   rangeEnd?: string
 }
+
+export type MediaTimeRange = TimeRange
+export type MediaTimeRangeCondition = TimeRangeCondition
+
+export type MediaCondition = MediaDimensionCondition | MediaTimeRangeCondition
 
 export type ParsedTier = {
   label: string
@@ -283,6 +302,7 @@ const MEDIA_CONDITION_LABELS: Record<MediaConditionVariable, string> = {
   reference_image_count: 'Reference image count',
   reference_video_count: 'Reference video count',
   reference_audio_count: 'Reference audio count',
+  time_range: 'Time range',
 }
 
 export function formatMediaConditionSummary(
@@ -290,6 +310,12 @@ export function formatMediaConditionSummary(
   t: (key: string) => string
 ): string {
   const label = t(MEDIA_CONDITION_LABELS[condition.variable])
+  if (condition.variable === 'time_range') {
+    const ranges = condition.ranges
+      .map((range) => `${range.start}-${range.end}`)
+      .join(', ')
+    return `${label} ${ranges} (${condition.timezone})`
+  }
   if (condition.operator === 'range') {
     return `${label} ${condition.value}–${condition.rangeEnd}`
   }
@@ -310,6 +336,36 @@ export function formatMediaConditionsSummary(
   return conditions
     .map((condition) => formatMediaConditionSummary(condition, t))
     .join(' · ')
+}
+
+export function formatTierConditionsSummary(
+  conditions: TierCondition[],
+  t: (key: string) => string
+): string {
+  return conditions
+    .map((condition) => {
+      if ('variable' in condition && condition.variable === 'time_range') {
+        const ranges = condition.ranges
+          .map((range) => `${range.start}-${range.end}`)
+          .join(', ')
+        return `${t('Time range')} ${ranges} (${condition.timezone})`
+      }
+      const tokenCondition = condition as ParsedTokenTierCondition
+      const labels: Record<ParsedTokenTierCondition['var'], string> = {
+        p: 'Billable input tokens',
+        c: 'Billable output tokens',
+        len: 'Full input length',
+      }
+      const operators: Record<ParsedTokenTierCondition['op'], string> = {
+        '<': '<',
+        '<=': '≤',
+        '>': '>',
+        '>=': '≥',
+      }
+      return `${t(labels[tokenCondition.var])} ${operators[tokenCondition.op]} ${tokenCondition.value}`
+    })
+    .filter(Boolean)
+    .join(' && ')
 }
 
 export function inferMediaUnit(tiers: ParsedTier[]): MediaUnit {
@@ -395,19 +451,22 @@ const MEDIA_CONDITION_OPERATOR_MAP: Record<string, MediaConditionOperator> = {
 }
 
 function parseMediaConditions(conditionString: string): MediaCondition[] {
-  const clauses = conditionString
-    ? conditionString.split(/\s*&&\s*/).map((clause) => clause.trim())
-    : []
+  const clauses = conditionString ? splitTopLevelAnd(conditionString) : []
   const conditions: MediaCondition[] = []
 
   for (let index = 0; index < clauses.length; index += 1) {
     const clause = clauses[index]
+    const timeRangeCondition = parseTimeRangeCondition(clause)
+    if (timeRangeCondition) {
+      conditions.push(timeRangeCondition)
+      continue
+    }
     const textMatch = clause.match(
       /^(quality|resolution_tier|image_size_tier|image_size)\s*==\s*"([^"]+)"$/
     )
     if (textMatch) {
       conditions.push({
-        variable: textMatch[1] as MediaConditionVariable,
+        variable: textMatch[1] as MediaDimensionConditionVariable,
         operator: 'eq',
         value: textMatch[2],
       })
@@ -428,7 +487,7 @@ function parseMediaConditions(conditionString: string): MediaCondition[] {
       nextMatch[2] === '<='
     ) {
       conditions.push({
-        variable: countMatch[1] as MediaConditionVariable,
+        variable: countMatch[1] as MediaDimensionConditionVariable,
         operator: 'range',
         value: countMatch[3],
         rangeEnd: nextMatch[3],
@@ -438,7 +497,7 @@ function parseMediaConditions(conditionString: string): MediaCondition[] {
     }
 
     conditions.push({
-      variable: countMatch[1] as MediaConditionVariable,
+      variable: countMatch[1] as MediaDimensionConditionVariable,
       operator: MEDIA_CONDITION_OPERATOR_MAP[countMatch[2]],
       value: countMatch[3],
     })
@@ -456,7 +515,8 @@ export function parseTiersFromExpr(exprStr: string): ParsedTier[] {
     const numericCondition = `(?:${numericVars})\\s*(?:==|<=|>=|<|>)\\s*[\\d.eE+]+`
     const textCondition =
       '(?:quality|resolution_tier|image_size_tier|image_size)\\s*==\\s*"[^"]+"'
-    const condition = `(?:${numericCondition}|${textCondition})`
+    const timeCondition = timeRangeConditionPattern()
+    const condition = `(?:${numericCondition}|${textCondition}|${timeCondition})`
     const condGroup = `(${condition}(?:\\s*&&\\s*${condition})*)`
     const tierBody = `((?:[^()]|\\((?:[^()]|\\([^()]*\\))*\\))+)`
     const tierRe = new RegExp(
@@ -469,22 +529,33 @@ export function parseTiersFromExpr(exprStr: string): ParsedTier[] {
       const condStr = m[1] || ''
       const conditions: TierCondition[] = []
       if (condStr) {
-        for (const cp of condStr.split(/\s*&&\s*/)) {
+        for (const cp of splitTopLevelAnd(condStr)) {
+          const timeCondition = parseTimeRangeCondition(cp)
+          if (timeCondition) {
+            conditions.push(timeCondition)
+            continue
+          }
           const cm = cp.trim().match(/^(p|c|len)\s*(<|<=|>|>=)\s*([\d.eE+]+)$/)
           if (cm) {
             conditions.push({
-              var: cm[1] as TierCondition['var'],
-              op: cm[2] as TierCondition['op'],
+              var: cm[1] as ParsedTokenTierCondition['var'],
+              op: cm[2] as ParsedTokenTierCondition['op'],
               value: Number(cm[3]),
             })
           }
         }
       }
+      const mediaPricing = parseMediaPricing(m[3])
       const tier = parseTierBody(m[3]) as ParsedTier
       tier.label = m[2]
-      tier.conditions = conditions
+      tier.conditions = mediaPricing
+        ? conditions.filter(
+            (condition): condition is ParsedTokenTierCondition =>
+              'var' in condition
+          )
+        : conditions
       tier.mediaConditions = parseMediaConditions(condStr)
-      tier.mediaPricing = parseMediaPricing(m[3])
+      tier.mediaPricing = mediaPricing
       tiers.push(tier)
     }
     return tiers
@@ -518,24 +589,6 @@ function splitTopLevelMultiply(expr: string): string[] {
       parts.push(expr.slice(start, index).trim())
       start = index + 3
       index += 2
-    }
-  }
-  parts.push(expr.slice(start).trim())
-  return parts.filter(Boolean)
-}
-
-function splitTopLevelAnd(expr: string): string[] {
-  const parts: string[] = []
-  let start = 0
-  let depth = 0
-  for (let i = 0; i < expr.length; i += 1) {
-    const c = expr[i]
-    if (c === '(') depth += 1
-    if (c === ')') depth -= 1
-    if (depth === 0 && expr.slice(i, i + 4) === ' && ') {
-      parts.push(expr.slice(start, i).trim())
-      start = i + 4
-      i += 3
     }
   }
   parts.push(expr.slice(start).trim())

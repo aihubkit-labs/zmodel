@@ -162,6 +162,7 @@ type TaskBillingContext struct {
 	ExprString              string                        `json:"expr_string,omitempty"`
 	ExprHash                string                        `json:"expr_hash,omitempty"`
 	ExprVersion             int                           `json:"expr_version,omitempty"`
+	EvaluationTime          *time.Time                    `json:"evaluation_time,omitempty"`
 	EstimatedDimensions     billingexpr.BillingDimensions `json:"estimated_dimensions,omitempty"`
 	EstimatedTier           string                        `json:"estimated_tier,omitempty"`
 	EstimatedQuota          int                           `json:"estimated_quota,omitempty"`
