@@ -241,6 +241,29 @@ label such as `4K`: the former is validated from a video `resolution` parameter,
 while the latter is normalized from an image `size` parameter. `quality` is
 currently populated by image requests only.
 
+Both visual tier editors support timezone-aware time-range conditions as
+independent price tiers. A range is evaluated using
+`hour(tz) * 60 + minute(tz)`, so it has minute precision, combines with token or
+media dimensions using `&&`, and can contain multiple OR-ed windows for split
+peak periods. A start later than the end represents a range crossing midnight:
+
+```
+v2:(hour("Asia/Shanghai") * 60 + minute("Asia/Shanghai") >= 540 && hour("Asia/Shanghai") * 60 + minute("Asia/Shanghai") <= 719)
+  ? tier("morning_peak", usd(0.32 * seconds * units))
+  : tier("off_peak", usd(0.16 * seconds * units))
+```
+
+For token pricing, the same condition selects a token-price tier directly:
+
+```
+(hour("Asia/Shanghai") * 60 + minute("Asia/Shanghai") >= 540 && hour("Asia/Shanghai") * 60 + minute("Asia/Shanghai") <= 719)
+  ? tier("morning_peak", p * 3 + c * 15)
+  : tier("off_peak", p * 2 + c * 10)
+```
+
+The time used by pre-consume and settlement is pinned to the request's billing
+snapshot, so a request crossing a time boundary keeps the same tier.
+
 ---
 
 ## Architecture

@@ -3,6 +3,7 @@ package helper
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -302,10 +303,12 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 		return types.PriceData{}, fmt.Errorf("model %s tiered billing dimensions invalid: %w", info.OriginModelName, err)
 	}
 
+	evaluationTime := time.Now()
 	rawCost, trace, err := billingexpr.RunExprForPhaseWithDimensionsAndRequest(exprStr, billingexpr.TokenParams{
-		P:   float64(promptTokens),
-		C:   float64(estimatedCompletionTokens),
-		Len: float64(promptTokens),
+		P:              float64(promptTokens),
+		C:              float64(estimatedCompletionTokens),
+		Len:            float64(promptTokens),
+		EvaluationTime: &evaluationTime,
 	}, dimensions, requestInput, billingexpr.EvaluationPhaseEstimate)
 	if err != nil {
 		return types.PriceData{}, fmt.Errorf("model %s tiered expr run failed: %w", info.OriginModelName, err)
@@ -340,6 +343,7 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 		EstimatedTier:             trace.MatchedTier,
 		QuotaPerUnit:              common.QuotaPerUnit,
 		ExprVersion:               billingexpr.ExprVersion(exprStr),
+		EvaluationTime:            &evaluationTime,
 		EstimatedDimensions:       dimensions,
 	}
 	info.TieredBillingSnapshot = snapshot

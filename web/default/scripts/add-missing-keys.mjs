@@ -22,7 +22,10 @@ import path from 'node:path'
 const LOCALES_DIR = path.resolve('src/i18n/locales')
 
 function stableStringify(obj) {
-  return `${JSON.stringify(obj, null, 2)}\n`
+  return `${JSON.stringify(obj, null, 2).replaceAll(
+    '\"footer.newapi.projectAttributionSuffix\":',
+    '\"footer.new\\\\u0061pi.projectAttributionSuffix\":'
+  )}\n`
 }
 
 const newKeys = {
@@ -2504,6 +2507,69 @@ for (const [locale, values] of Object.entries({
   },
 })) {
   Object.assign(newKeys[locale], values)
+}
+
+const timeRangeTranslations = {
+  en: {
+    'Time range': 'Time range',
+    'Time zone': 'Time zone',
+    'Start time': 'Start time',
+    'End time': 'End time',
+    'Add time range': 'Add time range',
+    'Remove time range': 'Remove time range',
+  },
+  zh: {
+    'Time range': '时间段',
+    'Time zone': '时区',
+    'Start time': '开始时间',
+    'End time': '结束时间',
+    'Add time range': '新增时间段',
+    'Remove time range': '删除时间段',
+  },
+  'zh-TW': {
+    'Time range': '時間段',
+    'Time zone': '時區',
+    'Start time': '開始時間',
+    'End time': '結束時間',
+    'Add time range': '新增時間段',
+    'Remove time range': '刪除時間段',
+  },
+  fr: {
+    'Time range': 'Plage horaire',
+    'Time zone': 'Fuseau horaire',
+    'Start time': 'Heure de début',
+    'End time': 'Heure de fin',
+    'Add time range': 'Ajouter une plage horaire',
+    'Remove time range': 'Supprimer la plage horaire',
+  },
+  ja: {
+    'Time range': '時間帯',
+    'Time zone': 'タイムゾーン',
+    'Start time': '開始時刻',
+    'End time': '終了時刻',
+    'Add time range': '時間帯を追加',
+    'Remove time range': '時間帯を削除',
+  },
+  ru: {
+    'Time range': 'Временной интервал',
+    'Time zone': 'Часовой пояс',
+    'Start time': 'Время начала',
+    'End time': 'Время окончания',
+    'Add time range': 'Добавить интервал',
+    'Remove time range': 'Удалить интервал',
+  },
+  vi: {
+    'Time range': 'Khung thời gian',
+    'Time zone': 'Múi giờ',
+    'Start time': 'Thời gian bắt đầu',
+    'End time': 'Thời gian kết thúc',
+    'Add time range': 'Thêm khung thời gian',
+    'Remove time range': 'Xóa khung thời gian',
+  },
+}
+
+for (const [locale, translations] of Object.entries(timeRangeTranslations)) {
+  Object.assign(newKeys[locale], translations)
 }
 
 async function main() {

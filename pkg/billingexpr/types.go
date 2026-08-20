@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 )
@@ -30,6 +31,9 @@ type TokenParams struct {
 	AI    float64 // audio input tokens
 	AO    float64 // audio output tokens
 	Total float64 // provider-reported total tokens for asynchronous media tasks
+	// EvaluationTime pins time-based tier conditions to the request's pricing
+	// snapshot. It is intentionally excluded from JSON persistence.
+	EvaluationTime *time.Time `json:"-"`
 }
 
 // TokenUsage is the provider-neutral usage contract for asynchronous tasks.
@@ -205,6 +209,7 @@ type BillingSnapshot struct {
 	EstimatedTier             string            `json:"estimated_tier"`
 	QuotaPerUnit              float64           `json:"quota_per_unit"`
 	ExprVersion               int               `json:"expr_version"`
+	EvaluationTime            *time.Time        `json:"evaluation_time,omitempty"`
 	EstimatedDimensions       BillingDimensions `json:"estimated_dimensions,omitempty"`
 }
 

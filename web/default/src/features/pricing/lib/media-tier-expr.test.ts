@@ -280,6 +280,80 @@ describe('media tier expression editor', () => {
     assert.deepEqual(tryParseMediaConfig(expr), config)
   })
 
+  test('round-trips multiple time ranges in one timezone', () => {
+    const config: MediaVisualConfig = {
+      tiers: [
+        {
+          label: 'peak',
+          conditions: [
+            {
+              variable: 'time_range',
+              timezone: 'Asia/Shanghai',
+              ranges: [
+                { start: '09:00', end: '11:59' },
+                { start: '14:00', end: '17:59' },
+              ],
+            },
+          ],
+          billingMethod: MEDIA_BILLING_PER_SECOND,
+          unitPrice: 0,
+          fixedPrice: 0,
+          perSecondPrice: 0.32,
+        },
+        {
+          label: 'off_peak',
+          conditions: [],
+          billingMethod: MEDIA_BILLING_PER_SECOND,
+          unitPrice: 0,
+          fixedPrice: 0,
+          perSecondPrice: 0.16,
+        },
+      ],
+    }
+
+    const expr = generateMediaExpr(config)
+
+    assert.equal(
+      expr,
+      'v2:((hour("Asia/Shanghai") * 60 + minute("Asia/Shanghai") >= 540 && hour("Asia/Shanghai") * 60 + minute("Asia/Shanghai") <= 719) || (hour("Asia/Shanghai") * 60 + minute("Asia/Shanghai") >= 840 && hour("Asia/Shanghai") * 60 + minute("Asia/Shanghai") <= 1079)) ? tier("peak", usd(0.32 * seconds * units)) : tier("off_peak", usd(0.16 * seconds * units))'
+    )
+    assert.deepEqual(tryParseMediaConfig(expr), config)
+  })
+
+  test('round-trips a time range that crosses midnight', () => {
+    const config: MediaVisualConfig = {
+      tiers: [
+        {
+          label: 'off_peak',
+          conditions: [
+            {
+              variable: 'time_range',
+              timezone: 'UTC',
+              ranges: [{ start: '22:00', end: '06:00' }],
+            },
+          ],
+          billingMethod: MEDIA_BILLING_PER_UNIT,
+          unitPrice: 0.1,
+          fixedPrice: 0,
+          perSecondPrice: 0,
+        },
+        {
+          label: 'peak',
+          conditions: [],
+          billingMethod: MEDIA_BILLING_PER_UNIT,
+          unitPrice: 0.2,
+          fixedPrice: 0,
+          perSecondPrice: 0,
+        },
+      ],
+    }
+
+    const expr = generateMediaExpr(config)
+
+    assert.match(expr, />= 1320 \|\| .* <= 360/)
+    assert.deepEqual(tryParseMediaConfig(expr), config)
+  })
+
   test('does not emit incomplete conditional tiers before the fallback', () => {
     const expr = generateMediaExpr({
       tiers: [

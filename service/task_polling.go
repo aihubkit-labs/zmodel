@@ -847,6 +847,7 @@ func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor
 			ModelName:                bc.OriginModelName,
 			ExprString:               bc.ExprString,
 			ExprHash:                 bc.ExprHash,
+			EvaluationTime:           bc.EvaluationTime,
 			GroupRatio:               bc.GroupRatio,
 			EstimatedQuotaAfterGroup: bc.EstimatedQuota,
 			EstimatedTier:            bc.EstimatedTier,

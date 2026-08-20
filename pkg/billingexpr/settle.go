@@ -23,6 +23,9 @@ func ComputeTieredQuotaWithRequest(snap *BillingSnapshot, params TokenParams, re
 }
 
 func ComputeTieredQuotaWithDimensionsAndRequest(snap *BillingSnapshot, params TokenParams, dimensions BillingDimensions, request RequestInput) (TieredResult, error) {
+	if snap.EvaluationTime != nil {
+		params.EvaluationTime = snap.EvaluationTime
+	}
 	if err := ValidateBillingDimensions(dimensions, UsedVars(snap.ExprString)); err != nil {
 		return TieredResult{}, err
 	}

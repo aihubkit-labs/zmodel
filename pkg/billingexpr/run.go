@@ -134,11 +134,11 @@ func runProgram(prog *vm.Program, params TokenParams, dimensions BillingDimensio
 			}
 			return strings.Contains(fmt.Sprint(source), substr)
 		},
-		"hour":    func(tz string) int { return timeInZone(tz).Hour() },
-		"minute":  func(tz string) int { return timeInZone(tz).Minute() },
-		"weekday": func(tz string) int { return int(timeInZone(tz).Weekday()) },
-		"month":   func(tz string) int { return int(timeInZone(tz).Month()) },
-		"day":     func(tz string) int { return timeInZone(tz).Day() },
+		"hour":    func(tz string) int { return timeInZone(tz, params.EvaluationTime).Hour() },
+		"minute":  func(tz string) int { return timeInZone(tz, params.EvaluationTime).Minute() },
+		"weekday": func(tz string) int { return int(timeInZone(tz, params.EvaluationTime).Weekday()) },
+		"month":   func(tz string) int { return int(timeInZone(tz, params.EvaluationTime).Month()) },
+		"day":     func(tz string) int { return timeInZone(tz, params.EvaluationTime).Day() },
 		"max":     math.Max,
 		"min":     math.Min,
 		"abs":     math.Abs,
@@ -160,16 +160,20 @@ func runProgram(prog *vm.Program, params TokenParams, dimensions BillingDimensio
 	return f, trace, nil
 }
 
-func timeInZone(tz string) time.Time {
+func timeInZone(tz string, evaluationTime *time.Time) time.Time {
+	now := time.Now()
+	if evaluationTime != nil {
+		now = *evaluationTime
+	}
 	tz = strings.TrimSpace(tz)
 	if tz == "" {
-		return time.Now().UTC()
+		return now.UTC()
 	}
 	loc, err := time.LoadLocation(tz)
 	if err != nil {
-		return time.Now().UTC()
+		return now.UTC()
 	}
-	return time.Now().In(loc)
+	return now.In(loc)
 }
 
 func normalizeHeaders(headers map[string]string) map[string]string {

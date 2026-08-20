@@ -17,16 +17,31 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { BILLING_CACHE_VAR_MAP } from './billing-expr'
+import {
+  buildTimeRangeConditionExpr,
+  parseTimeRangeCondition,
+  splitTopLevelAnd,
+  timeRangeConditionPattern,
+  type TimeRange,
+} from './time-range'
 
 export const CACHE_MODE_TIMED = 'timed'
 export const CACHE_MODE_GENERIC = 'generic'
 export type CacheMode = typeof CACHE_MODE_TIMED | typeof CACHE_MODE_GENERIC
 
-export type TierConditionInput = {
+export type TokenTierCondition = {
   var: 'p' | 'c' | 'len'
   op: '<' | '<=' | '>' | '>='
   value: number | string
 }
+
+export type VisualTimeRangeCondition = {
+  var: 'time_range'
+  timezone: string
+  ranges: TimeRange[]
+}
+
+export type TierConditionInput = TokenTierCondition | VisualTimeRangeCondition
 
 export type VisualTier = {
   label: string
@@ -107,8 +122,25 @@ export function normalizeVisualConfig(
 function buildConditionStr(conditions: TierConditionInput[]): string {
   if (!conditions || conditions.length === 0) return ''
   return conditions
-    .filter((c) => c.var && c.op && c.value != null && c.value !== '')
-    .map((c) => `${c.var} ${c.op} ${c.value}`)
+    .map((condition) => {
+      if (condition.var === 'time_range') {
+        return buildTimeRangeConditionExpr({
+          variable: 'time_range',
+          timezone: condition.timezone,
+          ranges: condition.ranges,
+        })
+      }
+      if (
+        condition.var &&
+        condition.op &&
+        condition.value != null &&
+        condition.value !== ''
+      ) {
+        return `${condition.var} ${condition.op} ${condition.value}`
+      }
+      return null
+    })
+    .filter((condition): condition is string => condition !== null)
     .join(' && ')
 }
 
@@ -193,9 +225,10 @@ export function tryParseVisualConfig(
       })
     }
 
+    const timeCondition = timeRangeConditionPattern()
     const condGroup =
-      `((?:(?:p|c|len)\\s*(?:<|<=|>|>=)\\s*[\\d.eE+]+)` +
-      `(?:\\s*&&\\s*(?:p|c|len)\\s*(?:<|<=|>|>=)\\s*[\\d.eE+]+)*)`
+      `((?:${timeCondition}|(?:p|c|len)\\s*(?:<|<=|>|>=)\\s*[\\d.eE+]+)` +
+      `(?:\\s*&&\\s*(?:${timeCondition}|(?:p|c|len)\\s*(?:<|<=|>|>=)\\s*[\\d.eE+]+))*)`
     const tierRe = new RegExp(
       `(?:${condGroup}\\s*\\?\\s*)?tier\\("([^"]*)",\\s*${bodyPat}\\)`,
       'g'
@@ -206,12 +239,21 @@ export function tryParseVisualConfig(
       const condStr = match[1] || ''
       const conditions: TierConditionInput[] = []
       if (condStr) {
-        for (const cp of condStr.split(/\s*&&\s*/)) {
+        for (const cp of splitTopLevelAnd(condStr)) {
+          const timeCondition = parseTimeRangeCondition(cp)
+          if (timeCondition) {
+            conditions.push({
+              var: 'time_range',
+              timezone: timeCondition.timezone,
+              ranges: timeCondition.ranges,
+            })
+            continue
+          }
           const cm = cp.trim().match(/^(p|c|len)\s*(<|<=|>|>=)\s*([\d.eE+]+)$/)
           if (cm) {
             conditions.push({
-              var: cm[1] as TierConditionInput['var'],
-              op: cm[2] as TierConditionInput['op'],
+              var: cm[1] as TokenTierCondition['var'],
+              op: cm[2] as TokenTierCondition['op'],
               value: Number(cm[3]),
             })
           }
@@ -234,7 +276,7 @@ export function tryParseVisualConfig(
 
     const cfg = normalizeVisualConfig({ tiers })
     const regenerated = generateExprFromVisualConfig(cfg)
-    if (regenerated.replace(/\s+/g, '') !== body.replace(/\s+/g, '')) {
+    if (regenerated.replaceAll(/\s+/g, '') !== body.replaceAll(/\s+/g, '')) {
       return null
     }
     return cfg
@@ -272,7 +314,8 @@ export function evalExprLocally(
   exprStr: string,
   promptTokens: number,
   completionTokens: number,
-  extraTokenValues: ExtraTokenValues
+  extraTokenValues: ExtraTokenValues,
+  evaluationTime = new Date()
 ): EvalResult {
   try {
     if (!exprStr || !exprStr.trim()) {
@@ -288,6 +331,66 @@ export function evalExprLocally(
     const cacheCreate1hTokens = extraTokenValues.cacheCreate1hTokens || 0
     const len =
       promptTokens + cacheReadTokens + cacheCreateTokens + cacheCreate1hTokens
+    const timePartsCache = new Map<
+      string,
+      {
+        hour: number
+        minute: number
+        weekday: number
+        month: number
+        day: number
+      }
+    >()
+    const getTimeParts = (timezone: string) => {
+      const normalizedTimezone = timezone.trim() || 'UTC'
+      const cached = timePartsCache.get(normalizedTimezone)
+      if (cached) return cached
+      let parts: Intl.DateTimeFormatPart[]
+      try {
+        parts = new Intl.DateTimeFormat('en-US', {
+          timeZone: normalizedTimezone,
+          hour: '2-digit',
+          minute: '2-digit',
+          hourCycle: 'h23',
+          weekday: 'short',
+          month: '2-digit',
+          day: '2-digit',
+        }).formatToParts(evaluationTime)
+      } catch {
+        parts = new Intl.DateTimeFormat('en-US', {
+          timeZone: 'UTC',
+          hour: '2-digit',
+          minute: '2-digit',
+          hourCycle: 'h23',
+          weekday: 'short',
+          month: '2-digit',
+          day: '2-digit',
+        }).formatToParts(evaluationTime)
+      }
+      const values = Object.fromEntries(
+        parts
+          .filter((part) => part.type !== 'literal')
+          .map((part) => [part.type, part.value])
+      ) as Record<string, string>
+      const weekdayMap: Record<string, number> = {
+        Sun: 0,
+        Mon: 1,
+        Tue: 2,
+        Wed: 3,
+        Thu: 4,
+        Fri: 5,
+        Sat: 6,
+      }
+      const result = {
+        hour: Number(values.hour),
+        minute: Number(values.minute),
+        weekday: weekdayMap[values.weekday] ?? 0,
+        month: Number(values.month),
+        day: Number(values.day),
+      }
+      timePartsCache.set(normalizedTimezone, result)
+      return result
+    }
     const env: Record<string, unknown> = {
       p: promptTokens,
       c: completionTokens,
@@ -298,6 +401,11 @@ export function evalExprLocally(
       abs: Math.abs,
       ceil: Math.ceil,
       floor: Math.floor,
+      hour: (timezone: string) => getTimeParts(timezone).hour,
+      minute: (timezone: string) => getTimeParts(timezone).minute,
+      weekday: (timezone: string) => getTimeParts(timezone).weekday,
+      month: (timezone: string) => getTimeParts(timezone).month,
+      day: (timezone: string) => getTimeParts(timezone).day,
     }
     for (const field of ESTIMATOR_VARS) {
       env[field.var] = extraTokenValues[field.stateKey] || 0
