@@ -128,7 +128,9 @@ function capabilitySummary(capability: VideoModelCapability): string {
       : `${capability.min_duration_seconds}-${capability.max_duration_seconds}s`
   }
   const parts = [
-    capability.resolutions.join(', '),
+    capability.resolutions?.length
+      ? capability.resolutions.join(', ')
+      : null,
     capability.ratios?.length ? capability.ratios.join(', ') : null,
     durationSummary,
   ]
