@@ -93,6 +93,7 @@ func VideoProxy(c *gin.Context) {
 
 	var videoURL string
 	var videoAPIKey string
+	var videoAuthorization string
 	proxy := channelSetting.Proxy
 	taskClient := service.GetSSRFProtectedHTTPClient()
 	videoClient := service.GetVideoContentHTTPClient()
@@ -133,6 +134,9 @@ func VideoProxy(c *gin.Context) {
 		upstreamKey := task.PrivateData.Key
 		if upstreamKey == "" {
 			upstreamKey = channel.Key
+		}
+		if task.GetVideoProtocol() == dto.VideoProtocolLingganya {
+			videoAuthorization = "Bearer " + upstreamKey
 		}
 		videoURL, err = fetchOpenAIVideoTaskURL(c, taskClient, baseURL, task.GetUpstreamTaskID(), upstreamKey, proxy, task.GetVideoProtocol())
 		if err != nil {
@@ -204,6 +208,9 @@ func VideoProxy(c *gin.Context) {
 	}
 	if videoAPIKey != "" {
 		req.Header.Set("x-goog-api-key", videoAPIKey)
+	}
+	if videoAuthorization != "" {
+		req.Header.Set("Authorization", videoAuthorization)
 	}
 	if rangeHeader := c.GetHeader("Range"); rangeHeader != "" {
 		req.Header.Set("Range", rangeHeader)

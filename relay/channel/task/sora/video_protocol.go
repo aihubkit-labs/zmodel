@@ -38,6 +38,10 @@ var extendedVideoRequestFields = map[string]struct{}{
 	"generate_audio": {}, "watermark": {}, "first_image": {}, "last_image": {}, "seed": {},
 }
 
+var lingganyaVideoAliasFields = map[string]struct{}{
+	"image": {}, "images": {}, "input_reference": {}, "size": {},
+}
+
 var extendedCommonVideoRequestFields = map[string]struct{}{
 	"prompt": {}, "model": {},
 	"referenceImages": {}, "referenceVideos": {}, "referenceAudios": {},
@@ -169,6 +173,8 @@ func videoProtocolProviderNamespace(protocol dto.VideoProtocol) string {
 		return "globalaiopc"
 	case dto.VideoProtocolAgnesVideoV2:
 		return "agnes"
+	case dto.VideoProtocolLingganya:
+		return "lingganya"
 	default:
 		return ""
 	}
@@ -219,6 +225,9 @@ func validateNestedVideoProviderOption(raw json.RawMessage, rootPath string) *dt
 }
 
 func normalizeVideoProtocolRequest(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskError {
+	if info.ChannelSetting.VideoProtocol == dto.VideoProtocolLingganya {
+		return normalizeLingganyaVideoRequest(c, info)
+	}
 	if usesExtendedVideoModelCapabilities(info.ChannelSetting.VideoProtocol) {
 		req, err := relaycommon.GetTaskRequest(c)
 		if err != nil {
@@ -240,13 +249,13 @@ func normalizeVideoProtocolRequest(c *gin.Context, info *relaycommon.RelayInfo) 
 	}
 	if strings.TrimSpace(req.Image) != "" || len(req.Images) > 0 || strings.TrimSpace(req.InputReference) != "" {
 		return videoRequestError(
-			"Agnes requests must use referenceImages instead of image, images, or input_reference",
+			"requests must use referenceImages instead of image, images, or input_reference",
 			"invalid_reference_images",
 		)
 	}
 	if len(req.ReferenceImages) > 1 {
 		return videoRequestError(
-			"Agnes supports at most one reference image",
+			"this video model supports at most one reference image",
 			"invalid_reference_images",
 		)
 	}
@@ -257,7 +266,7 @@ func normalizeVideoProtocolRequest(c *gin.Context, info *relaycommon.RelayInfo) 
 			(!strings.EqualFold(parsedURL.Scheme, "http") && !strings.EqualFold(parsedURL.Scheme, "https")) ||
 			parsedURL.Host == "" {
 			return videoRequestError(
-				"Agnes referenceImages must contain a valid HTTP or HTTPS URL that Agnes can access",
+				"referenceImages must contain a valid HTTP or HTTPS URL that the provider can access",
 				"invalid_reference_images",
 			)
 		}
@@ -280,16 +289,16 @@ func normalizeVideoProtocolRequest(c *gin.Context, info *relaycommon.RelayInfo) 
 	}
 	if req.Duration < 1 || req.Duration > agnesMaxDurationSeconds {
 		return videoRequestError(
-			fmt.Sprintf("Agnes duration must be between 1 and %d seconds", agnesMaxDurationSeconds),
+			fmt.Sprintf("duration must be between 1 and %d seconds", agnesMaxDurationSeconds),
 			"invalid_seconds",
 		)
 	}
 	if strings.TrimSpace(req.Size) != "" {
-		return videoRequestError("Agnes requests must use resolution and ratio instead of size", "invalid_size")
+		return videoRequestError("requests must use resolution and ratio instead of size", "invalid_size")
 	}
 	resolution := strings.ToLower(strings.TrimSpace(req.Resolution))
 	if resolution == "" {
-		return videoRequestError("Agnes resolution is required", "invalid_resolution")
+		return videoRequestError("resolution is required", "invalid_resolution")
 	}
 	ratio := strings.TrimSpace(req.Ratio)
 	if ratio == "" {
@@ -297,9 +306,9 @@ func normalizeVideoProtocolRequest(c *gin.Context, info *relaycommon.RelayInfo) 
 	}
 	if _, _, ok := agnesVideoDimensions(resolution, ratio); !ok {
 		if _, supportedResolution := agnesResolutionPixels(resolution); !supportedResolution {
-			return videoRequestError("Agnes resolution must use a numeric value ending in p, such as 720p", "invalid_resolution")
+			return videoRequestError("resolution must use a numeric value ending in p, such as 720p", "invalid_resolution")
 		}
-		return videoRequestError("Agnes ratio must be one of 16:9, 9:16, 1:1, 4:3, or 3:4", "invalid_ratio")
+		return videoRequestError("ratio must be one of 16:9, 9:16, 1:1, 4:3, or 3:4", "invalid_ratio")
 	}
 	if resolution == "1080p" && req.Duration > agnes1080pMaxDurationSeconds {
 		req.Duration = agnes1080pMaxDurationSeconds
@@ -309,6 +318,118 @@ func normalizeVideoProtocolRequest(c *gin.Context, info *relaycommon.RelayInfo) 
 	req.Seconds = ""
 	c.Set("task_request", req)
 	return nil
+}
+
+func normalizeLingganyaVideoRequest(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskError {
+	req, err := relaycommon.GetTaskRequest(c)
+	if err != nil {
+		return videoRequestError(err.Error(), "invalid_request")
+	}
+
+	resolution := strings.ToLower(strings.TrimSpace(req.Resolution))
+	size := strings.ToLower(strings.TrimSpace(req.Size))
+	ratio := strings.ToLower(strings.TrimSpace(req.Ratio))
+	if size != "" && ratio != "" && !videoSizesEquivalent(size, ratio) {
+		return videoParameterError(
+			"size and ratio describe conflicting video dimensions",
+			"size_conflict",
+			dto.VideoParameterErrorData{Parameter: "ratio", Received: ratio, RelatedParameters: []string{"size", "ratio"}},
+		)
+	}
+	if resolution != "" && (strings.Contains(resolution, "x") || strings.Contains(resolution, ":")) {
+		candidate := size
+		if candidate == "" {
+			candidate = ratio
+		}
+		if candidate != "" && !videoSizesEquivalent(resolution, candidate) {
+			return videoParameterError(
+				"resolution and size describe conflicting video dimensions",
+				"size_conflict",
+				dto.VideoParameterErrorData{Parameter: "size", Received: candidate, RelatedParameters: []string{"resolution", "size", "ratio"}},
+			)
+		}
+		if size == "" {
+			size = resolution
+		}
+		resolution = ""
+	}
+	if size == "" {
+		size = ratio
+	}
+	capabilityModel := strings.TrimSpace(info.UpstreamModelName)
+	if capabilityModel == "" {
+		capabilityModel = req.Model
+	}
+	capability, hasCapability := info.ChannelSetting.GetVideoModelCapability(capabilityModel)
+	if resolution == "" && hasCapability && len(capability.Resolutions) > 0 {
+		resolution = strings.ToLower(strings.TrimSpace(capability.Resolutions[0]))
+	}
+	req.Resolution = resolution
+	req.Size = size
+	if ratio == "" {
+		ratio = size
+	}
+	req.Ratio = ratio
+
+	if req.Seconds != "" {
+		seconds, parseErr := strconv.Atoi(req.Seconds)
+		if parseErr != nil {
+			return videoParameterError("seconds must be an integer", "invalid_seconds", dto.VideoParameterErrorData{Parameter: "seconds", Received: req.Seconds})
+		}
+		if req.Duration > 0 && req.Duration != seconds {
+			return videoParameterError("duration and seconds must match when both are provided", "duration_conflict", dto.VideoParameterErrorData{Parameter: "seconds", Received: req.Seconds, RelatedParameters: []string{"duration"}})
+		}
+		req.Duration = seconds
+	}
+	if req.Duration == 0 {
+		if hasCapability && capability.DefaultDurationSeconds != nil {
+			req.Duration = *capability.DefaultDurationSeconds
+		}
+	}
+	req.Seconds = ""
+
+	references := make([]string, 0, len(req.ReferenceImages)+len(req.Images)+2)
+	seenReferences := make(map[string]struct{}, cap(references))
+	aliasReferences := append(append([]string(nil), req.ReferenceImages...), req.Images...)
+	aliasReferences = append(aliasReferences, req.Image, req.InputReference)
+	for _, reference := range aliasReferences {
+		reference = strings.TrimSpace(reference)
+		if reference == "" {
+			continue
+		}
+		if _, exists := seenReferences[reference]; exists {
+			continue
+		}
+		seenReferences[reference] = struct{}{}
+		references = append(references, reference)
+	}
+	req.ReferenceImages = references
+	req.Image = ""
+	req.Images = nil
+	req.InputReference = ""
+	c.Set("task_request", req)
+	return nil
+}
+
+func videoSizesEquivalent(left, right string) bool {
+	leftWidth, leftHeight, leftOK := parseVideoSize(left)
+	rightWidth, rightHeight, rightOK := parseVideoSize(right)
+	if !leftOK || !rightOK {
+		return strings.EqualFold(strings.TrimSpace(left), strings.TrimSpace(right))
+	}
+	return leftWidth*rightHeight == rightWidth*leftHeight
+}
+
+func parseVideoSize(value string) (int, int, bool) {
+	parts := strings.FieldsFunc(strings.ToLower(strings.TrimSpace(value)), func(r rune) bool {
+		return r == 'x' || r == ':'
+	})
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	width, widthErr := strconv.Atoi(strings.TrimSpace(parts[0]))
+	height, heightErr := strconv.Atoi(strings.TrimSpace(parts[1]))
+	return width, height, widthErr == nil && heightErr == nil && width > 0 && height > 0
 }
 
 func validateVideoModelCapability(info *relaycommon.RelayInfo, req relaycommon.TaskSubmitReq) *dto.TaskError {
@@ -359,6 +480,26 @@ func validateVideoModelCapability(info *relaycommon.RelayInfo, req relaycommon.T
 			info.VideoMinDurationSeconds = *capability.MinDurationSeconds
 			info.VideoMaxDurationSeconds = *capability.MaxDurationSeconds
 			info.VideoDurationRequired = *capability.DurationRequired
+			if len(capability.AllowedDurationSeconds) > 0 {
+				duration := req.Duration
+				if duration == 0 && strings.TrimSpace(req.Seconds) != "" {
+					duration, _ = strconv.Atoi(req.Seconds)
+				}
+				allowed := false
+				allowedValues := make([]string, 0, len(capability.AllowedDurationSeconds))
+				for _, allowedDuration := range capability.AllowedDurationSeconds {
+					allowedValues = append(allowedValues, strconv.Itoa(allowedDuration))
+					if duration == allowedDuration {
+						allowed = true
+					}
+				}
+				if duration > 0 && !allowed {
+					return videoAllowedValuesError(
+						fmt.Sprintf("video model %q does not support duration %d; supported values: %s", publicModelName, duration, strings.Join(allowedValues, ", ")),
+						"invalid_seconds", "duration", duration, allowedValues, false,
+					)
+				}
+			}
 		} else if req.Duration != 0 || strings.TrimSpace(req.Seconds) != "" {
 			return videoParameterError(
 				"duration is not supported by this video model",
@@ -368,7 +509,14 @@ func validateVideoModelCapability(info *relaycommon.RelayInfo, req relaycommon.T
 		}
 	}
 	resolution := strings.ToLower(strings.TrimSpace(req.Resolution))
-	if resolution == "" {
+	resolutionSupportedByModel := len(capability.Resolutions) > 0
+	if !resolutionSupportedByModel && resolution != "" {
+		return videoAllowedValuesError(
+			fmt.Sprintf("video model %q does not support resolution", publicModelName),
+			"invalid_resolution", "resolution", req.Resolution, nil, false,
+		)
+	}
+	if resolutionSupportedByModel && resolution == "" {
 		return videoAllowedValuesError(
 			fmt.Sprintf("resolution is required for video model %q; supported values: %s", publicModelName, strings.Join(capability.Resolutions, ", ")),
 			"invalid_resolution",
@@ -378,22 +526,20 @@ func validateVideoModelCapability(info *relaycommon.RelayInfo, req relaycommon.T
 			true,
 		)
 	}
-	resolutionSupported := false
-	for _, configuredResolution := range capability.Resolutions {
-		if strings.ToLower(strings.TrimSpace(configuredResolution)) == resolution {
-			resolutionSupported = true
-			break
+	if resolutionSupportedByModel {
+		resolutionSupported := false
+		for _, configuredResolution := range capability.Resolutions {
+			if strings.ToLower(strings.TrimSpace(configuredResolution)) == resolution {
+				resolutionSupported = true
+				break
+			}
 		}
-	}
-	if !resolutionSupported {
-		return videoAllowedValuesError(
-			fmt.Sprintf("video model %q does not support resolution %q; supported values: %s", publicModelName, req.Resolution, strings.Join(capability.Resolutions, ", ")),
-			"invalid_resolution",
-			"resolution",
-			req.Resolution,
-			capability.Resolutions,
-			false,
-		)
+		if !resolutionSupported {
+			return videoAllowedValuesError(
+				fmt.Sprintf("video model %q does not support resolution %q; supported values: %s", publicModelName, req.Resolution, strings.Join(capability.Resolutions, ", ")),
+				"invalid_resolution", "resolution", req.Resolution, capability.Resolutions, false,
+			)
+		}
 	}
 	info.VideoAllowedResolutions = append([]string(nil), capability.Resolutions...)
 	if usesExtendedVideoModelCapabilities(info.ChannelSetting.VideoProtocol) {
@@ -425,8 +571,31 @@ func validateVideoModelCapability(info *relaycommon.RelayInfo, req relaycommon.T
 				false,
 			)
 		}
+		if ratio != "" && len(capability.SizeMappings) > 0 && resolution != "" {
+			mappingKey := resolution + "|" + ratio
+			if _, mapped := videoCapabilityMapping(capability.SizeMappings, mappingKey); !mapped {
+				return videoParameterError(
+					fmt.Sprintf("video model %q does not support resolution %q with ratio %q", publicModelName, resolution, ratio),
+					"invalid_ratio",
+					dto.VideoParameterErrorData{
+						Parameter:         "ratio",
+						Received:          req.Ratio,
+						RelatedParameters: []string{"resolution", "ratio"},
+					},
+				)
+			}
+		}
 	}
 
+	referenceImageCount := len(req.ReferenceImages) + req.ReferenceImageFiles
+	if capability.FramesAsReferenceImages != nil && *capability.FramesAsReferenceImages {
+		if req.FirstImage != "" || req.FirstImageFile {
+			referenceImageCount++
+		}
+		if req.LastImage != "" || req.LastImageFile {
+			referenceImageCount++
+		}
+	}
 	for _, media := range []struct {
 		name    string
 		count   int
@@ -434,7 +603,7 @@ func validateVideoModelCapability(info *relaycommon.RelayInfo, req relaycommon.T
 		maximum *int
 		code    string
 	}{
-		{name: "reference images", count: len(req.ReferenceImages) + req.ReferenceImageFiles, minimum: capability.MinReferenceImages, maximum: capability.MaxReferenceImages, code: "invalid_reference_images"},
+		{name: "reference images", count: referenceImageCount, minimum: capability.MinReferenceImages, maximum: capability.MaxReferenceImages, code: "invalid_reference_images"},
 		{name: "reference videos", count: len(req.ReferenceVideos) + req.ReferenceVideoFiles, minimum: capability.MinReferenceVideos, maximum: capability.MaxReferenceVideos, code: "invalid_reference_videos"},
 		{name: "reference audios", count: len(req.ReferenceAudios) + req.ReferenceAudioFiles, minimum: capability.MinReferenceAudios, maximum: capability.MaxReferenceAudios, code: "invalid_reference_audios"},
 	} {
@@ -470,7 +639,7 @@ func validateVideoModelCapability(info *relaycommon.RelayInfo, req relaycommon.T
 }
 
 func usesExtendedVideoModelCapabilities(protocol dto.VideoProtocol) bool {
-	return protocol == dto.VideoProtocolMegabyAI || protocol == dto.VideoProtocolGlobalAIOpc
+	return protocol == dto.VideoProtocolMegabyAI || protocol == dto.VideoProtocolGlobalAIOpc || protocol == dto.VideoProtocolLingganya
 }
 
 func videoValueSupported(configured []string, value string) bool {
@@ -586,6 +755,12 @@ func validateExtendedVideoRequest(publicModelName, capabilityModelName string, c
 		return videoParameterError("referenceImages cannot be combined with first_image or last_image", "invalid_reference_images", dto.VideoParameterErrorData{Parameter: "reference_images", Received: referenceImageCount, RelatedParameters: []string{"first_image", "last_image"}})
 	}
 	referenceAudioCount := len(req.ReferenceAudios) + req.ReferenceAudioFiles
+	if capability.MaxReferenceMediaCount != nil && referenceImageCount+referenceVideoCount+referenceAudioCount > *capability.MaxReferenceMediaCount {
+		return videoParameterError("reference media exceeds the maximum total count", "invalid_reference_media", dto.VideoParameterErrorData{Parameter: "reference_media", Received: referenceImageCount + referenceVideoCount + referenceAudioCount, AllowedValues: []any{*capability.MaxReferenceMediaCount}})
+	}
+	if referenceImageCount == 0 && referenceVideoCount+referenceAudioCount > 0 && capability.ReferenceMediaRequiresVisualReference != nil && *capability.ReferenceMediaRequiresVisualReference {
+		return videoParameterError("reference videos and audios require at least one image", "invalid_reference_images", dto.VideoParameterErrorData{Parameter: "reference_images", Received: referenceImageCount, RelatedParameters: []string{"reference_videos", "reference_audios"}})
+	}
 	if referenceAudioCount > 0 && referenceImageCount+referenceVideoCount == 0 && *capability.AudioReferenceRequiresVisualReference {
 		return videoParameterError("referenceAudios require at least one visual reference", "invalid_reference_audios", dto.VideoParameterErrorData{Parameter: "reference_audios", Received: referenceAudioCount, RelatedParameters: []string{"reference_images", "reference_videos"}})
 	}
@@ -612,6 +787,73 @@ func isPublicVideoReferenceURL(value string) bool {
 }
 
 func applyVideoProtocolRequest(protocol dto.VideoProtocol, capability dto.VideoModelCapability, request relaycommon.TaskSubmitReq, fields map[string]json.RawMessage) error {
+	if protocol == dto.VideoProtocolLingganya {
+		for _, name := range []string{
+			"duration", "seconds", "resolution", "ratio", "size", "image", "images", "input_reference",
+			"referenceImages", "referenceVideos", "referenceAudios", "first_image", "last_image",
+			"generate_audio", "watermark", "seed", "provider_options",
+		} {
+			delete(fields, name)
+		}
+		mappedFields := map[string]any{"seconds": request.Duration}
+		upstreamResolution := strings.TrimSpace(request.Resolution)
+		if mappedResolution, ok := videoCapabilityMapping(capability.ResolutionMappings, upstreamResolution); ok {
+			upstreamResolution = mappedResolution
+		}
+		if upstreamResolution != "" {
+			mappedFields["resolution"] = upstreamResolution
+		}
+		publicRatio := strings.TrimSpace(request.Ratio)
+		if publicRatio == "" {
+			publicRatio = strings.TrimSpace(request.Size)
+		}
+		upstreamSize := publicRatio
+		mappingKey := strings.TrimSpace(request.Resolution) + "|" + publicRatio
+		if mappedSize, ok := videoCapabilityMapping(capability.SizeMappings, mappingKey); ok {
+			upstreamSize = mappedSize
+		}
+		if upstreamSize != "" {
+			mappedFields["size"] = upstreamSize
+		}
+		images := append([]string(nil), request.ReferenceImages...)
+		if strings.TrimSpace(request.FirstImage) != "" {
+			images = append(images, strings.TrimSpace(request.FirstImage))
+		}
+		if strings.TrimSpace(request.LastImage) != "" {
+			images = append(images, strings.TrimSpace(request.LastImage))
+		}
+		if len(images) > 0 {
+			mappedFields["images"] = images
+		}
+		extra := map[string]any{}
+		if len(request.ReferenceVideos) > 0 {
+			extra["reference_videos"] = request.ReferenceVideos
+		}
+		if len(request.ReferenceAudios) > 0 {
+			extra["reference_audios"] = request.ReferenceAudios
+		}
+		if len(extra) > 0 {
+			mappedFields["extra"] = extra
+		}
+		for name, value := range capability.FixedParameters {
+			mappedFields[name] = value
+		}
+		for _, name := range capability.OmitParameters {
+			for existingName := range mappedFields {
+				if strings.EqualFold(existingName, strings.TrimSpace(name)) {
+					delete(mappedFields, existingName)
+				}
+			}
+		}
+		for name, value := range mappedFields {
+			encoded, err := common.Marshal(value)
+			if err != nil {
+				return err
+			}
+			fields[name] = encoded
+		}
+		return nil
+	}
 	if usesExtendedVideoModelCapabilities(protocol) {
 		globalAIOpcRequest := dto.IsGlobalAIOpcVideoProtocol(protocol)
 		if globalAIOpcRequest {
@@ -744,7 +986,7 @@ func applyVideoProtocolRequest(protocol dto.VideoProtocol, capability dto.VideoM
 	}
 	width, height, ok := agnesVideoDimensions(request.Resolution, request.Ratio)
 	if !ok {
-		return fmt.Errorf("invalid Agnes resolution or ratio")
+		return fmt.Errorf("invalid resolution or ratio")
 	}
 	numFrames, frameRate := agnesVideoFrameParameters(request.Duration)
 	numFramesJSON, err := common.Marshal(numFrames)
@@ -768,6 +1010,15 @@ func applyVideoProtocolRequest(protocol dto.VideoProtocol, capability dto.VideoM
 	fields["width"] = widthJSON
 	fields["height"] = heightJSON
 	return nil
+}
+
+func videoCapabilityMapping(mappings map[string]string, publicValue string) (string, bool) {
+	for configuredValue, upstreamValue := range mappings {
+		if strings.EqualFold(strings.TrimSpace(configuredValue), strings.TrimSpace(publicValue)) {
+			return strings.TrimSpace(upstreamValue), true
+		}
+	}
+	return "", false
 }
 
 func agnesVideoFrameParameters(duration int) (int, int) {
@@ -816,7 +1067,7 @@ func agnesResolutionPixels(resolution string) (int, bool) {
 }
 
 func validateVideoProtocolMultipartFields(c *gin.Context, protocol dto.VideoProtocol) *dto.TaskError {
-	if dto.IsGlobalAIOpcVideoProtocol(protocol) {
+	if dto.IsGlobalAIOpcVideoProtocol(protocol) || protocol == dto.VideoProtocolLingganya {
 		return videoRequestError("this video model requires an application/json request with public media URLs", "unsupported_content_type")
 	}
 	form, err := common.ParseMultipartFormReusable(c)
@@ -855,6 +1106,12 @@ func videoRequestFieldAllowed(protocol dto.VideoProtocol, name string, file bool
 		if _, ok := extendedCommonVideoRequestFields[name]; ok {
 			return true
 		}
+		if protocol == dto.VideoProtocolLingganya {
+			_, ok := lingganyaVideoAliasFields[name]
+			if ok {
+				return true
+			}
+		}
 		_, ok := extendedVideoRequestFields[name]
 		return ok
 	}
@@ -873,7 +1130,7 @@ func validateAgnesMultipartReferenceInput(c *gin.Context) *dto.TaskError {
 	for _, name := range []string{"referenceImages", "image", "images", "input_reference"} {
 		if len(form.Value[name]) > 0 || len(form.File[name]) > 0 {
 			return videoRequestError(
-				"Agnes reference images require an application/json request with referenceImages containing one HTTP or HTTPS URL",
+				"reference images require an application/json request with referenceImages containing one HTTP or HTTPS URL",
 				"invalid_reference_images",
 			)
 		}
@@ -892,6 +1149,20 @@ func mergeVideoProviderOptions(c *gin.Context, fields map[string]json.RawMessage
 	}
 	options, ok := value.(map[string]json.RawMessage)
 	if !ok {
+		return
+	}
+	if protocol == dto.VideoProtocolLingganya {
+		extra := make(map[string]json.RawMessage, len(options))
+		if existing, exists := fields["extra"]; exists {
+			_ = common.Unmarshal(existing, &extra)
+		}
+		for name, raw := range options {
+			extra[name] = raw
+		}
+		encoded, err := common.Marshal(extra)
+		if err == nil {
+			fields["extra"] = encoded
+		}
 		return
 	}
 	for name, raw := range options {

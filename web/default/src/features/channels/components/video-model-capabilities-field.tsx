@@ -81,7 +81,11 @@ type VideoModelCapabilitiesFieldProps = {
   readOnly?: boolean
 }
 
-const EXTENDED_PROTOCOLS = new Set(['megabyai', 'globalaiopc'])
+const EXTENDED_PROTOCOLS = new Set([
+  'megabyai',
+  'globalaiopc',
+  'lingganya_video',
+])
 const REFERENCE_MEDIA_LABELS = {
   images: 'Reference images',
   videos: 'Reference videos',
@@ -725,6 +729,57 @@ export function VideoModelCapabilitiesField(
                             )}
                           />
                         ))}
+                        <FormField
+                          control={props.control}
+                          name={`video_model_capabilities.${index}.allowed_duration_seconds`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                {t('Allowed durations (seconds)')}
+                              </FormLabel>
+                              <FormControl>
+                                <TagInput
+                                  disabled={props.readOnly}
+                                  value={(field.value || []).map(String)}
+                                  placeholder={t('For example: 4, 8, 12')}
+                                  onChange={(values) =>
+                                    field.onChange(values.map(Number))
+                                  }
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={props.control}
+                          name={`video_model_capabilities.${index}.default_duration_seconds`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                {t('Default duration (seconds)')}
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  disabled={props.readOnly}
+                                  type='number'
+                                  min={1}
+                                  max={MAX_VIDEO_DURATION_SECONDS}
+                                  step={1}
+                                  value={field.value ?? ''}
+                                  onChange={(event) =>
+                                    field.onChange(
+                                      event.target.value === ''
+                                        ? undefined
+                                        : event.target.valueAsNumber
+                                    )
+                                  }
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
                       </div>
                     ) : null}
 
@@ -808,6 +863,28 @@ export function VideoModelCapabilitiesField(
                             </FormItem>
                           ))}
                         </div>
+                        <FormField
+                          control={props.control}
+                          name={`video_model_capabilities.${index}.size_mappings`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                {t('Upstream size mappings')}
+                              </FormLabel>
+                              <FormControl>
+                                <JsonObjectField
+                                  value={field.value}
+                                  onChange={field.onChange}
+                                  placeholder='{"720p|16:9": "1280x720"}'
+                                  objectRequiredMessage={t('Invalid JSON')}
+                                  invalidJsonMessage={t('Invalid JSON')}
+                                  disabled={props.readOnly}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
                         <div className='grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2'>
                           {(
                             [

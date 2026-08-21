@@ -121,7 +121,8 @@ func DeleteVideoModelCapabilityTemplate(id int) error {
 }
 
 func SeedVideoModelCapabilityTemplates() error {
-	for _, seed := range builtInGlobalAIOpcCapabilityTemplates() {
+	seeds := append(builtInGlobalAIOpcCapabilityTemplates(), builtInLingganyaCapabilityTemplates()...)
+	for _, seed := range seeds {
 		settings := dto.ChannelSettings{
 			VideoProtocol:          seed.VideoProtocol,
 			VideoModelCapabilities: map[string]dto.VideoModelCapability{seed.ModelID: seed.Capability},
@@ -175,6 +176,112 @@ func SeedVideoModelCapabilityTemplates() error {
 		}
 	}
 	return nil
+}
+
+func builtInLingganyaCapabilityTemplates() []videoCapabilityTemplateSeed {
+	const sourceURL = "https://lingganya.apifox.cn/9147007m0"
+	const sd20VIPSourceURL = "https://lingganya.apifox.cn/9229531m0"
+	return []videoCapabilityTemplateSeed{
+		{VideoProtocol: dto.VideoProtocolLingganya, ModelID: "sora-2", Name: "Sora 2", SourceURL: sourceURL, Capability: lingganyaVideoCapability(nil, []string{"16:9", "9:16"}, nil, []int{4, 8, 12}, 4, 0, 1, true)},
+		{VideoProtocol: dto.VideoProtocolLingganya, ModelID: "sora-2-pro", Name: "Sora 2 Pro", SourceURL: sourceURL, Capability: lingganyaVideoCapability(nil, []string{"16:9", "9:16"}, nil, []int{12}, 12, 0, 1, true)},
+		{VideoProtocol: dto.VideoProtocolLingganya, ModelID: "sora-2-vip", Name: "Sora 2 VIP", SourceURL: sourceURL, Capability: lingganyaVideoCapability(nil, []string{"16:9", "9:16", "19:6"}, nil, []int{12}, 12, 0, 1, true)},
+		{VideoProtocol: dto.VideoProtocolLingganya, ModelID: "gemini_omni_flash", Name: "Gemini Omni Flash", SourceURL: sourceURL, Capability: lingganyaVideoCapability(nil, []string{"16:9", "9:16"}, nil, []int{10}, 10, 0, 7, true)},
+		{VideoProtocol: dto.VideoProtocolLingganya, ModelID: "gemini-omni-flash-special", Name: "Gemini Omni Flash Special", SourceURL: sourceURL, Capability: lingganyaVideoCapability(nil, []string{"16:9", "9:16"}, nil, []int{10}, 10, 0, 7, true)},
+		{VideoProtocol: dto.VideoProtocolLingganya, ModelID: "veo_3_1_fast", Name: "Veo 3.1 Fast", SourceURL: sourceURL, Capability: lingganyaVideoCapability(nil, []string{"16:9", "9:16"}, nil, []int{8}, 8, 0, 3, true)},
+		{VideoProtocol: dto.VideoProtocolLingganya, ModelID: "veo_3_1_fast_hd", Name: "Veo 3.1 Fast HD", SourceURL: sourceURL, Capability: lingganyaVideoCapability(nil, []string{"16:9", "9:16"}, nil, []int{8}, 8, 0, 3, true)},
+		{VideoProtocol: dto.VideoProtocolLingganya, ModelID: "veo_3_1_fast_fl_hd", Name: "Veo 3.1 Fast First/Last Frame HD", SourceURL: sourceURL, Capability: lingganyaVideoCapability(nil, []string{"16:9", "9:16"}, nil, []int{8}, 8, 1, 2, true)},
+		{VideoProtocol: dto.VideoProtocolLingganya, ModelID: "grok-imagine-video-1.5-preview", Name: "Grok Imagine Video 1.5 Preview", SourceURL: sourceURL, Capability: lingganyaVideoCapability([]string{"720p", "1080p"}, []string{"16:9", "9:16", "1:1"}, map[string]string{"720p|16:9": "1280x720", "720p|9:16": "720x1280", "720p|1:1": "1024x1024", "1080p|16:9": "1792x1024", "1080p|9:16": "1024x1792"}, []int{10, 15}, 15, 1, 1, true)},
+		{VideoProtocol: dto.VideoProtocolLingganya, ModelID: "grok-image-video-special", Name: "Grok Image Video Special", SourceURL: sourceURL, Capability: lingganyaVideoCapability(nil, []string{"16:9", "9:16", "1:1"}, nil, []int{10, 15}, 15, 0, 7, true)},
+		{VideoProtocol: dto.VideoProtocolLingganya, ModelID: "grok-video-1.5-special", Name: "Grok Video 1.5 Special", SourceURL: sourceURL, Capability: lingganyaVideoCapability(nil, []string{"16:9", "9:16", "1:1"}, nil, []int{10, 15}, 15, 1, 1, true)},
+		{VideoProtocol: dto.VideoProtocolLingganya, ModelID: "sd-2.0-vip", Name: "Seedance 2.0 VIP", SourceURL: sd20VIPSourceURL, Capability: lingganyaSD20VIPCapability()},
+	}
+}
+
+func lingganyaSD20VIPCapability() dto.VideoModelCapability {
+	falseValue := false
+	trueValue := true
+	minDuration, maxDuration, defaultDuration := 4, 15, 6
+	return dto.VideoModelCapability{
+		Resolutions:                           []string{"720p"},
+		Ratios:                                []string{"16:9", "9:16"},
+		ResolutionMappings:                    map[string]string{},
+		SizeMappings:                          nil,
+		RatioRequired:                         &falseValue,
+		MinReferenceImages:                    common.GetPointer(0),
+		MaxReferenceImages:                    common.GetPointer(9),
+		MinReferenceVideos:                    common.GetPointer(0),
+		MaxReferenceVideos:                    common.GetPointer(3),
+		MinReferenceAudios:                    common.GetPointer(0),
+		MaxReferenceAudios:                    common.GetPointer(3),
+		MaxReferenceMediaCount:                common.GetPointer(12),
+		SupportsDuration:                      &trueValue,
+		DurationRequired:                      &falseValue,
+		MinDurationSeconds:                    &minDuration,
+		MaxDurationSeconds:                    &maxDuration,
+		DefaultDurationSeconds:                &defaultDuration,
+		SupportsGenerateAudio:                 &falseValue,
+		GenerateAudioRequired:                 &falseValue,
+		SupportsFirstFrame:                    &falseValue,
+		FirstFrameRequired:                    &falseValue,
+		SupportsLastFrame:                     &falseValue,
+		LastFrameRequired:                     &falseValue,
+		LastFrameRequiresFirstFrame:           &falseValue,
+		ReferenceImagesIncompatibleWithFrames: &falseValue,
+		AudioReferenceRequiresVisualReference: &trueValue,
+		ReferenceMediaRequiresVisualReference: &trueValue,
+		ReferenceMediaIncompatibleWithFrames:  &falseValue,
+		SupportsSeed:                          &falseValue,
+		SupportsWatermark:                     &falseValue,
+		AutoReferenceMode:                     &falseValue,
+		FramesAsReferenceImages:               &falseValue,
+		FixedParameters:                       map[string]any{},
+	}
+}
+
+func lingganyaVideoCapability(resolutions, ratios []string, sizeMappings map[string]string, durations []int, defaultDuration, minImages, maxImages int, omitResolution bool) dto.VideoModelCapability {
+	falseValue := false
+	trueValue := true
+	minDuration := durations[0]
+	maxDuration := durations[len(durations)-1]
+	supportsLastFrame := maxImages > 1
+	capability := dto.VideoModelCapability{
+		Resolutions:                           append([]string(nil), resolutions...),
+		Ratios:                                append([]string(nil), ratios...),
+		ResolutionMappings:                    map[string]string{},
+		SizeMappings:                          sizeMappings,
+		RatioRequired:                         &falseValue,
+		MinReferenceImages:                    common.GetPointer(minImages),
+		MaxReferenceImages:                    common.GetPointer(maxImages),
+		MinReferenceVideos:                    common.GetPointer(0),
+		MaxReferenceVideos:                    common.GetPointer(0),
+		MinReferenceAudios:                    common.GetPointer(0),
+		MaxReferenceAudios:                    common.GetPointer(0),
+		SupportsDuration:                      &trueValue,
+		DurationRequired:                      &falseValue,
+		MinDurationSeconds:                    &minDuration,
+		MaxDurationSeconds:                    &maxDuration,
+		AllowedDurationSeconds:                append([]int(nil), durations...),
+		DefaultDurationSeconds:                common.GetPointer(defaultDuration),
+		SupportsGenerateAudio:                 &falseValue,
+		GenerateAudioRequired:                 &falseValue,
+		SupportsFirstFrame:                    common.GetPointer(maxImages > 0),
+		FirstFrameRequired:                    &falseValue,
+		SupportsLastFrame:                     &supportsLastFrame,
+		LastFrameRequired:                     &falseValue,
+		LastFrameRequiresFirstFrame:           &supportsLastFrame,
+		ReferenceImagesIncompatibleWithFrames: &falseValue,
+		AudioReferenceRequiresVisualReference: &falseValue,
+		ReferenceMediaIncompatibleWithFrames:  &falseValue,
+		SupportsSeed:                          &falseValue,
+		SupportsWatermark:                     &falseValue,
+		AutoReferenceMode:                     &falseValue,
+		FramesAsReferenceImages:               &trueValue,
+		FixedParameters:                       map[string]any{},
+	}
+	if omitResolution {
+		capability.OmitParameters = []string{"resolution"}
+	}
+	return capability
 }
 
 type videoCapabilityTemplateSeed struct {

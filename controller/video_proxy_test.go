@@ -222,6 +222,96 @@ func TestVideoProxyPreservesGeminiVideoAuthentication(t *testing.T) {
 	assert.Equal(t, "stored-gemini-key", apiKeyQuery)
 }
 
+func TestVideoProxyHonorsLingganyaProxySetting(t *testing.T) {
+	tests := []struct {
+		name                         string
+		proxyEnabled                 bool
+		expectedStatus               int
+		expectedBody                 string
+		expectedContentAuthorization string
+	}{
+		{
+			name:                         "enabled",
+			proxyEnabled:                 true,
+			expectedStatus:               http.StatusOK,
+			expectedBody:                 "lingganya-video",
+			expectedContentAuthorization: "Bearer stored-lingganya-key",
+		},
+		{
+			name:           "disabled",
+			proxyEnabled:   false,
+			expectedStatus: http.StatusBadGateway,
+			expectedBody:   "enable video content proxy",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := setupVideoProxyTest(t)
+
+			var detailAuthorization string
+			var contentAuthorization string
+			var upstream *httptest.Server
+			upstream = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/v1/videos/task_lingganya_upstream":
+					detailAuthorization = r.Header.Get("Authorization")
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = fmt.Fprintf(w, `{"status":"completed","video_url":%q}`, upstream.URL+"/v1/videos/task_lingganya_upstream/content")
+				case "/v1/videos/task_lingganya_upstream/content":
+					contentAuthorization = r.Header.Get("Authorization")
+					w.Header().Set("Content-Type", "video/mp4")
+					_, _ = w.Write([]byte("lingganya-video"))
+				default:
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			t.Cleanup(upstream.Close)
+
+			baseURL := upstream.URL
+			setting := fmt.Sprintf(`{"video_content_proxy_enabled":%t}`, test.proxyEnabled)
+			channel := &model.Channel{
+				Id:      302,
+				Type:    constant.ChannelTypeOpenAI,
+				Key:     "current-channel-key",
+				Name:    "Lingganya video",
+				BaseURL: &baseURL,
+				Setting: &setting,
+			}
+			require.NoError(t, db.Create(channel).Error)
+
+			task := &model.Task{
+				TaskID:    "task_lingganya_public",
+				UserId:    401,
+				ChannelId: channel.Id,
+				Status:    model.TaskStatusSuccess,
+				PrivateData: model.TaskPrivateData{
+					Key:            "stored-lingganya-key",
+					UpstreamTaskID: "task_lingganya_upstream",
+					BillingContext: &model.TaskBillingContext{
+						VideoProtocol: dto.VideoProtocolLingganya,
+					},
+				},
+				Data: []byte(`{"status":"completed"}`),
+			}
+			require.NoError(t, db.Create(task).Error)
+
+			recorder := httptest.NewRecorder()
+			context, _ := gin.CreateTestContext(recorder)
+			context.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task_lingganya_public/content", nil)
+			context.Params = gin.Params{{Key: "task_id", Value: task.TaskID}}
+			context.Set("id", task.UserId)
+
+			VideoProxy(context)
+
+			require.Equal(t, test.expectedStatus, recorder.Code)
+			assert.Contains(t, recorder.Body.String(), test.expectedBody)
+			assert.Equal(t, "Bearer stored-lingganya-key", detailAuthorization)
+			assert.Equal(t, test.expectedContentAuthorization, contentAuthorization)
+		})
+	}
+}
+
 func TestVideoProxyMapsUpstreamFailureToBadGateway(t *testing.T) {
 	testVideoProxyDownload(t, videoProxyTestCase{
 		storedKey:      "stored-task-key",

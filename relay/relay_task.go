@@ -282,10 +282,10 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		return nil, service.TaskErrorWrapper(err, "do_request_failed", http.StatusInternalServerError)
 	}
 	submitResponse := relaycommon.CaptureUpstreamHTTPResponse(resp)
-	if resp != nil && resp.StatusCode != http.StatusOK {
+	if resp != nil && (resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices) {
 		responseBody, _ := io.ReadAll(resp.Body)
 		c.Set(relaycommon.TaskUpstreamHTTPTraceContextKey, taskSubmitHTTPTrace(c, submitResponse))
-		return nil, service.TaskErrorWrapper(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", resp.StatusCode)
+		return nil, taskSubmitUpstreamError(responseBody, resp.StatusCode)
 	}
 
 	// 11. 解析响应
@@ -336,6 +336,44 @@ func buildPreparingVideoResponse(c *gin.Context, info *relaycommon.RelayInfo) ([
 	video.Resolution = request.Resolution
 	video.Ratio = request.Ratio
 	return common.Marshal(video)
+}
+
+func taskSubmitUpstreamError(responseBody []byte, statusCode int) *dto.TaskError {
+	payload := struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+		Error   *struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}{}
+	_ = common.Unmarshal(responseBody, &payload)
+
+	code := strings.TrimSpace(payload.Code)
+	message := strings.TrimSpace(payload.Message)
+	if payload.Error != nil {
+		if nestedCode := strings.TrimSpace(payload.Error.Code); nestedCode != "" {
+			code = nestedCode
+		}
+		if nestedMessage := strings.TrimSpace(payload.Error.Message); nestedMessage != "" {
+			message = nestedMessage
+		}
+	}
+	if code == "" {
+		code = "upstream_request_failed"
+	}
+	if message == "" {
+		message = "upstream video request failed"
+	}
+	for _, internalName := range []string{"lingganya", "agnes", "megabyai", "globalaiopc"} {
+		if strings.Contains(strings.ToLower(code), internalName) {
+			code = "upstream_request_failed"
+		}
+		if strings.Contains(strings.ToLower(message), internalName) {
+			message = "upstream video request failed"
+		}
+	}
+	return service.TaskErrorWrapper(fmt.Errorf("%s", message), code, statusCode)
 }
 
 func taskSubmitHTTPTrace(c *gin.Context, response *dto.TaskHTTPMessage) *dto.TaskUpstreamHTTPTrace {
