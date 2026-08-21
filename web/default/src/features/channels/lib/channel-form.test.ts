@@ -21,9 +21,14 @@ import { describe, test } from 'node:test'
 
 import {
   CHANNEL_FORM_DEFAULT_VALUES,
+  channelFormSchema,
   transformFormDataToCreatePayload,
 } from './channel-form'
-import { defaultVideoModelCapability } from './video-model-capability'
+import {
+  defaultVideoModelCapability,
+  videoModelCapabilityFromTemplate,
+} from './video-model-capability'
+import type { VideoModelCapabilityTemplate } from '../types'
 
 describe('GlobalAIOpc asset preparation setting', () => {
   test('serializes the asset preparation mode only when enabled for a model', () => {
@@ -60,5 +65,50 @@ describe('GlobalAIOpc asset preparation setting', () => {
         disabledSettings.video_model_capabilities['sd_2.5_discount_v1'],
       false
     )
+  })
+})
+
+describe('Video capability templates', () => {
+  test('applies templates that omit empty resolutions', () => {
+    const template = {
+      model_id: 'gemini_omni_flash',
+      capability: {
+        ratios: ['16:9', '9:16'],
+        allowed_duration_seconds: [10],
+        default_duration_seconds: 10,
+      },
+    } as VideoModelCapabilityTemplate
+
+    const capability = videoModelCapabilityFromTemplate(
+      template,
+      template.model_id
+    )
+
+    assert.deepEqual(capability.resolutions, [])
+    assert.deepEqual(capability.ratios, ['16:9', '9:16'])
+  })
+
+  test('accepts Lingganya models with a duration range and no discrete durations', () => {
+    const capability = {
+      ...defaultVideoModelCapability('sd-2.0-vip'),
+      resolutions: ['720p'],
+      ratios: ['16:9', '9:16'],
+      min_duration_seconds: 4,
+      max_duration_seconds: 15,
+      default_duration_seconds: 6,
+      max_reference_images: 9,
+      max_reference_videos: 3,
+      max_reference_audios: 3,
+      allowed_duration_seconds: [],
+    }
+    const result = channelFormSchema.safeParse({
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      name: 'lingganya',
+      models: 'sd-2.0-vip',
+      video_protocol: 'lingganya_video',
+      video_model_capabilities: [capability],
+    })
+
+    assert.equal(result.success, true)
   })
 })

@@ -2572,6 +2572,28 @@ for (const [locale, translations] of Object.entries(timeRangeTranslations)) {
   Object.assign(newKeys[locale], translations)
 }
 
+Object.assign(newKeys.en, {
+  'Upstream size mappings': 'Upstream size mappings',
+})
+Object.assign(newKeys.zh, {
+  'Upstream size mappings': '上游尺寸映射',
+})
+Object.assign(newKeys['zh-TW'], {
+  'Upstream size mappings': '上游尺寸映射',
+})
+Object.assign(newKeys.fr, {
+  'Upstream size mappings': 'Correspondances de taille en amont',
+})
+Object.assign(newKeys.ja, {
+  'Upstream size mappings': 'アップストリームのサイズマッピング',
+})
+Object.assign(newKeys.ru, {
+  'Upstream size mappings': 'Сопоставления размеров вышестоящего сервиса',
+})
+Object.assign(newKeys.vi, {
+  'Upstream size mappings': 'Ánh xạ kích thước phía thượng nguồn',
+})
+
 async function main() {
   for (const [locale, trans] of Object.entries(newKeys)) {
     const filePath = path.join(LOCALES_DIR, `${locale}.json`)

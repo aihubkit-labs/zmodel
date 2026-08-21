@@ -16,6 +16,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/objectstorage"
@@ -311,6 +312,9 @@ func resolveVideoArchiveSource(ctx context.Context, channel *model.Channel, task
 			}
 		}
 		resolved, err := fetchOpenAIVideoTaskURLContext(ctx, client, baseURL, task.GetUpstreamTaskID(), key, proxy, task.GetVideoProtocol())
+		if task.GetVideoProtocol() == dto.VideoProtocolLingganya {
+			return resolved, key, err
+		}
 		return resolved, "", err
 	default:
 		candidate = strings.TrimSpace(task.GetResultURL())
@@ -358,7 +362,9 @@ func stageVideoArchiveSource(
 		if err != nil {
 			return service.VideoStagedFile{}, err
 		}
-		if apiKey != "" {
+		if apiKey != "" && task.GetVideoProtocol() == dto.VideoProtocolLingganya {
+			request.Header.Set("Authorization", "Bearer "+apiKey)
+		} else if apiKey != "" {
 			request.Header.Set("x-goog-api-key", apiKey)
 		}
 		response, err := client.Do(request)

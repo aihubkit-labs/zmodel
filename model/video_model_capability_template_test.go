@@ -37,6 +37,73 @@ func TestBuiltInGlobalAIOpcCapabilityTemplatesAreValid(t *testing.T) {
 	}
 }
 
+func TestBuiltInLingganyaCapabilityTemplatesCoverDocumentedModels(t *testing.T) {
+	seeds := builtInLingganyaCapabilityTemplates()
+	require.Len(t, seeds, 12)
+	wantModels := []string{
+		"sora-2", "sora-2-pro", "sora-2-vip", "gemini_omni_flash", "gemini-omni-flash-special",
+		"veo_3_1_fast", "veo_3_1_fast_hd", "veo_3_1_fast_fl_hd", "grok-imagine-video-1.5-preview",
+		"grok-image-video-special", "grok-video-1.5-special", "sd-2.0-vip",
+	}
+	gotModels := make([]string, 0, len(seeds))
+	for _, seed := range seeds {
+		gotModels = append(gotModels, seed.ModelID)
+		settings := dto.ChannelSettings{
+			VideoProtocol: seed.VideoProtocol,
+			VideoModelCapabilities: map[string]dto.VideoModelCapability{
+				seed.ModelID: seed.Capability,
+			},
+		}
+		require.NoError(t, settings.ValidateVideoRequestSettings(), seed.ModelID)
+		assert.Equal(t, dto.VideoProtocolLingganya, seed.VideoProtocol)
+		if seed.ModelID != "sd-2.0-vip" {
+			assert.NotEmpty(t, seed.Capability.AllowedDurationSeconds)
+		}
+		assert.NotNil(t, seed.Capability.DefaultDurationSeconds)
+		if seed.ModelID == "grok-imagine-video-1.5-preview" {
+			assert.Equal(t, []string{"720p", "1080p"}, seed.Capability.Resolutions)
+		} else if seed.ModelID == "sd-2.0-vip" {
+			assert.Equal(t, []string{"720p"}, seed.Capability.Resolutions)
+		} else {
+			assert.Empty(t, seed.Capability.Resolutions)
+		}
+		assert.NotEmpty(t, seed.Capability.Ratios)
+		if seed.ModelID == "grok-imagine-video-1.5-preview" {
+			assert.NotEmpty(t, seed.Capability.SizeMappings)
+		} else {
+			assert.Empty(t, seed.Capability.SizeMappings)
+		}
+		assert.NotContains(t, seed.Capability.Ratios, "1280x720")
+		if seed.ModelID != "sd-2.0-vip" {
+			assert.Contains(t, seed.Capability.OmitParameters, "resolution")
+		} else {
+			assert.Empty(t, seed.Capability.OmitParameters)
+			assert.Equal(t, 4, *seed.Capability.MinDurationSeconds)
+			assert.Equal(t, 15, *seed.Capability.MaxDurationSeconds)
+			assert.Equal(t, 6, *seed.Capability.DefaultDurationSeconds)
+			assert.Equal(t, 9, *seed.Capability.MaxReferenceImages)
+			assert.Equal(t, 3, *seed.Capability.MaxReferenceVideos)
+			assert.Equal(t, 3, *seed.Capability.MaxReferenceAudios)
+			assert.Equal(t, 12, *seed.Capability.MaxReferenceMediaCount)
+			assert.True(t, *seed.Capability.AudioReferenceRequiresVisualReference)
+			assert.False(t, *seed.Capability.FramesAsReferenceImages)
+		}
+	}
+	assert.ElementsMatch(t, wantModels, gotModels)
+
+	for _, seed := range seeds {
+		if seed.ModelID != "grok-imagine-video-1.5-preview" {
+			continue
+		}
+		assert.Equal(t, "1280x720", seed.Capability.SizeMappings["720p|16:9"])
+		assert.Equal(t, "720x1280", seed.Capability.SizeMappings["720p|9:16"])
+		assert.Equal(t, "1792x1024", seed.Capability.SizeMappings["1080p|16:9"])
+		assert.Equal(t, "1024x1792", seed.Capability.SizeMappings["1080p|9:16"])
+		return
+	}
+	t.Fatal("Grok Imagine capability template not found")
+}
+
 func TestVideoModelCapabilityTemplatesSeedListAndCustomize(t *testing.T) {
 	originalDB := DB
 	t.Cleanup(func() { DB = originalDB })

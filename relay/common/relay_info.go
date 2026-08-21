@@ -935,6 +935,7 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 	aux := &struct {
 		Metadata json.RawMessage `json:"metadata,omitempty"`
 		Duration json.RawMessage `json:"duration,omitempty"`
+		Seconds  json.RawMessage `json:"seconds,omitempty"`
 		*Alias
 	}{
 		Alias: (*Alias)(t),
@@ -958,6 +959,19 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 				return fmt.Errorf("duration must be an integer")
 			}
 			t.Duration = v
+		}
+	}
+
+	if len(aux.Seconds) > 0 {
+		var secondsInt int
+		if err := common.Unmarshal(aux.Seconds, &secondsInt); err == nil {
+			t.Seconds = strconv.Itoa(secondsInt)
+		} else {
+			var secondsStr string
+			if err := common.Unmarshal(aux.Seconds, &secondsStr); err != nil || secondsStr == "" {
+				return fmt.Errorf("seconds must be an integer or integer string")
+			}
+			t.Seconds = secondsStr
 		}
 	}
 

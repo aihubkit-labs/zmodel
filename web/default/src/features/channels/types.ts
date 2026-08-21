@@ -103,6 +103,7 @@ export interface VideoModelCapability {
   resolutions: VideoResolution[]
   ratios?: string[]
   resolution_mappings?: Record<string, string>
+  size_mappings?: Record<string, string>
   ratio_required?: boolean
   min_reference_images?: number
   max_reference_images: number
@@ -110,10 +111,13 @@ export interface VideoModelCapability {
   max_reference_videos: number
   min_reference_audios?: number
   max_reference_audios: number
+  max_reference_media_count?: number
   supports_duration?: boolean
   duration_required?: boolean
   min_duration_seconds?: number
   max_duration_seconds?: number
+  allowed_duration_seconds?: number[]
+  default_duration_seconds?: number
   supports_generate_audio?: boolean
   generate_audio_required?: boolean
   supports_first_frame?: boolean
@@ -123,6 +127,7 @@ export interface VideoModelCapability {
   last_frame_requires_first_frame?: boolean
   reference_images_incompatible_with_frames?: boolean
   audio_reference_requires_visual_reference?: boolean
+  reference_media_requires_visual_reference?: boolean
   reference_media_incompatible_with_frames?: boolean
   supports_seed?: boolean
   min_seed?: number
@@ -143,6 +148,7 @@ export type VideoProtocol =
   | 'megabyai'
   | 'globalaiopc'
   | 'agnes_video_v2'
+  | 'lingganya_video'
 export type VideoResolution = string
 
 export interface VideoModelCapabilityTemplate {

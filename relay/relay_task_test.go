@@ -84,6 +84,30 @@ func TestRelayTaskSubmitValidatesMappedUpstreamVideoCapability(t *testing.T) {
 	assert.Equal(t, "seedance-2.5-c1", info.UpstreamModelName)
 }
 
+func TestTaskSubmitUpstreamErrorUsesStructuredPublicFields(t *testing.T) {
+	taskErr := taskSubmitUpstreamError([]byte(`{
+		"error": {
+			"code": "invalid_request",
+			"message": "resolution must be a quality label such as 720p or 4k",
+			"type": "new_api_error"
+		}
+	}`), http.StatusBadRequest)
+
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "invalid_request", taskErr.Code)
+	assert.Equal(t, "resolution must be a quality label such as 720p or 4k", taskErr.Message)
+	assert.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
+	assert.NotContains(t, taskErr.Message, `{"error"`)
+}
+
+func TestTaskSubmitUpstreamErrorHidesInternalProtocolName(t *testing.T) {
+	taskErr := taskSubmitUpstreamError([]byte(`{"error":{"code":"provider_error","message":"Lingganya request failed"}}`), http.StatusBadGateway)
+
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "provider_error", taskErr.Code)
+	assert.Equal(t, "upstream video request failed", taskErr.Message)
+}
+
 func TestTaskModel2DtoUsesPublicContentURLForVideoTask(t *testing.T) {
 	common.OptionMapRWMutex.Lock()
 	if common.OptionMap == nil {

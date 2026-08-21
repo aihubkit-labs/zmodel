@@ -81,10 +81,14 @@ import type {
 } from '../../channels/types'
 
 const route = getRouteApi('/_authenticated/models/$section')
-const TEMPLATE_PROTOCOLS: VideoProtocol[] = ['megabyai', 'globalaiopc']
+const TEMPLATE_PROTOCOLS: VideoProtocol[] = [
+  'megabyai',
+  'globalaiopc',
+  'lingganya_video',
+]
 
 const templateIdentitySchema = z.object({
-  video_protocol: z.enum(['megabyai', 'globalaiopc']),
+  video_protocol: z.enum(['megabyai', 'globalaiopc', 'lingganya_video']),
   model_id: z.string().trim().min(1).max(128),
   name: z.string().trim().min(1).max(256),
   source_url: z
@@ -117,12 +121,16 @@ function protocolLabel(protocol: VideoProtocol): string {
 }
 
 function capabilitySummary(capability: VideoModelCapability): string {
+  let durationSummary: string | null = null
+  if (capability.supports_duration) {
+    durationSummary = capability.allowed_duration_seconds?.length
+      ? `${capability.allowed_duration_seconds.join(', ')}s`
+      : `${capability.min_duration_seconds}-${capability.max_duration_seconds}s`
+  }
   const parts = [
     capability.resolutions.join(', '),
     capability.ratios?.length ? capability.ratios.join(', ') : null,
-    capability.supports_duration
-      ? `${capability.min_duration_seconds}-${capability.max_duration_seconds}s`
-      : null,
+    durationSummary,
   ]
   return parts.filter(Boolean).join(' · ')
 }
@@ -149,7 +157,10 @@ function VideoCapabilityTemplateDrawer(props: {
     resolver: zodResolver(templateIdentitySchema),
     defaultValues: {
       video_protocol:
-        source?.video_protocol === 'megabyai' ? 'megabyai' : 'globalaiopc',
+        source?.video_protocol === 'megabyai' ||
+        source?.video_protocol === 'lingganya_video'
+          ? source.video_protocol
+          : 'globalaiopc',
       model_id: modelID,
       name,
       source_url: source?.source_url || '',
@@ -164,7 +175,10 @@ function VideoCapabilityTemplateDrawer(props: {
       models: modelID || 'template-model',
       group: ['default'],
       video_protocol:
-        source?.video_protocol === 'megabyai' ? 'megabyai' : 'globalaiopc',
+        source?.video_protocol === 'megabyai' ||
+        source?.video_protocol === 'lingganya_video'
+          ? source.video_protocol
+          : 'globalaiopc',
       video_model_capabilities: [
         source
           ? videoModelCapabilityFromTemplate(source, modelID)
@@ -252,7 +266,11 @@ function VideoCapabilityTemplateDrawer(props: {
                 value={identityForm.watch('video_protocol')}
                 disabled={readOnly}
                 onValueChange={(value) => {
-                  if (value === 'megabyai' || value === 'globalaiopc') {
+                  if (
+                    value === 'megabyai' ||
+                    value === 'globalaiopc' ||
+                    value === 'lingganya_video'
+                  ) {
                     identityForm.setValue('video_protocol', value, {
                       shouldValidate: true,
                     })

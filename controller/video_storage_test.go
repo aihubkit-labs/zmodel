@@ -16,6 +16,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/objectstorage"
 	"github.com/QuantumNous/new-api/service"
@@ -154,6 +155,46 @@ func TestArchiveVideoTaskMarksObjectFailedWhenSourceCannotBeDownloaded(t *testin
 	assert.Greater(t, object.ArchiveNextAttemptAt, common.GetTimestamp())
 	assert.Empty(t, object.ArchiveOperationID)
 	assert.Zero(t, object.ArchiveLeaseExpiresAt)
+}
+
+func TestResolveVideoArchiveSourcePreservesLingganyaTaskKey(t *testing.T) {
+	setupVideoProxyTest(t)
+
+	var authorization string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"completed","video_url":"https://video.example/protected.mp4"}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	baseURL := upstream.URL
+	channel := &model.Channel{
+		Type:    constant.ChannelTypeOpenAI,
+		Key:     "current-channel-key",
+		BaseURL: &baseURL,
+	}
+	task := &model.Task{
+		PrivateData: model.TaskPrivateData{
+			Key:            "stored-lingganya-key",
+			UpstreamTaskID: "task_lingganya_upstream",
+			BillingContext: &model.TaskBillingContext{
+				VideoProtocol: dto.VideoProtocolLingganya,
+			},
+		},
+	}
+
+	resolvedURL, apiKey, err := resolveVideoArchiveSource(
+		context.Background(),
+		channel,
+		task,
+		service.VideoArchiveSource{},
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "https://video.example/protected.mp4", resolvedURL)
+	assert.Equal(t, "stored-lingganya-key", apiKey)
+	assert.Equal(t, "Bearer stored-lingganya-key", authorization)
 }
 
 func TestArchiveVideoTaskRetriesFromPersistentStaging(t *testing.T) {

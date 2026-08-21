@@ -15,7 +15,7 @@ import (
 
 func ListVideoModelCapabilityTemplates(c *gin.Context) {
 	protocol := dto.VideoProtocol(strings.TrimSpace(c.Query("video_protocol")))
-	if protocol != "" && protocol != dto.VideoProtocolGlobalAIOpc && protocol != dto.VideoProtocolMegabyAI {
+	if protocol != "" && protocol != dto.VideoProtocolGlobalAIOpc && protocol != dto.VideoProtocolMegabyAI && protocol != dto.VideoProtocolLingganya {
 		common.ApiErrorMsg(c, "unsupported video protocol")
 		return
 	}
@@ -44,7 +44,7 @@ func SaveVideoModelCapabilityTemplate(c *gin.Context) {
 	}
 	request.ModelID = strings.TrimSpace(request.ModelID)
 	request.Name = strings.TrimSpace(request.Name)
-	if request.VideoProtocol != dto.VideoProtocolGlobalAIOpc && request.VideoProtocol != dto.VideoProtocolMegabyAI {
+	if request.VideoProtocol != dto.VideoProtocolGlobalAIOpc && request.VideoProtocol != dto.VideoProtocolMegabyAI && request.VideoProtocol != dto.VideoProtocolLingganya {
 		common.ApiErrorMsg(c, "unsupported video protocol")
 		return
 	}

@@ -14,6 +14,8 @@ func TestChannelValidateVideoRequestSettings(t *testing.T) {
 		{name: "unconfigured", setting: `{}`},
 		{name: "missing model capabilities", setting: `{"video_protocol":"openai_video"}`, wantErr: "video_model_capabilities is required"},
 		{name: "Agnes Video V2", setting: `{"video_protocol":"agnes_video_v2","video_model_capabilities":{"agnes-video":{"resolutions":["720p"],"max_reference_images":1,"max_reference_videos":0,"max_reference_audios":0}}}`},
+		{name: "Lingganya video", setting: `{"video_protocol":"lingganya_video","video_model_capabilities":{"sora-2":{"resolutions":["16:9"],"ratio_required":false,"min_reference_images":0,"max_reference_images":1,"min_reference_videos":0,"max_reference_videos":0,"min_reference_audios":0,"max_reference_audios":0,"supports_duration":true,"duration_required":false,"min_duration_seconds":4,"max_duration_seconds":12,"allowed_duration_seconds":[4,8,12],"default_duration_seconds":4,"supports_generate_audio":false,"generate_audio_required":false,"supports_first_frame":true,"first_frame_required":false,"supports_last_frame":false,"last_frame_required":false,"last_frame_requires_first_frame":false,"reference_images_incompatible_with_frames":false,"audio_reference_requires_visual_reference":false,"reference_media_incompatible_with_frames":false,"supports_seed":false,"supports_watermark":false}}}`},
+		{name: "Lingganya duration range", setting: `{"video_protocol":"lingganya_video","video_model_capabilities":{"sd-2.0-vip":{"resolutions":["720p"],"ratios":["16:9"],"ratio_required":false,"min_reference_images":0,"max_reference_images":9,"min_reference_videos":0,"max_reference_videos":3,"min_reference_audios":0,"max_reference_audios":3,"supports_duration":true,"duration_required":false,"min_duration_seconds":4,"max_duration_seconds":15,"default_duration_seconds":6,"supports_generate_audio":false,"generate_audio_required":false,"supports_first_frame":false,"first_frame_required":false,"supports_last_frame":false,"last_frame_required":false,"last_frame_requires_first_frame":false,"reference_images_incompatible_with_frames":false,"audio_reference_requires_visual_reference":true,"reference_media_requires_visual_reference":true,"reference_media_incompatible_with_frames":false,"supports_seed":false,"supports_watermark":false}}}`},
 		{name: "invalid protocol", setting: `{"video_protocol":"unsafe"}`, wantErr: "unsupported video_protocol"},
 		{name: "dynamic resolution", setting: `{"video_model_capabilities":{"tvideos":{"resolutions":["1440p"],"max_reference_images":1,"max_reference_videos":0,"max_reference_audios":0}}}`},
 		{name: "duplicate normalized resolution", setting: `{"video_model_capabilities":{"tvideos":{"resolutions":["4k","4K"]}}}`, wantErr: "duplicate resolution"},
@@ -87,6 +89,41 @@ func TestChannelSettingsValidatesExtendedCapabilityRelationships(t *testing.T) {
 			},
 		},
 		{
+			name: "size mapping",
+			configure: func(capability *dto.VideoModelCapability) {
+				capability.SizeMappings = map[string]string{"1440p|16:9": "2560x1440"}
+				capability.OmitParameters = []string{"resolution", "size"}
+			},
+		},
+		{
+			name: "size mapping key format",
+			configure: func(capability *dto.VideoModelCapability) {
+				capability.SizeMappings = map[string]string{"1440p/16:9": "2560x1440"}
+			},
+			wantErr: "must use resolution|ratio",
+		},
+		{
+			name: "size mapping resolution",
+			configure: func(capability *dto.VideoModelCapability) {
+				capability.SizeMappings = map[string]string{"720p|16:9": "1280x720"}
+			},
+			wantErr: "size mapping resolution",
+		},
+		{
+			name: "size mapping ratio",
+			configure: func(capability *dto.VideoModelCapability) {
+				capability.SizeMappings = map[string]string{"1440p|9:16": "1440x2560"}
+			},
+			wantErr: "size mapping ratio",
+		},
+		{
+			name: "size mapping value",
+			configure: func(capability *dto.VideoModelCapability) {
+				capability.SizeMappings = map[string]string{"1440p|16:9": ""}
+			},
+			wantErr: "invalid upstream size mapping",
+		},
+		{
 			name: "required audio must be supported",
 			configure: func(capability *dto.VideoModelCapability) {
 				capability.SupportsGenerateAudio = &falseValue
@@ -99,6 +136,14 @@ func TestChannelSettingsValidatesExtendedCapabilityRelationships(t *testing.T) {
 				capability.SupportsFirstFrame = &falseValue
 			},
 			wantErr: "cannot require a first frame when first frames are unsupported",
+		},
+		{
+			name: "default duration must be allowed",
+			configure: func(capability *dto.VideoModelCapability) {
+				capability.AllowedDurationSeconds = []int{5, 10, 15}
+				capability.DefaultDurationSeconds = common.GetPointer(8)
+			},
+			wantErr: "default_duration_seconds must be one of allowed_duration_seconds",
 		},
 	}
 
@@ -126,6 +171,8 @@ func TestChannelSettingsGetVideoModelCapabilityNormalizesLookup(t *testing.T) {
 			" TVideos ": {
 				Resolutions:                           []string{"720P", "4K"},
 				Ratios:                                []string{"16:9", " 1:1 "},
+				ResolutionMappings:                    map[string]string{"720p": "720P"},
+				SizeMappings:                          map[string]string{"720p|16:9": "1280x720"},
 				MaxReferenceImages:                    common.GetPointer(2),
 				MaxReferenceVideos:                    common.GetPointer(1),
 				MaxReferenceAudios:                    common.GetPointer(0),
@@ -147,6 +194,11 @@ func TestChannelSettingsGetVideoModelCapabilityNormalizesLookup(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, []string{"720p", "4k"}, capability.Resolutions)
 	assert.Equal(t, []string{"16:9", "1:1"}, capability.Ratios)
+	assert.Equal(t, "1280x720", capability.SizeMappings["720p|16:9"])
+	capability.ResolutionMappings["720p"] = "changed"
+	capability.SizeMappings["720p|16:9"] = "changed"
+	assert.Equal(t, "720P", settings.VideoModelCapabilities[" TVideos "].ResolutionMappings["720p"])
+	assert.Equal(t, "1280x720", settings.VideoModelCapabilities[" TVideos "].SizeMappings["720p|16:9"])
 	assert.Equal(t, 2, *capability.MaxReferenceImages)
 	assert.Equal(t, 1, *capability.MaxReferenceVideos)
 	assert.Equal(t, 0, *capability.MaxReferenceAudios)

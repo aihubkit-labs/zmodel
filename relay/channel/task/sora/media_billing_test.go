@@ -47,7 +47,7 @@ func newSeedanceTestContext(t *testing.T, body string) (*gin.Context, *relaycomm
 func configureTestVideoModel(info *relaycommon.RelayInfo, protocol dto.VideoProtocol, modelName string, resolutions []string, imageLimit, videoLimit, audioLimit int, durationBounds ...int) {
 	var minDurationSeconds *int
 	var maxDurationSeconds *int
-	extendedProtocol := protocol == dto.VideoProtocolMegabyAI || protocol == dto.VideoProtocolGlobalAIOpc
+	extendedProtocol := protocol == dto.VideoProtocolMegabyAI || protocol == dto.VideoProtocolGlobalAIOpc || protocol == dto.VideoProtocolLingganya
 	minimaxDefaults := modelName == "minimax-h3"
 	if extendedProtocol {
 		minDuration := 4
@@ -827,7 +827,7 @@ func TestAgnesProviderValidatesUnifiedReferenceImages(t *testing.T) {
 			require.NotNil(t, taskErr)
 			assert.Equal(t, "invalid_reference_images", taskErr.Code)
 			if test.name == "multiple images" {
-				assert.Equal(t, "Agnes supports at most one reference image", taskErr.Message)
+				assert.Equal(t, "this video model supports at most one reference image", taskErr.Message)
 			}
 		})
 	}

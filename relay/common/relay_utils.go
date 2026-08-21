@@ -275,7 +275,11 @@ func ValidateMultipartDirect(c *gin.Context, info *RelayInfo) *dto.TaskError {
 		seconds = req.Duration
 	}
 	if req.InputReference != "" {
-		req.Images = []string{req.InputReference}
+		if info != nil && info.ChannelMeta != nil && info.ChannelSetting.VideoProtocol == dto.VideoProtocolLingganya {
+			req.Images = append(req.Images, req.InputReference)
+		} else {
+			req.Images = []string{req.InputReference}
+		}
 	} else if len(req.Images) == 0 && strings.TrimSpace(req.Image) != "" {
 		// 兼容单图上传
 		req.Images = []string{strings.TrimSpace(req.Image)}
@@ -301,7 +305,9 @@ func ValidateMultipartDirect(c *gin.Context, info *RelayInfo) *dto.TaskError {
 	if hasInputReference {
 		action = constant.TaskActionGenerate
 	}
-	if strings.HasPrefix(model, "sora-2") {
+	useNativeSoraValidation := info == nil || info.ChannelMeta == nil ||
+		info.ChannelSetting.VideoProtocol != dto.VideoProtocolLingganya
+	if strings.HasPrefix(model, "sora-2") && useNativeSoraValidation {
 
 		if size == "" {
 			size = "720x1280"

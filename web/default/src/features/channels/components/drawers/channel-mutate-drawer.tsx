@@ -4217,6 +4217,10 @@ export function ChannelMutateDrawer({
                                             value: 'agnes_video_v2',
                                             label: t('Agnes Video V2'),
                                           },
+                                          {
+                                            value: 'lingganya_video',
+                                            label: t('Lingganya Video'),
+                                          },
                                         ]}
                                         onValueChange={(value) => {
                                           if (value !== field.value) {
@@ -4259,6 +4263,9 @@ export function ChannelMutateDrawer({
                                             </SelectItem>
                                             <SelectItem value='agnes_video_v2'>
                                               {t('Agnes Video V2')}
+                                            </SelectItem>
+                                            <SelectItem value='lingganya_video'>
+                                              {t('Lingganya Video')}
                                             </SelectItem>
                                           </SelectGroup>
                                         </SelectContent>

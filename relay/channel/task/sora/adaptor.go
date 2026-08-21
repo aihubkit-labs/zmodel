@@ -114,7 +114,7 @@ func validateRemixRequest(c *gin.Context) *dto.TaskError {
 
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.TaskError) {
 	if info.Action == constant.TaskActionRemix {
-		if dto.IsGlobalAIOpcVideoProtocol(info.ChannelSetting.VideoProtocol) {
+		if dto.IsGlobalAIOpcVideoProtocol(info.ChannelSetting.VideoProtocol) || info.ChannelSetting.VideoProtocol == dto.VideoProtocolLingganya {
 			return service.TaskErrorWrapperLocal(
 				fmt.Errorf("video remix is not supported by this model"),
 				"unsupported_operation",
@@ -126,7 +126,7 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		}
 		return validateVideoProtocolRequest(c, info)
 	}
-	if dto.IsGlobalAIOpcVideoProtocol(info.ChannelSetting.VideoProtocol) &&
+	if (dto.IsGlobalAIOpcVideoProtocol(info.ChannelSetting.VideoProtocol) || info.ChannelSetting.VideoProtocol == dto.VideoProtocolLingganya) &&
 		!strings.HasPrefix(strings.ToLower(c.GetHeader("Content-Type")), "application/json") {
 		return videoRequestError("this video model requires an application/json request with public media URLs", "unsupported_content_type")
 	}
@@ -228,7 +228,7 @@ func (a *TaskAdaptor) EstimateBillingDimensions(c *gin.Context, info *relaycommo
 				info.VideoMaxDurationSeconds,
 			)
 		}
-		if !videoResolutionSupported(dto.VideoModelCapability{Resolutions: info.VideoAllowedResolutions}, resolution) {
+		if len(info.VideoAllowedResolutions) > 0 && !videoResolutionSupported(dto.VideoModelCapability{Resolutions: info.VideoAllowedResolutions}, resolution) {
 			return billingexpr.BillingDimensions{}, fmt.Errorf("invalid resolution %s for configured video model", resolution)
 		}
 	}
@@ -298,7 +298,7 @@ func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info
 	req.Header.Set("Content-Type", c.Request.Header.Get("Content-Type"))
 	if info != nil && info.ChannelSetting.VideoProtocol == dto.VideoProtocolMegabyAI {
 		if strings.TrimSpace(info.PublicTaskID) == "" {
-			return fmt.Errorf("public task ID is required for MegabyAI idempotency")
+			return fmt.Errorf("public task ID is required for video request idempotency")
 		}
 		req.Header.Set("Idempotency-Key", "zmodel:"+info.PublicTaskID)
 	}
@@ -808,7 +808,7 @@ func (a *TaskAdaptor) AdjustBillingDimensionsOnComplete(task *model.Task, taskRe
 	}
 	dimensions := billingexpr.BillingDimensions{}
 	validDuration := taskResult.Duration > 0 && taskResult.Duration <= relaycommon.MaxTaskDurationSeconds
-	if protocol == dto.VideoProtocolMegabyAI || protocol == dto.VideoProtocolGlobalAIOpc {
+	if protocol == dto.VideoProtocolMegabyAI || protocol == dto.VideoProtocolGlobalAIOpc || protocol == dto.VideoProtocolLingganya {
 		validDuration = task != nil && task.PrivateData.BillingContext != nil &&
 			task.PrivateData.BillingContext.VideoMinDurationSeconds > 0 &&
 			task.PrivateData.BillingContext.VideoMaxDurationSeconds >= task.PrivateData.BillingContext.VideoMinDurationSeconds &&
