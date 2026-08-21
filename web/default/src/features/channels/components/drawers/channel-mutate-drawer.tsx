@@ -4219,7 +4219,7 @@ export function ChannelMutateDrawer({
                                           },
                                           {
                                             value: 'lingganya_video',
-                                            label: t('Lingganya Video'),
+                                            label: 'lingganya_video',
                                           },
                                         ]}
                                         onValueChange={(value) => {
@@ -4265,7 +4265,7 @@ export function ChannelMutateDrawer({
                                               {t('Agnes Video V2')}
                                             </SelectItem>
                                             <SelectItem value='lingganya_video'>
-                                              {t('Lingganya Video')}
+                                              lingganya_video
                                             </SelectItem>
                                           </SelectGroup>
                                         </SelectContent>
