@@ -617,6 +617,8 @@ function PriceSection(props: {
           inferMediaUnit(dynamicSummary.tiers),
           {
             tokenUnit: props.tokenUnit,
+            showReservePrice: false,
+            showTotalTokenUnit: false,
             showRechargePrice: props.showRechargePrice,
             priceRate: props.priceRate,
             usdExchangeRate: props.usdExchangeRate,
@@ -1106,6 +1108,8 @@ function GroupPricingSection(props: {
                                 mediaUnit,
                                 {
                                   tokenUnit: props.tokenUnit,
+                                  showReservePrice: false,
+                                  showTotalTokenUnit: false,
                                   showRechargePrice,
                                   priceRate: props.priceRate,
                                   usdExchangeRate: props.usdExchangeRate,
@@ -1298,7 +1302,11 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               showRechargePrice={showRechargePrice}
             />
             {isDynamic && (
-              <DynamicPricingBreakdown billingExpr={props.model.billing_expr} />
+              <DynamicPricingBreakdown
+                billingExpr={props.model.billing_expr}
+                showReservePrice={false}
+                showTotalTokenUnit={false}
+              />
             )}
             <GroupPricingSection
               model={props.model}

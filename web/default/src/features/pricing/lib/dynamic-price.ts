@@ -33,9 +33,21 @@ import { getDisplayGroupRatio } from './model-helpers'
 export type DynamicPriceOptions = {
   tokenUnit: TokenUnit
   showRechargePrice?: boolean
+  showReservePrice?: boolean
+  showTotalTokenUnit?: boolean
   priceRate?: number
   usdExchangeRate?: number
   groupRatioMultiplier?: number
+}
+
+export function formatTotalTokenUnitLabel(
+  totalTokens = 'total tokens'
+): string {
+  const isCjkLabel = /[\u3400-\u9fff]/u.test(totalTokens)
+  const compactLabel = isCjkLabel
+    ? totalTokens.replaceAll(/\s+/g, '')
+    : totalTokens
+  return isCjkLabel ? `1M${compactLabel}` : `1M ${compactLabel}`
 }
 
 export type DynamicPriceEntry = {
@@ -149,7 +161,13 @@ export function formatDynamicMediaPrice(
   }
 
   if (pricing.method === 'per_total_token') {
-    return `${format(pricing.totalTokenPrice)} / 1M ${labels.totalTokens ?? 'total tokens'} · ${labels.reserve ?? 'Reserve'} ${format(pricing.reservePerSecond)} / ${labels.second}`
+    const totalTokenUnit = formatTotalTokenUnitLabel(labels.totalTokens)
+    const totalTokenPrice =
+      options.showTotalTokenUnit === false
+        ? format(pricing.totalTokenPrice)
+        : `${format(pricing.totalTokenPrice)} / ${totalTokenUnit}`
+    if (options.showReservePrice === false) return totalTokenPrice
+    return `${totalTokenPrice} · ${labels.reserve ?? 'Reserve'} ${format(pricing.reservePerSecond)} / ${labels.second}`
   }
   if (pricing.method === 'per_second') {
     return `${format(pricing.perSecondPrice)} / ${labels.second}`
