@@ -70,6 +70,8 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const hasCachedPrice = isTokenBased && props.model.cache_ratio != null
   const dynamicPriceOptions = {
     tokenUnit,
+    showReservePrice: false,
+    showTotalTokenUnit: false,
     showRechargePrice,
     priceRate,
     usdExchangeRate,

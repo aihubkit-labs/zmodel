@@ -87,4 +87,81 @@ describe('dynamic media pricing display', () => {
     assert.match(price, /Reserve/)
     assert.match(price, /1\.5/)
   })
+
+  test('can hide the duration reserve for marketplace media prices', () => {
+    const model = {
+      billing_mode: 'tiered_expr',
+      billing_expr:
+        'v3:tier("base", deferred(total * 70, usd(1.5 * seconds * units)))',
+    } as PricingModel
+    const summary = getDynamicPricingSummary(model, { tokenUnit: 'M' })
+
+    assert.ok(summary?.tier)
+    const price = formatDynamicMediaPrice(
+      summary.tier,
+      'video',
+      { tokenUnit: 'M', showReservePrice: false },
+      {
+        perImage: 'image',
+        perVideo: 'video',
+        perOutput: 'output',
+        second: 'second',
+        totalTokens: 'total tokens',
+        reserve: 'Reserve',
+      }
+    )
+    assert.equal(price, '$70 / 1M total tokens')
+  })
+
+  test('compacts the total-token unit for CJK labels', () => {
+    const model = {
+      billing_mode: 'tiered_expr',
+      billing_expr:
+        'v3:tier("base", deferred(total * 70, usd(1.5 * seconds * units)))',
+    } as PricingModel
+    const summary = getDynamicPricingSummary(model, { tokenUnit: 'M' })
+
+    assert.ok(summary?.tier)
+    const price = formatDynamicMediaPrice(
+      summary.tier,
+      'video',
+      { tokenUnit: 'M', showReservePrice: false },
+      {
+        perImage: '图片',
+        perVideo: '视频',
+        perOutput: '输出',
+        second: '秒',
+        totalTokens: '总 Token',
+      }
+    )
+    assert.equal(price, '$70 / 1M总Token')
+  })
+
+  test('can hide the total-token unit for marketplace prices', () => {
+    const model = {
+      billing_mode: 'tiered_expr',
+      billing_expr:
+        'v3:tier("base", deferred(total * 70, usd(1.5 * seconds * units)))',
+    } as PricingModel
+    const summary = getDynamicPricingSummary(model, { tokenUnit: 'M' })
+
+    assert.ok(summary?.tier)
+    const price = formatDynamicMediaPrice(
+      summary.tier,
+      'video',
+      {
+        tokenUnit: 'M',
+        showReservePrice: false,
+        showTotalTokenUnit: false,
+      },
+      {
+        perImage: 'image',
+        perVideo: 'video',
+        perOutput: 'output',
+        second: 'second',
+        totalTokens: '总 Token',
+      }
+    )
+    assert.equal(price, '$70')
+  })
 })

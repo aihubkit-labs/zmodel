@@ -118,6 +118,8 @@ export function usePricingColumns(
         const model = row.original
         const dynamicPriceOptions = {
           tokenUnit,
+          showReservePrice: false,
+          showTotalTokenUnit: false,
           showRechargePrice,
           priceRate,
           usdExchangeRate,

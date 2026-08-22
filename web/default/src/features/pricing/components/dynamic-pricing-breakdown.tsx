@@ -45,6 +45,7 @@ import {
   type RequestCondition,
   type RequestRuleGroup,
 } from '../lib/billing-expr'
+import { formatTotalTokenUnitLabel } from '../lib/dynamic-price'
 
 type DynamicPricingBreakdownProps = {
   billingExpr: string | null | undefined
@@ -66,6 +67,10 @@ type DynamicPricingBreakdownProps = {
    * icon header and uses the dialog's small text sizes. Defaults to false.
    */
   compact?: boolean
+  /** Hide duration reserve pricing in the public model marketplace. */
+  showReservePrice?: boolean
+  /** Hide the total-token unit in the public model marketplace. */
+  showTotalTokenUnit?: boolean
 }
 
 const TIME_FUNC_LABELS: Record<string, string> = {
@@ -93,7 +98,9 @@ function formatMediaPrice(
   mediaUnit: ReturnType<typeof inferMediaUnit>,
   symbol: string,
   rate: number,
-  t: (key: string) => string
+  t: (key: string) => string,
+  showReservePrice: boolean,
+  showTotalTokenUnit: boolean
 ): string {
   const pricing = tier.mediaPricing
   if (!pricing) return '-'
@@ -106,7 +113,11 @@ function formatMediaPrice(
     perUnitLabel = t('Per image')
   }
   if (pricing.method === 'per_total_token') {
-    return `${format(pricing.totalTokenPrice)} / 1M ${t('total tokens')} · ${t('Reserve')} ${format(pricing.reservePerSecond)} / ${t('second')}`
+    const totalTokenPrice = showTotalTokenUnit
+      ? `${format(pricing.totalTokenPrice)} / ${formatTotalTokenUnitLabel(t('total tokens'))}`
+      : format(pricing.totalTokenPrice)
+    if (!showReservePrice) return totalTokenPrice
+    return `${totalTokenPrice} · ${t('Reserve')} ${format(pricing.reservePerSecond)} / ${t('second')}`
   }
   if (pricing.method === 'per_second') {
     return `${format(pricing.perSecondPrice)} / ${t('second')}`
@@ -164,6 +175,8 @@ export function DynamicPricingBreakdown({
   matchedTierLabel,
   hideCacheColumns = false,
   compact = false,
+  showReservePrice = true,
+  showTotalTokenUnit = true,
 }: DynamicPricingBreakdownProps) {
   const { t } = useTranslation()
   const expr = billingExpr || ''
@@ -334,7 +347,15 @@ export function DynamicPricingBreakdown({
                           {t('Media price')}
                         </div>
                         <div className='font-mono text-xs break-words'>
-                          {formatMediaPrice(tier, mediaUnit, symbol, rate, t)}
+                          {formatMediaPrice(
+                            tier,
+                            mediaUnit,
+                            symbol,
+                            rate,
+                            t,
+                            showReservePrice,
+                            showTotalTokenUnit
+                          )}
                         </div>
                       </div>
                     )}
@@ -442,7 +463,15 @@ export function DynamicPricingBreakdown({
                         compact ? 'py-2' : 'py-2.5'
                       ),
                       cell: (tier: ParsedTier) =>
-                        formatMediaPrice(tier, mediaUnit, symbol, rate, t),
+                        formatMediaPrice(
+                          tier,
+                          mediaUnit,
+                          symbol,
+                          rate,
+                          t,
+                          showReservePrice,
+                          showTotalTokenUnit
+                        ),
                     },
                   ]
                 : []),
